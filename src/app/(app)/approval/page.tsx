@@ -12,13 +12,13 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  APPROVAL_ROWS,
   APPROVAL_STATS,
   APPROVAL_STATUS_COLORS,
   APPROVAL_TABS,
   APPROVAL_TYPE_COLORS,
 } from "@/lib/groupware/data";
 import { pill } from "@/lib/groupware/ui";
+import { useApprovals } from "@/lib/groupware/hooks";
 import { GwCard, PageHeader, StatCard } from "@/components/app/primitives";
 
 const STAT_ICONS: Record<string, React.ElementType> = {
@@ -28,10 +28,15 @@ const STAT_ICONS: Record<string, React.ElementType> = {
   CircleX,
 };
 
+const BUCKETS = ["pending", "drafted", "referenced"] as const;
+
 export default function ApprovalPage() {
   const router = useRouter();
   const [tab, setTab] = React.useState(0);
-  const rows = APPROVAL_ROWS[tab];
+  const { data } = useApprovals();
+  const rows = data
+    .filter((r) => r.bucket === BUCKETS[tab])
+    .sort((a, b) => a.order - b.order);
 
   return (
     <div className="mx-auto flex max-w-[1360px] flex-col gap-4.5">

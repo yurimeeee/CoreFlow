@@ -21,11 +21,10 @@ import {
   DEPT_FILTERS,
   DEPT_TREE,
   ORG_BRANCHES,
-  PEOPLE,
   STATUS_META,
-  personById,
   type Person,
 } from "@/lib/groupware/data";
+import { useOrgPeople } from "@/lib/groupware/hooks";
 import { avatarStyle, pill, statusDot, statusPill } from "@/lib/groupware/ui";
 import { GwCard, PageHeader, Segmented } from "@/components/app/primitives";
 
@@ -34,25 +33,37 @@ export default function OrgPage() {
   const [query, setQuery] = React.useState("");
   const [dept, setDept] = React.useState("전체");
   const [profileId, setProfileId] = React.useState<number | null>(null);
+  const { people: directory, source } = useOrgPeople();
 
-  const q = query.trim().toLowerCase();
-  const people = PEOPLE.filter((p) => p.id !== 0).filter(
-    (p) =>
-      (dept === "전체" || p.team === dept || p.dept.includes(dept)) &&
-      (!q ||
-        (p.name + p.role + p.dept + p.tags.join(" "))
-          .toLowerCase()
-          .includes(q)),
+  const byId = React.useCallback(
+    (id: number) => directory.find((p) => p.id === id),
+    [directory],
   );
 
-  const ceo = personById(0)!;
-  const selected = profileId === null ? null : personById(profileId);
+  const q = query.trim().toLowerCase();
+  const people = directory
+    .filter((p) => p.id !== 0)
+    .filter(
+      (p) =>
+        (dept === "전체" || p.team === dept || p.dept.includes(dept)) &&
+        (!q ||
+          (p.name + p.role + p.dept + (p.tags ?? []).join(" "))
+            .toLowerCase()
+            .includes(q)),
+    );
+
+  const ceo = byId(0);
+  const selected = profileId === null ? null : byId(profileId);
 
   return (
     <div className="mx-auto flex max-w-[1440px] flex-col gap-4">
       <PageHeader
         title="조직도 · 임직원 디렉토리"
-        desc="넥스트코어 · 재직 인원 46명 · 4개 본부 8개 팀"
+        desc={
+          source === "firestore"
+            ? "Firestore 연동 · 넥스트코어 · 4개 본부 8개 팀"
+            : "넥스트코어 · 재직 인원 46명 · 4개 본부 8개 팀"
+        }
       />
 
       <div className="flex flex-wrap items-center gap-2.5">
@@ -186,10 +197,10 @@ export default function OrgPage() {
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="text-[13.5px] font-semibold text-slate-50">
-                        {ceo.name}
+                        {ceo?.name ?? "노정헌"}
                       </div>
                       <div className="mt-0.5 text-[11.5px] text-slate-400">
-                        {ceo.role}
+                        {ceo?.role ?? "대표이사"}
                       </div>
                     </div>
                   </div>
@@ -197,7 +208,8 @@ export default function OrgPage() {
                 <div className="h-5 w-px bg-[#cbd5e1]" />
                 <div className="flex w-full items-stretch">
                   {ORG_BRANCHES.map((b, i) => {
-                    const head = personById(b.head)!;
+                    const head = byId(b.head);
+                    if (!head) return null;
                     return (
                       <div
                         key={b.dept}
@@ -268,6 +280,7 @@ export default function OrgPage() {
       {selected && (
         <ProfileDrawer
           person={selected}
+          directory={directory}
           onClose={() => setProfileId(null)}
           onOpen={setProfileId}
         />
@@ -331,15 +344,20 @@ function PersonCard({
 
 function ProfileDrawer({
   person: p,
+  directory,
   onClose,
   onOpen,
 }: {
   person: Person;
+  directory: Person[];
   onClose: () => void;
   onOpen: (id: number) => void;
 }) {
-  const boss = p.boss === null ? null : personById(p.boss);
-  const mates = PEOPLE.filter((x) => x.team === p.team && x.id !== p.id);
+  const boss =
+    p.boss === null || p.boss === undefined
+      ? null
+      : (directory.find((x) => x.id === p.boss) ?? null);
+  const mates = directory.filter((x) => x.team === p.team && x.id !== p.id);
 
   return (
     <div

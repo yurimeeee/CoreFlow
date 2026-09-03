@@ -39,6 +39,7 @@ import {
   ROLE_COLS,
   SESSIONS,
 } from "@/lib/groupware/data";
+import { useGwSettings } from "@/lib/groupware/hooks";
 import { avatarStyle, pill } from "@/lib/groupware/ui";
 import { GwCard } from "@/components/app/primitives";
 
@@ -100,24 +101,50 @@ function Toggle({
   );
 }
 
+const DEFAULT_TOGGLES: Record<string, boolean> = {};
+NOTIFY_GROUPS.forEach((g) => g.rows.forEach((r) => (DEFAULT_TOGGLES[r.key] = r.on)));
+const DEFAULT_INTS: Record<string, boolean> = {};
+INTEGRATIONS.forEach((i) => (DEFAULT_INTS[i.name] = i.on));
+
+interface Edits {
+  name?: string;
+  email?: string;
+  twoFA?: boolean;
+  toggles?: Record<string, boolean>;
+  ints?: Record<string, boolean>;
+  saving?: boolean;
+  touched?: boolean;
+}
+
 export default function SettingsPage() {
   const [tab, setTab] = React.useState<Tab>("profile");
-  const [dirty, setDirty] = React.useState(false);
-  const [name, setName] = React.useState("김세진");
-  const [email, setEmail] = React.useState("sejin.kim@nextcore.io");
-  const [twoFA, setTwoFA] = React.useState(true);
-  const [toggles, setToggles] = React.useState<Record<string, boolean>>(() => {
-    const m: Record<string, boolean> = {};
-    NOTIFY_GROUPS.forEach((g) => g.rows.forEach((r) => (m[r.key] = r.on)));
-    return m;
-  });
-  const [ints, setInts] = React.useState<Record<string, boolean>>(() => {
-    const m: Record<string, boolean> = {};
-    INTEGRATIONS.forEach((i) => (m[i.name] = i.on));
-    return m;
-  });
+  const { profile, canSave, save } = useGwSettings();
+  const [edits, setEdits] = React.useState<Edits>({});
 
-  const touch = () => setDirty(true);
+  const gw = profile?.gwSettings;
+  const name = edits.name ?? profile?.name ?? "김세진";
+  const email = edits.email ?? profile?.email ?? "sejin.kim@nextcore.io";
+  const twoFA = edits.twoFA ?? gw?.twoFA ?? true;
+  const toggles = edits.toggles ?? gw?.toggles ?? DEFAULT_TOGGLES;
+  const ints = edits.ints ?? gw?.integrations ?? DEFAULT_INTS;
+  const dirty = Object.keys(edits).some((k) => k !== "saving");
+
+  const setName = (v: string) => setEdits((e) => ({ ...e, name: v }));
+  const setEmail = (v: string) => setEdits((e) => ({ ...e, email: v }));
+  const setTwoFA = (fn: (p: boolean) => boolean) =>
+    setEdits((e) => ({ ...e, twoFA: fn(e.twoFA ?? twoFA) }));
+  const setToggles = (fn: (p: Record<string, boolean>) => Record<string, boolean>) =>
+    setEdits((e) => ({ ...e, toggles: fn(e.toggles ?? toggles) }));
+  const setInts = (fn: (p: Record<string, boolean>) => Record<string, boolean>) =>
+    setEdits((e) => ({ ...e, ints: fn(e.ints ?? ints) }));
+  const touch = () => setEdits((e) => ({ ...e, touched: true }));
+
+  const commit = async () => {
+    setEdits((e) => ({ ...e, saving: true }));
+    // 이메일은 Firebase Auth 계정과 연동되므로 여기서는 저장하지 않습니다.
+    await save({ name, gwSettings: { toggles, integrations: ints, twoFA } });
+    setEdits({});
+  };
 
   return (
     <div className="mx-auto flex max-w-[1240px] flex-col gap-4 pb-20">
@@ -655,20 +682,23 @@ export default function SettingsPage() {
       >
         <span className="flex items-center gap-2 text-[12.5px] text-[#cbd5e1]">
           <CircleDot className="size-3.5" />
-          저장하지 않은 변경 사항이 있습니다
+          {canSave
+            ? "저장하지 않은 변경 사항이 있습니다"
+            : "로그인 시 변경 사항이 Firestore 에 저장됩니다"}
         </span>
         <div className="ml-auto flex gap-2">
           <button
-            onClick={() => setDirty(false)}
+            onClick={() => setEdits({})}
             className="h-9 rounded-[9px] border border-[#475569] px-3.5 text-[13px] font-semibold text-slate-200"
           >
             취소
           </button>
           <button
-            onClick={() => setDirty(false)}
-            className="h-9 rounded-[9px] bg-primary px-4 text-[13px] font-semibold text-white"
+            onClick={commit}
+            disabled={edits.saving}
+            className="h-9 rounded-[9px] bg-primary px-4 text-[13px] font-semibold text-white disabled:opacity-60"
           >
-            변경사항 저장
+            {edits.saving ? "저장 중…" : "변경사항 저장"}
           </button>
         </div>
       </div>

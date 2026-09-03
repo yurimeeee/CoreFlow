@@ -14,17 +14,16 @@ import {
 import { cn } from "@/lib/utils";
 import {
   ATT_DAY_DATA,
-  ATT_ROWS,
   ATT_TYPE_COLORS,
   LEAVE_HISTORY,
 } from "@/lib/groupware/data";
 import { pill } from "@/lib/groupware/ui";
 import { useNow } from "@/lib/groupware/use-now";
+import { useAttendance } from "@/lib/groupware/hooks";
 import { GwCard, PageHeader, Segmented } from "@/components/app/primitives";
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 const two = (n: number) => String(n).padStart(2, "0");
-const WORKED = 32;
 const LIMIT = 52;
 
 const LEGEND = [
@@ -37,14 +36,13 @@ const LEGEND = [
 
 export default function AttendancePage() {
   const now = useNow();
-  const [working, setWorking] = React.useState(true);
-  const [inAt, setInAt] = React.useState("09:02");
-  const [outAt, setOutAt] = React.useState("--:--");
+  const { working, inAt, outAt, weekWorked, history, checkIn, checkOut } =
+    useAttendance();
   const [view, setView] = React.useState<"calendar" | "list">("calendar");
 
   const clock = now ? `${two(now.getHours())}:${two(now.getMinutes())}` : "--:--";
   const seconds = now ? `:${two(now.getSeconds())}` : ":--";
-  const pct = Math.min(100, Math.round((WORKED / LIMIT) * 1000) / 10);
+  const pct = Math.min(100, Math.round((weekWorked / LIMIT) * 1000) / 10);
 
   const cells: React.ReactNode[] = [];
   for (let i = 0; i < 2; i++) {
@@ -129,12 +127,7 @@ export default function AttendancePage() {
 
           <div className="flex gap-2.5">
             <button
-              onClick={() => {
-                const d = new Date();
-                setWorking(true);
-                setInAt(`${two(d.getHours())}:${two(d.getMinutes())}`);
-                setOutAt("--:--");
-              }}
+              onClick={() => checkIn()}
               disabled={working}
               className={cn(
                 "flex h-[46px] flex-1 items-center justify-center gap-2 rounded-[10px] text-sm font-semibold transition-all",
@@ -147,11 +140,7 @@ export default function AttendancePage() {
               출근하기
             </button>
             <button
-              onClick={() => {
-                const d = new Date();
-                setWorking(false);
-                setOutAt(`${two(d.getHours())}:${two(d.getMinutes())}`);
-              }}
+              onClick={() => checkOut()}
               disabled={!working}
               className={cn(
                 "flex h-[46px] flex-1 items-center justify-center gap-2 rounded-[10px] text-sm font-semibold transition-all",
@@ -192,7 +181,7 @@ export default function AttendancePage() {
                 소정근로 내 · 연장 여유 12시간
               </span>
               <span className="ml-auto text-[13px] font-semibold tabular-nums">
-                {WORKED}시간 / {LIMIT}시간
+                {weekWorked}시간 / {LIMIT}시간
               </span>
             </div>
             <div className="h-2.5 overflow-hidden rounded-full bg-[#eef1f5]">
@@ -203,7 +192,7 @@ export default function AttendancePage() {
             </div>
             <div className="mt-1.5 flex justify-between text-[11.5px] text-muted-foreground">
               <span>법정 한도 주 {LIMIT}시간 (소정 40h + 연장 12h)</span>
-              <span>잔여 {LIMIT - WORKED}시간</span>
+              <span>잔여 {LIMIT - weekWorked}시간</span>
             </div>
           </div>
         </GwCard>
@@ -351,7 +340,7 @@ export default function AttendancePage() {
               <div className="min-w-[120px] flex-1">근무 분포</div>
               <div className="w-[84px] shrink-0 text-right">상태</div>
             </div>
-            {ATT_ROWS.map((d) => {
+            {history.map((d) => {
               const tp = ATT_TYPE_COLORS[d.type];
               return (
                 <div

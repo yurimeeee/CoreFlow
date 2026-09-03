@@ -12,7 +12,9 @@ import {
   Search,
   SquareKanban,
 } from "lucide-react";
-import { BOARD, GANTT_SRC, type BoardCol } from "@/lib/groupware/data";
+import { GANTT_SRC } from "@/lib/groupware/data";
+import { TASK_COLUMNS, type TaskDoc } from "@/lib/groupware/firestore";
+import { useTasks } from "@/lib/groupware/hooks";
 import { avatarStyle, ddayStyle } from "@/lib/groupware/ui";
 import { GwCard, PageHeader, Segmented, Tag } from "@/components/app/primitives";
 
@@ -23,45 +25,31 @@ const MEMBERS = ["김", "정", "박", "이", "최"];
 export default function TasksPage() {
   const [view, setView] = React.useState<View>("kanban");
   const [query, setQuery] = React.useState("");
-  const [board, setBoard] = React.useState<BoardCol[]>(BOARD);
   const [adding, setAdding] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState("");
+  const { data: tasks, addTask, source } = useTasks();
 
   const q = query.trim().toLowerCase();
-  const match = (t: { title: string; who: string }) =>
+  const match = (t: TaskDoc) =>
     !q ||
     t.title.toLowerCase().includes(q) ||
     t.who.toLowerCase().includes(q);
 
-  const addTask = (colKey: string) => {
+  const columns = TASK_COLUMNS.map((c) => ({
+    ...c,
+    items: tasks
+      .filter((t) => t.colKey === c.key)
+      .sort((a, b) => a.order - b.order),
+  }));
+
+  const submit = async (colKey: string) => {
     const title = draft.trim();
     setAdding(null);
     setDraft("");
-    if (!title) return;
-    setBoard((prev) =>
-      prev.map((c) =>
-        c.key === colKey
-          ? {
-              ...c,
-              items: [
-                ...c.items,
-                {
-                  id: Date.now(),
-                  tag: "기획",
-                  title,
-                  who: "김세진",
-                  dday: "D-7",
-                  done: 0,
-                  total: 3,
-                },
-              ],
-            }
-          : c,
-      ),
-    );
+    if (title) await addTask(colKey, title);
   };
 
-  const flat = board.flatMap((c) =>
+  const flat = columns.flatMap((c) =>
     c.items.filter(match).map((t) => ({ ...t, col: c.name, color: c.color })),
   );
 
@@ -69,7 +57,11 @@ export default function TasksPage() {
     <div className="mx-auto flex max-w-[1440px] flex-col gap-4">
       <PageHeader
         title="그룹웨어 v3.2 스프린트"
-        desc="플랫폼개발팀 · 09.01 – 09.14 · 진행률 42%"
+        desc={
+          source === "firestore"
+            ? "Firestore 연동 · 플랫폼개발팀 · 09.01 – 09.14"
+            : "플랫폼개발팀 · 09.01 – 09.14 · 진행률 42%"
+        }
       />
 
       <div className="flex flex-wrap items-center gap-2.5">
@@ -126,7 +118,7 @@ export default function TasksPage() {
 
       {view === "kanban" && (
         <div className="flex items-start gap-3.5 overflow-x-auto pb-1.5">
-          {board.map((col) => (
+          {columns.map((col) => (
             <div
               key={col.key}
               className="flex min-w-[250px] flex-1 flex-col gap-2.5 rounded-[13px] bg-[#f1f5f9] p-2.5"
@@ -186,7 +178,7 @@ export default function TasksPage() {
                     value={draft}
                     onChange={(e) => setDraft(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter") addTask(col.key);
+                      if (e.key === "Enter") submit(col.key);
                       if (e.key === "Escape") {
                         setAdding(null);
                         setDraft("");
@@ -197,7 +189,7 @@ export default function TasksPage() {
                   />
                   <div className="mt-2 flex gap-1.5">
                     <button
-                      onClick={() => addTask(col.key)}
+                      onClick={() => submit(col.key)}
                       className="h-7 rounded-[7px] bg-primary px-2.5 text-xs font-semibold text-white"
                     >
                       추가
