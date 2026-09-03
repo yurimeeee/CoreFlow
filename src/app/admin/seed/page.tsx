@@ -31,7 +31,13 @@ export default function SeedPage() {
     setProgress({ done: 0, total });
     try {
       await runSeed(
-        authUser ? { uid: authUser.uid, email: authUser.email } : null,
+        authUser
+          ? {
+              uid: authUser.uid,
+              email: authUser.email,
+              name: authUser.displayName,
+            }
+          : null,
         (done, t) => setProgress({ done, total: t }),
       );
       setState("done");

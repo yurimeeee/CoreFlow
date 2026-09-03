@@ -39,7 +39,7 @@ import {
   ROLE_COLS,
   SESSIONS,
 } from "@/lib/groupware/data";
-import { useGwSettings } from "@/lib/groupware/hooks";
+import { useCurrentUser, useGwSettings } from "@/lib/groupware/hooks";
 import { avatarStyle, pill } from "@/lib/groupware/ui";
 import { GwCard } from "@/components/app/primitives";
 
@@ -119,11 +119,12 @@ interface Edits {
 export default function SettingsPage() {
   const [tab, setTab] = React.useState<Tab>("profile");
   const { profile, canSave, save } = useGwSettings();
+  const me = useCurrentUser();
   const [edits, setEdits] = React.useState<Edits>({});
 
   const gw = profile?.gwSettings;
-  const name = edits.name ?? profile?.name ?? "김세진";
-  const email = edits.email ?? profile?.email ?? "sejin.kim@nextcore.io";
+  const name = edits.name ?? profile?.name ?? me.name;
+  const email = edits.email ?? profile?.email ?? me.email ?? "";
   const twoFA = edits.twoFA ?? gw?.twoFA ?? true;
   const toggles = edits.toggles ?? gw?.toggles ?? DEFAULT_TOGGLES;
   const ints = edits.ints ?? gw?.integrations ?? DEFAULT_INTS;
@@ -191,7 +192,9 @@ export default function SettingsPage() {
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-4">
-                <span style={avatarStyle("김", 64)}>김</span>
+                <span style={avatarStyle(name.charAt(0), 64)}>
+                  {name.charAt(0).toUpperCase()}
+                </span>
                 <div className="flex flex-col gap-1.5">
                   <div className="flex gap-1.5">
                     <button className="flex h-8.5 items-center gap-1.5 rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-secondary-foreground hover:bg-secondary">
@@ -229,10 +232,10 @@ export default function SettingsPage() {
                   />
                 </Field>
                 <Field label="부서" readOnly>
-                  <ReadOnly>기술본부 · 플랫폼개발팀</ReadOnly>
+                  <ReadOnly>{profile?.departmentId || "미배정"}</ReadOnly>
                 </Field>
                 <Field label="직급" readOnly>
-                  <ReadOnly>과장 (M2)</ReadOnly>
+                  <ReadOnly>{profile?.position || "미배정"}</ReadOnly>
                 </Field>
                 <Field label="언어">
                   <button
@@ -266,10 +269,11 @@ export default function SettingsPage() {
                       SIGNATURE PREVIEW
                     </div>
                     <div className="text-[26px] font-medium tracking-[-0.02em]">
-                      김 세 진
+                      {name.split("").join(" ")}
                     </div>
                     <div className="text-[11px] text-muted-foreground">
-                      플랫폼개발팀 · 과장
+                      {profile?.departmentId || "부서 미배정"}
+                      {profile?.position ? ` · ${profile.position}` : ""}
                     </div>
                   </div>
                   <div className="flex flex-[1_1_200px] flex-col justify-center gap-2">
@@ -304,7 +308,9 @@ export default function SettingsPage() {
                         {g.title}
                       </h3>
                       <p className="mt-0.5 text-xs text-muted-foreground">
-                        {g.desc}
+                        {g.icon === "Mail" && email
+                          ? `${email} 로 발송됩니다`
+                          : g.desc}
                       </p>
                     </div>
                     {g.webhook && (

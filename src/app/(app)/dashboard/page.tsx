@@ -21,6 +21,7 @@ import { useNow } from "@/lib/groupware/use-now";
 import {
   useApprovals,
   useAttendance,
+  useCurrentUser,
   useNotices,
   useTasks,
 } from "@/lib/groupware/hooks";
@@ -32,6 +33,7 @@ const LIMIT = 52;
 
 export default function DashboardPage() {
   const now = useNow();
+  const me = useCurrentUser();
   const { working, inAt, outAt, weekWorked, checkIn, checkOut } =
     useAttendance();
   const { data: notices } = useNotices();
@@ -75,7 +77,8 @@ export default function DashboardPage() {
         <div>
           <div className="text-[12.5px] text-muted-foreground">{dateLabel}</div>
           <div className="mt-1 text-[22px] font-bold tracking-[-0.025em]">
-            안녕하세요, 김세진 과장님
+            안녕하세요, {me.name}
+            {me.role ? ` ${me.role}` : ""}님
           </div>
         </div>
         <div className="flex items-center gap-2 rounded-full border border-border bg-card px-3.5 py-1.5 text-[12.5px] text-secondary-foreground">

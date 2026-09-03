@@ -34,6 +34,29 @@ import {
 const two = (n: number) => String(n).padStart(2, "0");
 
 /* ------------------------------------------------------------------ */
+/*  현재 로그인 사용자 (프로필 우선, 이메일 앞부분으로 폴백)             */
+/* ------------------------------------------------------------------ */
+
+export function useCurrentUser() {
+  const { authUser, profile, loading, logout } = useAuthUser();
+  const email = profile?.email ?? authUser?.email ?? null;
+  const name =
+    profile?.name ||
+    authUser?.displayName ||
+    (email ? email.split("@")[0] : "게스트");
+  return {
+    name,
+    role: profile?.position ?? "",
+    team: profile?.departmentId ?? "",
+    email,
+    initial: name.charAt(0).toUpperCase(),
+    isAuthed: !!authUser,
+    loading,
+    logout,
+  };
+}
+
+/* ------------------------------------------------------------------ */
 /*  제네릭 실시간 컬렉션 훅 (Firestore → 정적 데이터 폴백)               */
 /* ------------------------------------------------------------------ */
 
@@ -129,6 +152,7 @@ const TASK_FALLBACK: TaskDoc[] = BOARD.flatMap((col) =>
 
 export function useTasks() {
   const state = useGwCollection<TaskDoc>(COL.tasks, TASK_FALLBACK);
+  const me = useCurrentUser();
   // 낙관적 오버레이 (Firebase 미설정 시엔 이게 유일한 저장소)
   const [overlay, setOverlay] = React.useState<Record<string, Partial<TaskDoc>>>(
     {},
@@ -145,33 +169,36 @@ export function useTasks() {
     return [...base, ...extra];
   }, [state.data, overlay, added]);
 
-  const addTask = React.useCallback(async (colKey: string, title: string) => {
-    const id = String(Date.now());
-    const task: TaskDoc = {
-      id,
-      colKey,
-      tag: "기획",
-      title,
-      who: "김세진",
-      dday: "D-7",
-      done: 0,
-      total: 3,
-      order: 999,
-    };
-    setAdded((p) => [...p, task]);
-    if (isFirebaseConfigured) {
-      await setDoc(doc(firebaseDb(), COL.tasks, id), {
-        colKey: task.colKey,
-        tag: task.tag,
-        title: task.title,
-        who: task.who,
-        dday: task.dday,
-        done: task.done,
-        total: task.total,
-        order: task.order,
-      });
-    }
-  }, []);
+  const addTask = React.useCallback(
+    async (colKey: string, title: string) => {
+      const id = String(Date.now());
+      const task: TaskDoc = {
+        id,
+        colKey,
+        tag: "기획",
+        title,
+        who: me.name,
+        dday: "D-7",
+        done: 0,
+        total: 3,
+        order: 999,
+      };
+      setAdded((p) => [...p, task]);
+      if (isFirebaseConfigured) {
+        await setDoc(doc(firebaseDb(), COL.tasks, id), {
+          colKey: task.colKey,
+          tag: task.tag,
+          title: task.title,
+          who: task.who,
+          dday: task.dday,
+          done: task.done,
+          total: task.total,
+          order: task.order,
+        });
+      }
+    },
+    [me.name],
+  );
 
   const toggleDone = React.useCallback(async (t: TaskDoc) => {
     const nextDone = t.done === t.total ? 0 : t.total;
@@ -376,7 +403,7 @@ export function useGwSettings() {
 /* ------------------------------------------------------------------ */
 
 export async function runSeed(
-  admin: { uid: string; email: string | null } | null,
+  admin: { uid: string; email: string | null; name?: string | null } | null,
   onProgress?: (done: number, total: number) => void,
 ): Promise<number> {
   if (!isFirebaseConfigured) throw new Error("Firebase 미설정");
@@ -385,19 +412,23 @@ export async function runSeed(
   let done = 0;
 
   // 부트스트랩: 시드 실행자의 users/{uid} 문서가 없으면 SUPER_ADMIN 으로 생성
+  // 이름은 실제 계정(displayName / 이메일 앞부분)에서 가져옵니다.
   if (admin) {
     const meRef = doc(db, COL.users, admin.uid);
     const meSnap = await getDoc(meRef);
     if (!meSnap.exists()) {
+      const name =
+        admin.name?.trim() ||
+        (admin.email ? admin.email.split("@")[0] : "관리자");
       await setDoc(meRef, {
         uid: admin.uid,
         email: admin.email ?? "",
-        name: "김세진",
+        name,
         departmentId: "플랫폼개발팀",
-        position: "과장",
-        employeeId: "CF-DEMO-001",
-        joinedAt: new Date("2023-03-02"),
-        phone: "010-0000-0000",
+        position: "관리자",
+        employeeId: `CF-${admin.uid.slice(0, 6).toUpperCase()}`,
+        joinedAt: new Date(),
+        phone: "",
         role: "SUPER_ADMIN",
         status: "ACTIVE",
         createdAt: new Date(),

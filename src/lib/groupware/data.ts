@@ -431,12 +431,7 @@ export const NOTIFY_GROUPS = [
   },
 ];
 
-/* 현재 사용자 (데모) */
+/* 워크스페이스(회사) 기본값 — 실제 사용자 식별은 useCurrentUser() 사용 */
 export const CURRENT_USER = {
-  name: "김세진",
-  role: "과장",
-  team: "플랫폼개발팀",
-  dept: "기술본부 · 플랫폼개발팀",
-  email: "sejin.kim@nextcore.io",
   workspace: "넥스트코어",
 };
