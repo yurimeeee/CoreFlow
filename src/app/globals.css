@@ -1,0 +1,91 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/*
+ * CoreFlow — "모든 업무의 중심을 잇다"
+ * Design tokens derived from the Claude Design groupware dashboard:
+ * slate surfaces + indigo primary + Pretendard.
+ */
+
+@theme {
+  --font-sans: "Pretendard Variable", Pretendard, ui-sans-serif, system-ui,
+    "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+
+  --color-background: #f8fafc;
+  --color-foreground: #1e293b;
+
+  --color-card: #ffffff;
+  --color-card-foreground: #1e293b;
+
+  --color-popover: #ffffff;
+  --color-popover-foreground: #1e293b;
+
+  --color-primary: #4f46e5;
+  --color-primary-hover: #4338ca;
+  --color-primary-foreground: #ffffff;
+
+  --color-secondary: #f1f5f9;
+  --color-secondary-foreground: #334155;
+
+  --color-muted: #f1f5f9;
+  --color-muted-foreground: #64748b;
+
+  --color-accent: #eef2ff;
+  --color-accent-foreground: #4338ca;
+
+  --color-destructive: #e11d48;
+  --color-destructive-foreground: #ffffff;
+
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+
+  --color-border: #e2e8f0;
+  --color-input: #e2e8f0;
+  --color-ring: #6366f1;
+
+  --radius-sm: 0.5rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 0.875rem;
+  --radius-xl: 1rem;
+
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-pop: 0 18px 44px rgba(15, 23, 42, 0.16);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    letter-spacing: -0.01em;
+  }
+
+  ::selection {
+    background: #e0e7ff;
+  }
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-step {
+  animation: fade-in-up 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
