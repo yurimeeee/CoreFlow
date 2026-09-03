@@ -10,6 +10,11 @@
  * 덕분에 환경변수가 없는 빌드/프리렌더 단계에서도 안전하게 import 할 수 있습니다.
  */
 import { getApp, getApps, initializeApp, type FirebaseApp } from "firebase/app";
+import {
+  getAnalytics,
+  isSupported as isAnalyticsSupported,
+  type Analytics,
+} from "firebase/analytics";
 import { getAuth, type Auth } from "firebase/auth";
 import { getFirestore, type Firestore } from "firebase/firestore";
 import { getStorage, type FirebaseStorage } from "firebase/storage";
@@ -21,6 +26,7 @@ const firebaseConfig = {
   storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };
 
 export const isFirebaseConfigured = Boolean(
@@ -51,4 +57,24 @@ export function firebaseDb(): Firestore {
 /** Firebase Storage 인스턴스 (지연 초기화) */
 export function firebaseStorage(): FirebaseStorage {
   return (storageInstance ??= getStorage(firebaseApp()));
+}
+
+/**
+ * Google Analytics (브라우저 전용 · 선택).
+ * measurementId 가 있고 환경이 지원될 때만 초기화합니다.
+ * 루트 레이아웃 등 클라이언트 컴포넌트에서 한 번 호출하세요.
+ */
+let analyticsInstance: Analytics | null = null;
+export async function initAnalytics(): Promise<Analytics | null> {
+  if (analyticsInstance) return analyticsInstance;
+  if (
+    typeof window === "undefined" ||
+    !isFirebaseConfigured ||
+    !firebaseConfig.measurementId
+  ) {
+    return null;
+  }
+  if (!(await isAnalyticsSupported())) return null;
+  analyticsInstance = getAnalytics(firebaseApp());
+  return analyticsInstance;
 }

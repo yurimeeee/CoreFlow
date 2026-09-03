@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Toaster } from "sonner";
+import { FirebaseAnalytics } from "@/components/analytics/FirebaseAnalytics";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -30,6 +31,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="flex min-h-full flex-col">
         {children}
         <Toaster position="top-center" richColors />
+        <FirebaseAnalytics />
       </body>
     </html>
   );
