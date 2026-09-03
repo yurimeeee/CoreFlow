@@ -47,7 +47,8 @@ export function LoginForm() {
     setLoading(true);
     try {
       await signInWithEmailAndPassword(firebaseAuth(), email.trim(), password);
-      router.push("/dashboard");
+      const next = new URLSearchParams(window.location.search).get("next");
+      router.push(next && next.startsWith("/") ? next : "/dashboard");
     } catch (err) {
       setError(mapError(err));
     } finally {

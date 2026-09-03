@@ -2,13 +2,19 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronsUpDown, Waypoints } from "lucide-react";
+import { ChevronsUpDown, LogOut, Waypoints } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CURRENT_USER } from "@/lib/groupware/data";
+import { useAuthUser } from "@/hooks/useAuthUser";
 import { NAV_ITEMS } from "./nav";
 
 export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const { profile, authUser, logout } = useAuthUser();
+
+  const displayName = profile?.name || authUser?.displayName || CURRENT_USER.name;
+  const displayRole = profile?.position || CURRENT_USER.role;
+  const displayTeam = profile?.departmentId || CURRENT_USER.team;
 
   return (
     <aside className="flex h-full w-66 flex-col bg-[#1e293b] text-slate-100">
@@ -71,28 +77,35 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
         })}
       </nav>
 
-      <div className="border-t border-[#334155] p-2.5">
+      <div className="flex items-center gap-1 border-t border-[#334155] p-2.5">
         <Link
           href="/settings"
           onClick={onNavigate}
-          className="flex items-center gap-2.5 rounded-[10px] p-2 transition-colors hover:bg-[#334155]"
+          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-[10px] p-2 transition-colors hover:bg-[#334155]"
         >
           <span className="flex size-[34px] shrink-0 items-center justify-center rounded-full bg-[#475569] text-[13px] font-semibold text-slate-200">
-            {CURRENT_USER.name.charAt(0)}
+            {displayName.charAt(0)}
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block text-[13px] font-semibold text-slate-100">
-              {CURRENT_USER.name}{" "}
-              <span className="font-normal text-slate-400">
-                {CURRENT_USER.role}
-              </span>
+            <span className="block truncate text-[13px] font-semibold text-slate-100">
+              {displayName}{" "}
+              <span className="font-normal text-slate-400">{displayRole}</span>
             </span>
-            <span className="mt-px block text-[11.5px] text-slate-400">
-              {CURRENT_USER.team}
+            <span className="mt-px block truncate text-[11.5px] text-slate-400">
+              {displayTeam}
             </span>
           </span>
-          <ChevronsUpDown className="size-3.5 text-slate-400" />
+          <ChevronsUpDown className="size-3.5 shrink-0 text-slate-400" />
         </Link>
+        {authUser && (
+          <button
+            onClick={() => logout()}
+            aria-label="로그아웃"
+            className="flex size-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-[#334155] hover:text-slate-100"
+          >
+            <LogOut className="size-4" />
+          </button>
+        )}
       </div>
     </aside>
   );
