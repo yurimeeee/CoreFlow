@@ -42,6 +42,28 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    /* ---------------- 그룹웨어 공용 컬렉션 ----------------
+       데모 특성상 로그인 사용자면 읽기/쓰기를 허용합니다.
+       운영에서는 notices/orgPeople 쓰기를 isAdmin() 으로 좁히세요. */
+    match /orgPeople/{id} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+    match /notices/{id} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+    match /tasks/{id} {
+      allow read, write: if isSignedIn();
+    }
+    match /approvals/{no} {
+      allow read, write: if isSignedIn();
+    }
+    match /attendance/{uid} {
+      // 본인 출퇴근 문서만
+      allow read, write: if isSignedIn() && request.auth.uid == uid;
+    }
+
     /* ---------------- invites/{inviteId} ---------------- */
     match /invites/{inviteId} {
       // 초대 토큰 검증을 위해 미인증 조회 허용 (토큰은 사실상 비밀값)

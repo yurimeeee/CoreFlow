@@ -5,7 +5,35 @@
 > 출퇴근 기록부터 전자결재, 프로젝트 관리, 조직도까지 — 파편화된 기업의 핵심
 > 업무(Core)를 끊김 없는 하나의 흐름(Flow)으로 연결하는 B2B 그룹웨어.
 
-이 저장소는 CoreFlow의 **[초대 링크 기반 회원가입 · 사용자 데이터 수집 시스템]** 구현입니다.
+이 저장소는 CoreFlow의 **초대 링크 기반 회원가입** + **그룹웨어 워크스페이스**(대시보드 · 근태 · 전자결재 · 프로젝트 · 공지 · 조직도 · 설정) 구현입니다. 모든 화면이 Firebase(Auth · Firestore)에 연동됩니다.
+
+## 워크스페이스 시작하기 (데모)
+
+```bash
+# 1. 데모 로그인 계정 생성
+node --env-file=.env.local scripts/create-demo-user.mjs
+#    → demo@coreflow.io / coreflow1234
+
+# 2. 개발 서버
+npm run dev
+
+# 3. /login 로그인 → /admin/seed 에서 "시드 실행"
+#    (임직원·공지·Task·전자결재 72개 문서를 Firestore 에 채우고,
+#     실행자 계정을 SUPER_ADMIN 으로 부트스트랩)
+```
+
+Firestore 가 비어 있으면 각 화면은 목(mock) 데이터로 폴백하고, 시드 후에는 실시간(onSnapshot) Firestore 데이터로 전환됩니다.
+
+### 그룹웨어 컬렉션
+
+| 컬렉션 | 내용 |
+| --- | --- |
+| `orgPeople/{id}` | 임직원 디렉토리 |
+| `notices/{id}` | 공지사항 (필독 고정 포함) |
+| `tasks/{id}` | 프로젝트 Task (칸반 카드) |
+| `approvals/{no}` | 전자결재 문서 + 결재란/상세 |
+| `attendance/{uid}` | 사용자별 출퇴근 상태 (본인만 읽기/쓰기) |
+| `users/{uid}` | 프로필 + `gwSettings`(알림 토글·연동·2FA) |
 
 ## 스택
 
