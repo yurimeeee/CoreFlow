@@ -40,6 +40,9 @@ export default function Home() {
         <Logo />
         <nav className="flex items-center gap-2">
           <Button asChild variant="ghost" size="sm">
+            <Link href="/dashboard">워크스페이스</Link>
+          </Button>
+          <Button asChild variant="ghost" size="sm">
             <Link href="/login">로그인</Link>
           </Button>
           <Button asChild size="sm">
