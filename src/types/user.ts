@@ -46,6 +46,15 @@ export interface UserDoc {
   role: UserRole;
   status: UserStatus;
 
+  /* 그룹웨어 개인 설정 (알림 토글 · 연동 · 2FA · 언어/타임존) */
+  gwSettings?: {
+    toggles?: Record<string, boolean>;
+    integrations?: Record<string, boolean>;
+    twoFA?: boolean;
+    lang?: string;
+    tz?: string;
+  };
+
   /* 메타 */
   inviteId?: string | null;
   createdAt: Timestamp | Date;
