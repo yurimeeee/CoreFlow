@@ -1,0 +1,20 @@
+rules_version = '2';
+
+// CoreFlow — Firebase Storage 보안 규칙 (참고용 기본값)
+// 배포:  firebase deploy --only storage
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // users/{uid}/profile.*  ·  users/{uid}/signature.*
+    match /users/{uid}/{fileName} {
+      // 프로필 이미지는 로그인 사용자면 조회 가능(조직도 등에서 사용)
+      allow read: if request.auth != null;
+
+      // 본인만 업로드/수정/삭제, 5MB 이하 이미지로 제한
+      allow write: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+  }
+}

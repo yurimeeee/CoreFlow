@@ -1,0 +1,62 @@
+rules_version = '2';
+
+// CoreFlow — Firestore 보안 규칙 (참고용 기본값)
+// 배포:  firebase deploy --only firestore:rules
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function myRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isAdmin() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && myRole() in ['ADMIN', 'SUPER_ADMIN'];
+    }
+
+    /* ---------------- users/{uid} ---------------- */
+    match /users/{uid} {
+      // 본인 문서 또는 관리자만 조회
+      allow get: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+
+      // 가입 시: 본인 uid 로만 문서 생성, 권한은 스스로 승격 불가
+      allow create: if isSignedIn()
+        && request.auth.uid == uid
+        && request.resource.data.uid == uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.status in ['PENDING', 'ACTIVE'];
+
+      // 본인은 프로필 일부만 수정, 상태/권한 변경은 관리자만
+      allow update: if isAdmin()
+        || (isSignedIn() && request.auth.uid == uid
+            && request.resource.data.role == resource.data.role
+            && request.resource.data.status == resource.data.status
+            && request.resource.data.employeeId == resource.data.employeeId);
+
+      allow delete: if isAdmin();
+    }
+
+    /* ---------------- invites/{inviteId} ---------------- */
+    match /invites/{inviteId} {
+      // 초대 토큰 검증을 위해 미인증 조회 허용 (토큰은 사실상 비밀값)
+      allow get, list: if true;
+
+      // 생성/삭제는 관리자만
+      allow create, delete: if isAdmin();
+
+      // 가입 완료 처리: 초대된 이메일의 당사자가 status 를 COMPLETED 로만 변경
+      allow update: if isAdmin()
+        || (isSignedIn()
+            && resource.data.status != 'COMPLETED'
+            && request.auth.token.email == resource.data.email
+            && request.resource.data.status == 'COMPLETED'
+            && request.resource.data.completedUid == request.auth.uid);
+    }
+  }
+}
