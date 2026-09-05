@@ -9,7 +9,7 @@ import {
   Timestamp,
 } from "firebase/firestore";
 import { Copy, Link2, Loader2, Send, Sparkles } from "lucide-react";
-import { firebaseDb, isFirebaseConfigured } from "@/lib/firebase";
+import { firebaseAuth, firebaseDb, isFirebaseConfigured } from "@/lib/firebase";
 import { AuthShell } from "@/components/layout/AuthShell";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -50,6 +50,14 @@ export default function AdminInvitePage() {
     }
     setLoading(true);
     try {
+      // Firebase Auth 초기 세션 복원이 끝날 때까지 대기 — 그전에 쓰기를
+      // 보내면 Firestore 규칙이 request.auth 를 null 로 보고 거부합니다.
+      await firebaseAuth().authStateReady();
+      if (!firebaseAuth().currentUser) {
+        setError("로그인 세션을 확인할 수 없습니다. 다시 로그인한 뒤 시도해 주세요.");
+        setLoading(false);
+        return;
+      }
       const token = crypto.randomUUID().replace(/-/g, "");
       const expiresAt = Timestamp.fromDate(
         new Date(Date.now() + form.expiresInDays * 86_400_000),
