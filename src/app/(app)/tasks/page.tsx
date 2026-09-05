@@ -56,11 +56,11 @@ export default function TasksPage() {
   return (
     <div className="mx-auto flex max-w-[1440px] flex-col gap-4">
       <PageHeader
-        title="그룹웨어 v3.2 스프린트"
+        title="프로젝트 / Task"
         desc={
-          source === "firestore"
-            ? "Firestore 연동 · 플랫폼개발팀 · 09.01 – 09.14"
-            : "플랫폼개발팀 · 09.01 – 09.14 · 진행률 42%"
+          tasks.length
+            ? `${source === "firestore" ? "Firestore 연동" : "로컬"} · Task ${tasks.length}건`
+            : "아직 등록된 Task가 없습니다"
         }
       />
 

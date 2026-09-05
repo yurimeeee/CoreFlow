@@ -83,7 +83,7 @@ export default function DashboardPage() {
         </div>
         <div className="flex items-center gap-2 rounded-full border border-border bg-card px-3.5 py-1.5 text-[12.5px] text-secondary-foreground">
           <span className="size-[7px] animate-pulse rounded-full bg-success" />
-          본사 · 재직 중 · {working ? "근무 중" : "퇴근 완료"}
+          {working ? "근무 중" : outAt !== "--:--" ? "퇴근 완료" : "출근 전"}
         </div>
       </div>
 

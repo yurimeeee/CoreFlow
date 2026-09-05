@@ -6,8 +6,10 @@
  *   notices/{id}        공지사항
  *   tasks/{id}          프로젝트 Task (칸반 카드, colKey 로 컬럼 구분)
  *   approvals/{no}      전자결재 문서 (id = 문서번호)
+ *   bookings/{id}       회의실 · 자원 예약
  *   attendance/{uid}    사용자별 출퇴근 상태 (본인만 읽기/쓰기)
  *   users/{uid}         로그인 사용자 프로필 + gwSettings (기존)
+ *   workspace/main      회사(워크스페이스) 기본 정보 — 관리자만 쓰기
  */
 import {
   APPROVAL_ROWS,
@@ -26,8 +28,10 @@ export const COL = {
   notices: "notices",
   tasks: "tasks",
   approvals: "approvals",
+  bookings: "bookings",
   attendance: "attendance",
   users: "users",
+  workspace: "workspace",
 } as const;
 
 export const TASK_COLUMNS: { key: string; name: string; color: string }[] = [
@@ -92,6 +96,21 @@ export interface ApprovalDoc {
   reason?: string;
 }
 
+export interface BookingDoc {
+  id: string;
+  res: string; // 자원 key (RESOURCES[].key)
+  from: number; // 시작 슬롯 (0..BOOKING_SLOTS)
+  to: number; // 종료 슬롯 (exclusive)
+  title: string;
+  who: string; // 예약자 이름
+  date: string; // yyyy-mm-dd
+  purpose?: string;
+  attendees?: number[]; // orgPeople id 목록
+  video?: boolean;
+  provider?: string; // Google Meet | Zoom
+  order: number; // 정렬용 = from
+}
+
 export interface AttendanceDoc {
   uid: string;
   working: boolean;
@@ -101,6 +120,24 @@ export interface AttendanceDoc {
   weekWorked: number;
   history: { day: string; in: string; out: string; hours: string; pct: number; type: string; color: string }[];
 }
+
+export interface WorkspaceDoc {
+  name: string;
+  bizNo: string;
+  ceo: string;
+  address: string;
+  phone: string;
+  fiscalYearStart: string;
+}
+
+export const WORKSPACE_FIELD_LABELS: { key: keyof WorkspaceDoc; label: string; placeholder: string }[] = [
+  { key: "name", label: "회사명", placeholder: "주식회사 ○○" },
+  { key: "bizNo", label: "사업자등록번호", placeholder: "000-00-00000" },
+  { key: "ceo", label: "대표이사", placeholder: "홍길동" },
+  { key: "address", label: "본사 주소", placeholder: "서울 강남구 ..." },
+  { key: "phone", label: "대표 전화", placeholder: "02-000-0000" },
+  { key: "fiscalYearStart", label: "회계연도 시작", placeholder: "매년 1월 1일" },
+];
 
 /* ------------------------------------------------------------------ */
 /*  시드 페이로드                                                       */

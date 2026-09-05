@@ -3,6 +3,7 @@
 import * as React from "react";
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   onSnapshot,
@@ -10,9 +11,11 @@ import {
   query,
   setDoc,
   updateDoc,
+  where,
 } from "firebase/firestore";
 import { firebaseDb, isFirebaseConfigured } from "@/lib/firebase";
 import { useAuthUser } from "@/hooks/useAuthUser";
+import type { UserDoc } from "@/types/user";
 import {
   APPROVAL_ROWS,
   ATT_ROWS,
@@ -27,8 +30,10 @@ import {
   buildSeed,
   type ApprovalDoc,
   type AttendanceDoc,
+  type BookingDoc,
   type NoticeDoc,
   type TaskDoc,
+  type WorkspaceDoc,
 } from "./firestore";
 
 const two = (n: number) => String(n).padStart(2, "0");
@@ -129,7 +134,33 @@ const NOTICE_FALLBACK: NoticeDoc[] = [
 ];
 
 export function useNotices() {
-  return useGwCollection<NoticeDoc>(COL.notices, NOTICE_FALLBACK);
+  const state = useGwCollection<NoticeDoc>(COL.notices, NOTICE_FALLBACK);
+  const me = useCurrentUser();
+
+  const addNotice = React.useCallback(
+    async (input: { cat: string; title: string; body: string; pinned: boolean }) => {
+      if (!isFirebaseConfigured) return;
+      const id = String(Date.now());
+      const now = new Date();
+      const date = `${two(now.getMonth() + 1)}.${two(now.getDate())}`;
+      const author = me.role ? `${me.name} ${me.role}` : me.name;
+      await setDoc(doc(firebaseDb(), COL.notices, id), {
+        cat: input.cat,
+        title: input.title,
+        body: input.body,
+        author,
+        date,
+        views: 0,
+        attach: false,
+        unread: true,
+        pinned: input.pinned,
+        order: -now.getTime(), // 최신 글이 위로 오도록
+      });
+    },
+    [me.name, me.role],
+  );
+
+  return { ...state, addNotice };
 }
 
 /* ------------------------------------------------------------------ */
@@ -324,6 +355,58 @@ export function useApprovalDoc(no: string) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  회의실 · 자원 예약                                                  */
+/* ------------------------------------------------------------------ */
+
+export function useBookings() {
+  const state = useGwCollection<BookingDoc>(COL.bookings, []);
+  const me = useCurrentUser();
+  const [added, setAdded] = React.useState<BookingDoc[]>([]);
+
+  const data = React.useMemo(() => {
+    const extra = added.filter((a) => !state.data.some((b) => b.id === a.id));
+    return [...state.data, ...extra];
+  }, [state.data, added]);
+
+  const addBooking = React.useCallback(
+    async (input: {
+      res: string;
+      from: number;
+      to: number;
+      title: string;
+      purpose?: string;
+      attendees?: number[];
+      video?: boolean;
+      provider?: string;
+    }) => {
+      const id = String(Date.now());
+      const now = new Date();
+      const payload: Omit<BookingDoc, "id"> = {
+        res: input.res,
+        from: input.from,
+        to: input.to,
+        title: input.title,
+        who: me.name,
+        date: now.toISOString().slice(0, 10),
+        purpose: input.purpose ?? "",
+        attendees: input.attendees ?? [],
+        video: input.video ?? false,
+        provider: input.provider ?? "",
+        order: input.from,
+      };
+      setAdded((p) => [...p, { id, ...payload }]);
+      if (isFirebaseConfigured) {
+        await setDoc(doc(firebaseDb(), COL.bookings, id), payload);
+      }
+      return id;
+    },
+    [me.name],
+  );
+
+  return { ...state, data, addBooking };
+}
+
+/* ------------------------------------------------------------------ */
 /*  조직도                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -338,7 +421,23 @@ export function useOrgPeople() {
     () => data.map((p) => ({ ...p, id: Number(p.id), tags: p.tags ?? [] })),
     [data],
   );
-  return { people, loading, source };
+
+  const addPerson = React.useCallback(
+    async (input: Omit<Person, "id">) => {
+      if (!isFirebaseConfigured) return;
+      const nextId = people.length
+        ? Math.max(...people.map((p) => p.id)) + 1
+        : 1;
+      await setDoc(doc(firebaseDb(), COL.people, String(nextId)), {
+        id: nextId,
+        ...input,
+      });
+      return nextId;
+    },
+    [people],
+  );
+
+  return { people, loading, source, addPerson };
 }
 
 /* ------------------------------------------------------------------ */
@@ -346,10 +445,10 @@ export function useOrgPeople() {
 /* ------------------------------------------------------------------ */
 
 const ATT_DEFAULT = {
-  working: true,
-  inAt: "09:02",
+  working: false,
+  inAt: "--:--",
   outAt: "--:--",
-  weekWorked: 32,
+  weekWorked: 0,
   history: ATT_ROWS,
 };
 
@@ -450,6 +549,93 @@ export function useGwSettings() {
 }
 
 /* ------------------------------------------------------------------ */
+/*  승인 대기 계정 (users, status == PENDING) — 관리자 전용               */
+/* ------------------------------------------------------------------ */
+
+export function usePendingUsers() {
+  const [data, setData] = React.useState<UserDoc[]>([]);
+  const [loading, setLoading] = React.useState(isFirebaseConfigured);
+
+  React.useEffect(() => {
+    if (!isFirebaseConfigured) return;
+    const q = query(
+      collection(firebaseDb(), COL.users),
+      where("status", "==", "PENDING"),
+    );
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setData(snap.docs.map((d) => ({ uid: d.id, ...d.data() }) as UserDoc));
+        setLoading(false);
+      },
+      () => setLoading(false),
+    );
+    return unsub;
+  }, []);
+
+  const approve = React.useCallback(async (uid: string) => {
+    setData((p) => p.filter((u) => u.uid !== uid));
+    await updateDoc(doc(firebaseDb(), COL.users, uid), {
+      status: "ACTIVE",
+      updatedAt: new Date(),
+    });
+  }, []);
+
+  const reject = React.useCallback(async (uid: string) => {
+    setData((p) => p.filter((u) => u.uid !== uid));
+    await deleteDoc(doc(firebaseDb(), COL.users, uid));
+  }, []);
+
+  return { data, loading, approve, reject };
+}
+
+/* ------------------------------------------------------------------ */
+/*  워크스페이스(회사) 기본 정보 — 관리자만 쓰기                          */
+/* ------------------------------------------------------------------ */
+
+const WORKSPACE_DEFAULT: WorkspaceDoc = {
+  name: "",
+  bizNo: "",
+  ceo: "",
+  address: "",
+  phone: "",
+  fiscalYearStart: "",
+};
+
+export function useWorkspace() {
+  const [data, setData] = React.useState<WorkspaceDoc>(WORKSPACE_DEFAULT);
+  const [loading, setLoading] = React.useState(isFirebaseConfigured);
+
+  React.useEffect(() => {
+    if (!isFirebaseConfigured) return;
+    const unsub = onSnapshot(
+      doc(firebaseDb(), COL.workspace, "main"),
+      (snap) => {
+        setData(
+          snap.exists()
+            ? { ...WORKSPACE_DEFAULT, ...(snap.data() as Partial<WorkspaceDoc>) }
+            : WORKSPACE_DEFAULT,
+        );
+        setLoading(false);
+      },
+      () => setLoading(false),
+    );
+    return unsub;
+  }, []);
+
+  const save = React.useCallback(async (patch: Partial<WorkspaceDoc>) => {
+    if (!isFirebaseConfigured) return;
+    await setDoc(
+      doc(firebaseDb(), COL.workspace, "main"),
+      { ...patch, updatedAt: new Date() },
+      { merge: true },
+    );
+  }, []);
+
+  return { data, loading, save };
+}
+
+/* ------------------------------------------------------------------ */
 /*  시드 실행 (관리자 화면에서 호출)                                     */
 /* ------------------------------------------------------------------ */
 
@@ -475,7 +661,7 @@ export async function runSeed(
         uid: admin.uid,
         email: admin.email ?? "",
         name,
-        departmentId: "플랫폼개발팀",
+        departmentId: "",
         position: "관리자",
         employeeId: `CF-${admin.uid.slice(0, 6).toUpperCase()}`,
         joinedAt: new Date(),

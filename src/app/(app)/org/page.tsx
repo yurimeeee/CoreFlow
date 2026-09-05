@@ -1,18 +1,20 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import {
   ChevronDown,
   ChevronRight,
   FolderOpen,
   LayoutGrid,
   Mail,
-  MapPin,
   MessageSquare,
   Network,
   Phone,
+  Plus,
   Search,
   Smartphone,
+  UserPlus,
   Users,
   X,
 } from "lucide-react";
@@ -23,17 +25,26 @@ import {
   ORG_BRANCHES,
   STATUS_META,
   type Person,
+  type PersonStatus,
 } from "@/lib/groupware/data";
 import { useOrgPeople } from "@/lib/groupware/hooks";
 import { avatarStyle, pill, statusDot, statusPill } from "@/lib/groupware/ui";
 import { GwCard, PageHeader, Segmented } from "@/components/app/primitives";
+
+const STATUS_OPTIONS: { value: PersonStatus; label: string }[] = [
+  { value: "online", label: "근무 중" },
+  { value: "remote", label: "원격근무" },
+  { value: "away", label: "회의 중" },
+  { value: "leave", label: "연차" },
+];
 
 export default function OrgPage() {
   const [view, setView] = React.useState<"grid" | "tree">("grid");
   const [query, setQuery] = React.useState("");
   const [dept, setDept] = React.useState("전체");
   const [profileId, setProfileId] = React.useState<number | null>(null);
-  const { people: directory, source } = useOrgPeople();
+  const [addOpen, setAddOpen] = React.useState(false);
+  const { people: directory, source, addPerson } = useOrgPeople();
 
   const byId = React.useCallback(
     (id: number) => directory.find((p) => p.id === id),
@@ -60,9 +71,27 @@ export default function OrgPage() {
       <PageHeader
         title="조직도 · 임직원 디렉토리"
         desc={
-          source === "firestore"
-            ? "Firestore 연동 · 넥스트코어 · 4개 본부 8개 팀"
-            : "넥스트코어 · 재직 인원 46명 · 4개 본부 8개 팀"
+          directory.length
+            ? `${source === "firestore" ? "Firestore 연동" : "로컬"} · 재직 인원 ${directory.length}명`
+            : "아직 등록된 구성원이 없습니다"
+        }
+        actions={
+          <>
+            <Link
+              href="/admin/invite"
+              className="flex h-9 items-center gap-1.5 rounded-[9px] border border-border bg-card px-3.5 text-[13px] font-semibold text-secondary-foreground hover:bg-secondary"
+            >
+              <UserPlus className="size-4 text-primary" />
+              멤버 초대
+            </Link>
+            <button
+              onClick={() => setAddOpen(true)}
+              className="flex h-9 items-center gap-1.5 rounded-[9px] bg-primary px-3.5 text-[13px] font-semibold text-primary-foreground shadow-[0_1px_2px_rgba(79,70,229,0.35)] hover:bg-primary-hover"
+            >
+              <Plus className="size-4" />
+              새 구성원 추가
+            </button>
+          </>
         }
       />
 
@@ -285,6 +314,243 @@ export default function OrgPage() {
           onOpen={setProfileId}
         />
       )}
+
+      {addOpen && (
+        <AddPersonModal
+          directory={directory}
+          onClose={() => setAddOpen(false)}
+          onSubmit={async (input) => {
+            await addPerson(input);
+            setAddOpen(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function AddPersonModal({
+  directory,
+  onClose,
+  onSubmit,
+}: {
+  directory: Person[];
+  onClose: () => void;
+  onSubmit: (input: Omit<Person, "id">) => Promise<void>;
+}) {
+  const [name, setName] = React.useState("");
+  const [role, setRole] = React.useState("");
+  const [dept, setDept] = React.useState("");
+  const [team, setTeam] = React.useState("");
+  const [email, setEmail] = React.useState("");
+  const [ext, setExt] = React.useState("");
+  const [mobile, setMobile] = React.useState("");
+  const [status, setStatus] = React.useState<PersonStatus>("online");
+  const [boss, setBoss] = React.useState("");
+  const [tags, setTags] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+
+  const valid = name.trim() && role.trim() && dept.trim() && email.trim();
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!valid || saving) return;
+    setSaving(true);
+    await onSubmit({
+      name: name.trim(),
+      role: role.trim(),
+      dept: dept.trim(),
+      team: team.trim() || dept.trim(),
+      email: email.trim(),
+      ext: ext.trim(),
+      mobile: mobile.trim(),
+      status,
+      boss: boss ? Number(boss) : null,
+      tags: tags
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean),
+    });
+    setSaving(false);
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#0f172a]/45 p-6 backdrop-blur-[2px]"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[88vh] w-full max-w-[520px] flex-col overflow-hidden rounded-2xl bg-card shadow-[0_24px_64px_rgba(15,23,42,0.28)]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-2.5 border-b border-[#eef1f5] px-5 pb-3.5 pt-4.5">
+          <span className="flex size-[34px] items-center justify-center rounded-[10px] bg-[#eef2ff] text-primary">
+            <UserPlus className="size-4" />
+          </span>
+          <div className="flex-1">
+            <div className="text-[15px] font-semibold tracking-[-0.015em]">
+              새 구성원 추가
+            </div>
+            <div className="mt-0.5 text-xs text-muted-foreground">
+              조직도 · 임직원 디렉토리에 바로 등록됩니다
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="flex size-[30px] items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        <form
+          onSubmit={submit}
+          className="flex flex-1 flex-col gap-3.5 overflow-y-auto px-5 py-4"
+        >
+          <div className="grid grid-cols-2 gap-3">
+            <ModalField label="이름" required>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="홍길동"
+                className={modalInput}
+                required
+              />
+            </ModalField>
+            <ModalField label="직급 / 직책" required>
+              <input
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+                placeholder="사원"
+                className={modalInput}
+                required
+              />
+            </ModalField>
+            <ModalField label="부서" required>
+              <input
+                value={dept}
+                onChange={(e) => setDept(e.target.value)}
+                placeholder="기술본부 · 플랫폼개발팀"
+                className={modalInput}
+                required
+              />
+            </ModalField>
+            <ModalField label="팀 (필터용, 비우면 부서와 동일)">
+              <input
+                value={team}
+                onChange={(e) => setTeam(e.target.value)}
+                placeholder="플랫폼개발팀"
+                className={modalInput}
+              />
+            </ModalField>
+            <ModalField label="이메일" required>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="member@company.com"
+                className={modalInput}
+                required
+              />
+            </ModalField>
+            <ModalField label="내선">
+              <input
+                value={ext}
+                onChange={(e) => setExt(e.target.value)}
+                placeholder="2100"
+                className={modalInput}
+              />
+            </ModalField>
+            <ModalField label="휴대폰">
+              <input
+                value={mobile}
+                onChange={(e) => setMobile(e.target.value)}
+                placeholder="010-0000-0000"
+                className={modalInput}
+              />
+            </ModalField>
+            <ModalField label="상태">
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value as PersonStatus)}
+                className={modalInput}
+              >
+                {STATUS_OPTIONS.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </ModalField>
+            <ModalField label="직속 상사 (Reports to)">
+              <select
+                value={boss}
+                onChange={(e) => setBoss(e.target.value)}
+                className={modalInput}
+              >
+                <option value="">없음 (최상위)</option>
+                {directory.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} · {p.role}
+                  </option>
+                ))}
+              </select>
+            </ModalField>
+            <ModalField label="담당 업무 태그 (쉼표로 구분)">
+              <input
+                value={tags}
+                onChange={(e) => setTags(e.target.value)}
+                placeholder="React, 디자인시스템"
+                className={modalInput}
+              />
+            </ModalField>
+          </div>
+        </form>
+
+        <div className="flex gap-2 border-t border-[#eef1f5] bg-secondary px-5 py-3.5">
+          <button
+            onClick={onClose}
+            className="h-10 flex-1 rounded-[10px] border border-border bg-card text-[13px] font-semibold text-secondary-foreground hover:bg-[#f1f5f9]"
+          >
+            취소
+          </button>
+          <button
+            onClick={submit}
+            disabled={!valid || saving}
+            className={cn(
+              "h-10 flex-[2] rounded-[10px] text-[13px] font-semibold transition-colors",
+              !valid || saving
+                ? "cursor-not-allowed bg-[#f1f5f9] text-muted-foreground"
+                : "bg-primary text-primary-foreground shadow-[0_1px_2px_rgba(79,70,229,0.35)] hover:bg-primary-hover",
+            )}
+          >
+            {saving ? "추가하는 중…" : "구성원 추가"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const modalInput =
+  "h-9.5 w-full rounded-[9px] border border-border bg-card px-3 text-[13px] focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25";
+
+function ModalField({
+  label,
+  required,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <div className="mb-1.5 text-[11.5px] font-semibold text-muted-foreground">
+        {label}
+        {required && <span className="ml-0.5 text-[#e11d48]">*</span>}
+      </div>
+      {children}
     </div>
   );
 }
@@ -425,7 +691,6 @@ function ProfileDrawer({
               { icon: Mail, label: "이메일", value: p.email },
               { icon: Phone, label: "내선", value: p.ext },
               { icon: Smartphone, label: "휴대폰", value: p.mobile },
-              { icon: MapPin, label: "근무지", value: "본사 7F · 서울 강남" },
             ].map(({ icon: Icon, label, value }) => (
               <div
                 key={label}

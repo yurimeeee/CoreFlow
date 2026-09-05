@@ -5,6 +5,7 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
+  Home,
   List,
   LogIn,
   LogOut,
@@ -14,24 +15,29 @@ import {
 import { cn } from "@/lib/utils";
 import {
   ATT_DAY_DATA,
+  ATT_OOO,
   ATT_TYPE_COLORS,
   LEAVE_HISTORY,
+  OOO_COLORS,
+  WEEK_LIMIT,
+  WEEK_WARN,
 } from "@/lib/groupware/data";
 import { pill } from "@/lib/groupware/ui";
 import { useNow } from "@/lib/groupware/use-now";
 import { useAttendance } from "@/lib/groupware/hooks";
-import { GwCard, PageHeader, Segmented } from "@/components/app/primitives";
+import { GwCard, PageHeader, Segmented, Toggle } from "@/components/app/primitives";
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 const two = (n: number) => String(n).padStart(2, "0");
-const LIMIT = 52;
+const LIMIT = WEEK_LIMIT;
 
-const LEGEND = [
+const LEGEND: { label: string; c: string; ring?: boolean }[] = [
   { label: "정상근무", c: "#4f46e5" },
   { label: "지각", c: "#f59e0b" },
   { label: "연장근무", c: "#e11d48" },
   { label: "재택", c: "#16a34a" },
   { label: "연차", c: "#94a3b8" },
+  { label: "팀원 부재(OOO)", c: "#cbd5e1", ring: true },
 ];
 
 export default function AttendancePage() {
@@ -39,10 +45,42 @@ export default function AttendancePage() {
   const { working, inAt, outAt, weekWorked, history, checkIn, checkOut } =
     useAttendance();
   const [view, setView] = React.useState<"calendar" | "list">("calendar");
+  const [remoteToday, setRemoteToday] = React.useState(false);
 
   const clock = now ? `${two(now.getHours())}:${two(now.getMinutes())}` : "--:--";
   const seconds = now ? `:${two(now.getSeconds())}` : ":--";
   const pct = Math.min(100, Math.round((weekWorked / LIMIT) * 1000) / 10);
+  const warnPct = Math.round((WEEK_WARN / LIMIT) * 1000) / 10;
+  const zone: "normal" | "warn" | "over" =
+    weekWorked >= LIMIT ? "over" : weekWorked >= WEEK_WARN ? "warn" : "normal";
+  const barColor =
+    zone === "over"
+      ? "linear-gradient(90deg, #f43f5e, #e11d48)"
+      : zone === "warn"
+        ? "linear-gradient(90deg, #fbbf24, #f59e0b)"
+        : "linear-gradient(90deg, #6366f1, #4f46e5)";
+  const zoneLabel =
+    zone === "over" ? "법정 한도 초과" : zone === "warn" ? "경고 구간 (45h 초과)" : "정상 구간";
+
+  const badges: { label: string; bg: string; fg: string }[] = [];
+  if (working) badges.push({ label: "근무 중", bg: "#f0fdf4", fg: "#15803d" });
+  else if (outAt !== "--:--")
+    badges.push({ label: "퇴근 완료", bg: "#f1f5f9", fg: "#475569" });
+  else badges.push({ label: "출근 전", bg: "#fff7ed", fg: "#c2410c" });
+  if (inAt !== "--:--" && inAt > "09:10")
+    badges.push({ label: "지각", bg: "#fef2f2", fg: "#b91c1c" });
+  if (remoteToday)
+    badges.push({ label: "재택근무", bg: "#eef2ff", fg: "#4338ca" });
+
+  const todayWorked = (() => {
+    if (inAt === "--:--") return "--";
+    const [ih, im] = inAt.split(":").map(Number);
+    const end = outAt !== "--:--" ? outAt : clock;
+    const [oh, om] = end.split(":").map(Number);
+    const mins = oh * 60 + om - (ih * 60 + im);
+    if (!Number.isFinite(mins) || mins <= 0) return "--";
+    return `${Math.round((mins / 60) * 10) / 10}h`;
+  })();
 
   const cells: React.ReactNode[] = [];
   for (let i = 0; i < 2; i++) {
@@ -55,6 +93,7 @@ export default function AttendancePage() {
     const weekend = (d + 1) % 7 === 0 || (d + 2) % 7 === 0;
     const today = d === 2;
     const tc = rec ? ATT_TYPE_COLORS[rec[2]] : null;
+    const ooo = (ATT_OOO[d] ?? []).slice(0, 4);
     cells.push(
       <div
         key={d}
@@ -81,6 +120,23 @@ export default function AttendancePage() {
             <div className="text-muted-foreground">{rec[1]}</div>
           </div>
         )}
+        {ooo.length > 0 && (
+          <div className={cn("flex items-center", !rec && "mt-auto")}>
+            {ooo.map(([name, kind], oi) => (
+              <span
+                key={name + kind}
+                title={`${name} · ${kind}`}
+                className="flex size-[18px] items-center justify-center rounded-full border-[1.5px] border-white text-[9px] font-bold text-white"
+                style={{
+                  background: OOO_COLORS[kind] ?? "#94a3b8",
+                  marginLeft: oi === 0 ? 0 : -6,
+                }}
+              >
+                {name.charAt(0)}
+              </span>
+            ))}
+          </div>
+        )}
       </div>,
     );
   }
@@ -89,7 +145,7 @@ export default function AttendancePage() {
     <div className="mx-auto flex max-w-[1360px] flex-col gap-4.5">
       <PageHeader
         title="출퇴근 / 근태 관리"
-        desc="2026년 9월 · 유연근무제(선택근무) · 플랫폼개발팀"
+        desc={now ? `${now.getFullYear()}년 ${now.getMonth() + 1}월` : ""}
         actions={
           <>
             <button className="flex h-9 items-center gap-1.5 rounded-[9px] border border-border bg-card px-3.5 text-[13px] font-semibold text-secondary-foreground hover:bg-secondary">
@@ -113,16 +169,36 @@ export default function AttendancePage() {
             <div className="text-xl text-muted-foreground tabular-nums">
               {seconds}
             </div>
-            <div className="ml-auto text-right">
+            <div className="ml-auto flex flex-col items-end gap-1.5">
               <div className="text-[11.5px] text-muted-foreground">
                 {now
                   ? `${now.getMonth() + 1}월 ${now.getDate()}일 ${WEEKDAYS[now.getDay()]}요일`
                   : ""}
               </div>
-              <div className="mt-0.5 text-[12.5px] font-semibold text-success">
-                {working ? "근무 중" : "퇴근 완료"}
+              <div className="flex flex-wrap justify-end gap-1">
+                {badges.map((b) => (
+                  <span key={b.label} style={pill(b.bg, b.fg)}>
+                    {b.label}
+                  </span>
+                ))}
               </div>
             </div>
+          </div>
+
+          <div className="flex items-center gap-2 rounded-[10px] border border-border bg-secondary px-3 py-2">
+            <Home className="size-4 text-muted-foreground" />
+            <span className="text-[12.5px] font-semibold text-secondary-foreground">
+              오늘 재택근무
+            </span>
+            <span className="text-[11px] text-muted-foreground">
+              {remoteToday ? "재택근무로 표시됩니다" : "사무실 출근 기준입니다"}
+            </span>
+            <Toggle
+              size="sm"
+              on={remoteToday}
+              onClick={() => setRemoteToday((v) => !v)}
+              className="ml-auto"
+            />
           </div>
 
           <div className="flex gap-2.5">
@@ -158,7 +234,7 @@ export default function AttendancePage() {
             {[
               ["오늘 출근", inAt],
               ["오늘 퇴근", outAt],
-              ["오늘 근무", "7.4h"],
+              ["오늘 근무", todayWorked],
             ].map(([k, v]) => (
               <div
                 key={k}
@@ -177,22 +253,40 @@ export default function AttendancePage() {
               <span className="text-[12.5px] text-muted-foreground">
                 이번 주 누적 근무
               </span>
-              <span style={pill("#f0fdf4", "#15803d")}>
-                소정근로 내 · 연장 여유 12시간
+              <span
+                style={
+                  weekWorked > 40
+                    ? pill("#fef2f2", "#b91c1c")
+                    : pill("#f0fdf4", "#15803d")
+                }
+              >
+                {weekWorked > 40
+                  ? `연장근로 ${weekWorked - 40}시간`
+                  : "소정근로 내 · 연장 여유 12시간"}
               </span>
               <span className="ml-auto text-[13px] font-semibold tabular-nums">
                 {weekWorked}시간 / {LIMIT}시간
               </span>
             </div>
-            <div className="h-2.5 overflow-hidden rounded-full bg-[#eef1f5]">
+            <div className="relative h-2.5 rounded-full bg-[#eef1f5]">
               <div
-                className="h-full rounded-full bg-gradient-to-r from-[#6366f1] to-[#4f46e5]"
-                style={{ width: `${pct}%` }}
+                className="h-full overflow-hidden rounded-full transition-[width] duration-500"
+                style={{ width: `${pct}%`, background: barColor }}
               />
+              <div
+                className="absolute -top-[3px] -bottom-[3px] w-0.5 rounded-sm bg-[#f59e0b]"
+                style={{ left: `${warnPct}%` }}
+              />
+              <div className="absolute -top-[3px] -bottom-[3px] right-0 w-0.5 rounded-sm bg-[#e11d48]" />
             </div>
-            <div className="mt-1.5 flex justify-between text-[11.5px] text-muted-foreground">
-              <span>법정 한도 주 {LIMIT}시간 (소정 40h + 연장 12h)</span>
-              <span>잔여 {LIMIT - weekWorked}시간</span>
+            <div className="mt-2 flex justify-between text-[11px] text-[#cbd5e1]">
+              <span>0h</span>
+              <span>경고 {WEEK_WARN}h</span>
+              <span>한도 {LIMIT}h</span>
+            </div>
+            <div className="mt-1 flex justify-between text-[11.5px] text-muted-foreground">
+              <span>소정 40h + 연장 12h · {zoneLabel}</span>
+              <span>잔여 {Math.round((LIMIT - weekWorked) * 10) / 10}시간</span>
             </div>
           </div>
         </GwCard>
@@ -204,14 +298,14 @@ export default function AttendancePage() {
               연차 잔여 현황
             </h3>
             <span className="ml-auto text-[11.5px] text-muted-foreground">
-              2026 회계연도
+              {now ? now.getFullYear() : ""} 회계연도
             </span>
           </div>
           <div className="grid grid-cols-3 gap-2.5">
             {[
-              ["총 연차", "15", "#f8fafc", "#eef1f5", "#0f172a"],
-              ["사용", "5", "#f8fafc", "#eef1f5", "#64748b"],
-              ["잔여", "10", "#f5f6ff", "#e0e7ff", "#3730a3"],
+              ["총 연차", "0", "#f8fafc", "#eef1f5", "#0f172a"],
+              ["사용", "0", "#f8fafc", "#eef1f5", "#64748b"],
+              ["잔여", "0", "#f5f6ff", "#e0e7ff", "#3730a3"],
             ].map(([label, v, bg, bd, fg]) => (
               <div
                 key={label}
@@ -235,11 +329,11 @@ export default function AttendancePage() {
           </div>
           <div>
             <div className="flex h-2 overflow-hidden rounded-full bg-[#eef1f5]">
-              <div className="w-1/3 bg-primary" />
+              <div className="w-0 bg-primary" />
             </div>
             <div className="mt-1.5 flex justify-between text-[11.5px] text-muted-foreground">
-              <span>사용률 33%</span>
-              <span>소멸 예정 2026.12.31</span>
+              <span>사용률 0%</span>
+              <span>소멸 예정 {now ? now.getFullYear() : ""}.12.31</span>
             </div>
           </div>
           <div className="flex flex-col gap-2 border-t border-[#f1f5f9] pt-3">
@@ -322,7 +416,7 @@ export default function AttendancePage() {
                   className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground"
                 >
                   <span
-                    className="size-2 rounded-[3px]"
+                    className={cn("size-2", l.ring ? "rounded-full" : "rounded-[3px]")}
                     style={{ background: l.c }}
                   />
                   {l.label}

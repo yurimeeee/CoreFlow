@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import {
   Bell,
   Building2,
@@ -11,6 +12,7 @@ import {
   HardDrive,
   Info,
   Laptop,
+  Loader2,
   Lock,
   Mail,
   MessageSquare,
@@ -31,15 +33,19 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  COMPANY_FIELDS,
   INTEGRATIONS,
   NOTIFY_GROUPS,
-  PENDING_MEMBERS,
   RBAC_ROWS,
   ROLE_COLS,
   SESSIONS,
 } from "@/lib/groupware/data";
-import { useCurrentUser, useGwSettings } from "@/lib/groupware/hooks";
+import { WORKSPACE_FIELD_LABELS } from "@/lib/groupware/firestore";
+import {
+  useCurrentUser,
+  useGwSettings,
+  usePendingUsers,
+  useWorkspace,
+} from "@/lib/groupware/hooks";
 import { avatarStyle, pill } from "@/lib/groupware/ui";
 import { GwCard } from "@/components/app/primitives";
 
@@ -121,6 +127,9 @@ export default function SettingsPage() {
   const { profile, canSave, save } = useGwSettings();
   const me = useCurrentUser();
   const [edits, setEdits] = React.useState<Edits>({});
+  const isAdmin = profile?.role === "ADMIN" || profile?.role === "SUPER_ADMIN";
+  const isAdminTab = tab === "company" || tab === "members" || tab === "integration";
+  const activeTab: Tab = isAdminTab && !isAdmin ? "profile" : tab;
 
   const gw = profile?.gwSettings;
   const name = edits.name ?? profile?.name ?? me.name;
@@ -165,23 +174,27 @@ export default function SettingsPage() {
             {PERSONAL_TABS.map((t) => (
               <TabBtn key={t.key} t={t} active={tab === t.key} onClick={() => setTab(t.key)} />
             ))}
-            <div className="flex items-center gap-1.5 px-2.5 pb-1.5 pt-3.5 text-[11px] font-semibold tracking-[0.03em] text-muted-foreground">
-              워크스페이스 관리
-              <span
-                className="rounded-[5px] px-1.5 py-0.5 text-[9.5px] font-bold text-[#4338ca]"
-                style={{ background: "#eef2ff" }}
-              >
-                ADMIN
-              </span>
-            </div>
-            {ADMIN_TABS.map((t) => (
-              <TabBtn key={t.key} t={t} active={tab === t.key} onClick={() => setTab(t.key)} />
-            ))}
+            {isAdmin && (
+              <>
+                <div className="flex items-center gap-1.5 px-2.5 pb-1.5 pt-3.5 text-[11px] font-semibold tracking-[0.03em] text-muted-foreground">
+                  워크스페이스 관리
+                  <span
+                    className="rounded-[5px] px-1.5 py-0.5 text-[9.5px] font-bold text-[#4338ca]"
+                    style={{ background: "#eef2ff" }}
+                  >
+                    {profile?.role === "SUPER_ADMIN" ? "SUPER ADMIN" : "ADMIN"}
+                  </span>
+                </div>
+                {ADMIN_TABS.map((t) => (
+                  <TabBtn key={t.key} t={t} active={tab === t.key} onClick={() => setTab(t.key)} />
+                ))}
+              </>
+            )}
           </GwCard>
         </aside>
 
         <div className="flex min-w-[320px] flex-[1_1_560px] flex-col gap-4">
-          {tab === "profile" && (
+          {activeTab === "profile" && (
             <GwCard className="flex flex-col gap-5 p-5.5">
               <div>
                 <h3 className="text-[14.5px] font-semibold tracking-[-0.015em]">
@@ -291,7 +304,7 @@ export default function SettingsPage() {
             </GwCard>
           )}
 
-          {tab === "notify" &&
+          {activeTab === "notify" &&
             NOTIFY_GROUPS.map((g) => {
               const Icon = NOTIFY_ICONS[g.icon];
               return (
@@ -345,7 +358,7 @@ export default function SettingsPage() {
               );
             })}
 
-          {tab === "security" && (
+          {activeTab === "security" && (
             <>
               <GwCard className="flex flex-col gap-4.5 p-5.5">
                 <div className="flex items-start gap-3">
@@ -466,7 +479,7 @@ export default function SettingsPage() {
             </>
           )}
 
-          {tab === "members" && (
+          {activeTab === "members" && (
             <>
               <GwCard>
                 <div className="flex flex-wrap items-center gap-2.5 border-b border-[#eef1f5] px-5 py-4">
@@ -478,10 +491,13 @@ export default function SettingsPage() {
                       역할별로 워크스페이스 기능 권한을 설정합니다
                     </p>
                   </div>
-                  <button className="ml-auto flex h-8.5 items-center gap-1.5 rounded-[9px] bg-primary px-3 text-[12.5px] font-semibold text-primary-foreground hover:bg-primary-hover">
+                  <Link
+                    href="/admin/invite"
+                    className="ml-auto flex h-8.5 items-center gap-1.5 rounded-[9px] bg-primary px-3 text-[12.5px] font-semibold text-primary-foreground hover:bg-primary-hover"
+                  >
                     <UserPlus className="size-3.5" />
                     멤버 초대
-                  </button>
+                  </Link>
                 </div>
                 <div className="overflow-x-auto">
                   <div className="flex min-w-[720px] border-b border-[#eef1f5] bg-secondary px-5 py-2.5 text-[11.5px] font-semibold text-muted-foreground">
@@ -543,77 +559,13 @@ export default function SettingsPage() {
                 </div>
               </GwCard>
 
-              <GwCard>
-                <div className="flex items-center gap-2 border-b border-[#eef1f5] px-5 py-4">
-                  <h3 className="text-sm font-semibold tracking-[-0.015em]">
-                    승인 대기 계정
-                  </h3>
-                  <span
-                    className="rounded-md px-1.5 py-0.5 text-[10.5px] font-bold text-[#c2410c]"
-                    style={{ background: "#fff7ed" }}
-                  >
-                    3건 대기
-                  </span>
-                </div>
-                {PENDING_MEMBERS.map((m) => (
-                  <div
-                    key={m.email}
-                    className="flex flex-wrap items-center gap-3 border-b border-[#f1f5f9] px-5 py-3.5"
-                  >
-                    <span style={avatarStyle(m.name.charAt(0), 36)}>
-                      {m.name.charAt(0)}
-                    </span>
-                    <div className="min-w-0 flex-[1_1_180px]">
-                      <div className="text-[13px] font-semibold">
-                        {m.name}{" "}
-                        <span className="font-normal text-muted-foreground">
-                          {m.role}
-                        </span>
-                      </div>
-                      <div className="mt-0.5 truncate text-[11.5px] text-muted-foreground">
-                        {m.email} · {m.dept}
-                      </div>
-                    </div>
-                    <span className="whitespace-nowrap text-[11.5px] text-muted-foreground">
-                      {m.requested}
-                    </span>
-                    <div className="flex gap-1.5">
-                      <button className="h-8 rounded-lg border border-border bg-card px-3 text-[12.5px] font-semibold text-muted-foreground hover:bg-secondary">
-                        거절
-                      </button>
-                      <button className="h-8 rounded-lg bg-primary px-3.5 text-[12.5px] font-semibold text-primary-foreground hover:bg-primary-hover">
-                        승인
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </GwCard>
+              <PendingMembersCard />
             </>
           )}
 
-          {tab === "company" && (
-            <GwCard className="flex flex-col gap-4.5 p-5.5">
-              <div>
-                <h3 className="text-[14.5px] font-semibold tracking-[-0.015em]">
-                  회사 정보
-                </h3>
-                <p className="mt-1 text-[12.5px] text-muted-foreground">
-                  전자결재 문서와 사내 안내에 표시되는 기본 정보입니다.
-                </p>
-              </div>
-              <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-3.5">
-                {COMPANY_FIELDS.map((c) => (
-                  <Field key={c.label} label={c.label}>
-                    <div className="flex h-9.5 items-center rounded-[9px] border border-border bg-card px-3 text-[13px]">
-                      {c.value}
-                    </div>
-                  </Field>
-                ))}
-              </div>
-            </GwCard>
-          )}
+          {activeTab === "company" && <CompanyInfoCard />}
 
-          {tab === "integration" && (
+          {activeTab === "integration" && (
             <GwCard className="p-5">
               <div>
                 <h3 className="text-[14.5px] font-semibold tracking-[-0.015em]">
@@ -709,6 +661,137 @@ export default function SettingsPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+function CompanyInfoCard() {
+  const { data, loading, save } = useWorkspace();
+  const [edits, setEdits] = React.useState<Partial<typeof data>>({});
+  const [saving, setSaving] = React.useState(false);
+  const dirty = Object.keys(edits).length > 0;
+  const values = { ...data, ...edits };
+
+  const commit = async () => {
+    setSaving(true);
+    await save(edits);
+    setEdits({});
+    setSaving(false);
+  };
+
+  return (
+    <GwCard className="flex flex-col gap-4.5 p-5.5">
+      <div className="flex items-start gap-3">
+        <div className="flex-1">
+          <h3 className="text-[14.5px] font-semibold tracking-[-0.015em]">
+            회사 정보
+          </h3>
+          <p className="mt-1 text-[12.5px] text-muted-foreground">
+            전자결재 문서와 사내 안내에 표시되는 기본 정보입니다.
+          </p>
+        </div>
+        {loading && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+      </div>
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-3.5">
+        {WORKSPACE_FIELD_LABELS.map((f) => (
+          <Field key={f.key} label={f.label}>
+            <input
+              value={values[f.key]}
+              onChange={(e) =>
+                setEdits((p) => ({ ...p, [f.key]: e.target.value }))
+              }
+              placeholder={f.placeholder}
+              className={fieldInput}
+            />
+          </Field>
+        ))}
+      </div>
+      {dirty && (
+        <div className="flex justify-end gap-2 border-t border-[#f1f5f9] pt-4">
+          <button
+            onClick={() => setEdits({})}
+            className="h-9 rounded-[9px] border border-border bg-card px-3.5 text-[13px] font-semibold text-secondary-foreground hover:bg-secondary"
+          >
+            취소
+          </button>
+          <button
+            onClick={commit}
+            disabled={saving}
+            className="h-9 rounded-[9px] bg-primary px-4 text-[13px] font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-60"
+          >
+            {saving ? "저장 중…" : "회사 정보 저장"}
+          </button>
+        </div>
+      )}
+    </GwCard>
+  );
+}
+
+function PendingMembersCard() {
+  const { data, loading, approve, reject } = usePendingUsers();
+  const [busy, setBusy] = React.useState<string | null>(null);
+
+  const act = async (uid: string, fn: (uid: string) => Promise<void>) => {
+    setBusy(uid);
+    await fn(uid);
+    setBusy(null);
+  };
+
+  return (
+    <GwCard>
+      <div className="flex items-center gap-2 border-b border-[#eef1f5] px-5 py-4">
+        <h3 className="text-sm font-semibold tracking-[-0.015em]">
+          승인 대기 계정
+        </h3>
+        <span
+          className="rounded-md px-1.5 py-0.5 text-[10.5px] font-bold text-[#c2410c]"
+          style={{ background: "#fff7ed" }}
+        >
+          {loading ? "확인 중…" : `${data.length}건 대기`}
+        </span>
+      </div>
+      {!loading && data.length === 0 && (
+        <div className="px-5 py-8 text-center text-[12.5px] text-muted-foreground">
+          승인 대기 중인 계정이 없습니다.
+        </div>
+      )}
+      {data.map((m) => (
+        <div
+          key={m.uid}
+          className="flex flex-wrap items-center gap-3 border-b border-[#f1f5f9] px-5 py-3.5"
+        >
+          <span style={avatarStyle(m.name.charAt(0), 36)}>
+            {m.name.charAt(0)}
+          </span>
+          <div className="min-w-0 flex-[1_1_180px]">
+            <div className="text-[13px] font-semibold">
+              {m.name}{" "}
+              <span className="font-normal text-muted-foreground">
+                {m.position}
+              </span>
+            </div>
+            <div className="mt-0.5 truncate text-[11.5px] text-muted-foreground">
+              {m.email} · {m.departmentId || "부서 미배정"}
+            </div>
+          </div>
+          <div className="flex gap-1.5">
+            <button
+              onClick={() => act(m.uid, reject)}
+              disabled={busy === m.uid}
+              className="h-8 rounded-lg border border-border bg-card px-3 text-[12.5px] font-semibold text-muted-foreground hover:bg-secondary disabled:opacity-60"
+            >
+              거절
+            </button>
+            <button
+              onClick={() => act(m.uid, approve)}
+              disabled={busy === m.uid}
+              className="h-8 rounded-lg bg-primary px-3.5 text-[12.5px] font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-60"
+            >
+              승인
+            </button>
+          </div>
+        </div>
+      ))}
+    </GwCard>
   );
 }
 

@@ -59,9 +59,18 @@ service cloud.firestore {
     match /approvals/{no} {
       allow read, write: if isSignedIn();
     }
+    match /bookings/{id} {
+      allow read, write: if isSignedIn();
+    }
     match /attendance/{uid} {
       // 본인 출퇴근 문서만
       allow read, write: if isSignedIn() && request.auth.uid == uid;
+    }
+
+    /* ---------------- workspace/{id} (회사 기본 정보) ---------------- */
+    match /workspace/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
     }
 
     /* ---------------- invites/{inviteId} ---------------- */

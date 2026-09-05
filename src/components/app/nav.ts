@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  CalendarClock,
   Clock,
   FileCheck2,
   LayoutDashboard,
@@ -19,9 +20,10 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "대시보드", icon: LayoutDashboard },
   { href: "/attendance", label: "출퇴근 관리", icon: Clock },
-  { href: "/approval", label: "전자결재", icon: FileCheck2, badge: "3" },
-  { href: "/tasks", label: "프로젝트 / Task", icon: SquareKanban, badge: "9" },
-  { href: "/notice", label: "공지사항", icon: Megaphone, badge: "3" },
+  { href: "/approval", label: "전자결재", icon: FileCheck2 },
+  { href: "/tasks", label: "프로젝트 / Task", icon: SquareKanban },
+  { href: "/booking", label: "자원 예약", icon: CalendarClock },
+  { href: "/notice", label: "공지사항", icon: Megaphone },
   { href: "/org", label: "조직도", icon: Users },
   { href: "/settings", label: "설정", icon: Settings },
 ];
@@ -32,6 +34,7 @@ export const SCREEN_TITLES: Record<string, string> = {
   "/approval": "전자결재",
   "/approval/new": "기안 작성",
   "/tasks": "프로젝트 / Task",
+  "/booking": "회의실 · 자원 예약",
   "/notice": "공지사항",
   "/org": "조직도",
   "/settings": "설정",

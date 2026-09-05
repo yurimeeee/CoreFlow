@@ -91,6 +91,43 @@ export function Segmented<T extends string>({
   );
 }
 
+export function Toggle({
+  on,
+  onClick,
+  size = "md",
+  className,
+}: {
+  on: boolean;
+  onClick: () => void;
+  size?: "sm" | "md";
+  className?: string;
+}) {
+  const w = size === "sm" ? "w-9" : "w-[42px]";
+  const h = size === "sm" ? "h-5" : "h-6";
+  const knob = size === "sm" ? "size-[14px]" : "size-[18px]";
+  const onLeft = size === "sm" ? "left-[19px]" : "left-[21px]";
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "relative shrink-0 rounded-full transition-colors",
+        w,
+        h,
+        on ? "bg-primary" : "bg-[#cbd5e1]",
+        className,
+      )}
+    >
+      <span
+        className={cn(
+          "absolute top-[3px] rounded-full bg-white shadow transition-[left]",
+          knob,
+          on ? onLeft : "left-[3px]",
+        )}
+      />
+    </button>
+  );
+}
+
 export function StatCard({
   label,
   value,
