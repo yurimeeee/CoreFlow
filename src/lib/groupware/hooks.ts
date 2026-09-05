@@ -223,8 +223,59 @@ const APPROVAL_FALLBACK: ApprovalDoc[] = APPROVAL_ROWS.flatMap((rows, b) =>
   })),
 );
 
+export type NewApproval = {
+  no: string;
+  type: string;
+  title: string;
+  approver: string;
+  status: string; // Waiting | In Progress | ...
+  bucket: ApprovalDoc["bucket"];
+  line?: ApprovalDoc["line"];
+  meta?: ApprovalDoc["meta"];
+  rows?: ApprovalDoc["rows"];
+  reason?: string;
+};
+
 export function useApprovals() {
-  return useGwCollection<ApprovalDoc>(COL.approvals, APPROVAL_FALLBACK);
+  const state = useGwCollection<ApprovalDoc>(COL.approvals, APPROVAL_FALLBACK);
+  const me = useCurrentUser();
+  // 낙관적 추가 (Firebase 미설정 시엔 이게 유일한 저장소)
+  const [added, setAdded] = React.useState<ApprovalDoc[]>([]);
+
+  const data = React.useMemo(() => {
+    const extra = added.filter((a) => !state.data.some((d) => d.no === a.no));
+    return [...state.data, ...extra];
+  }, [state.data, added]);
+
+  const createApproval = React.useCallback(
+    async (input: NewApproval) => {
+      const now = new Date();
+      const date = `${two(now.getMonth() + 1)}.${two(now.getDate())}`;
+      const author = me.role ? `${me.name} ${me.role}` : me.name;
+      const payload: Omit<ApprovalDoc, "no"> = {
+        type: input.type,
+        title: input.title,
+        author,
+        date,
+        approver: input.approver,
+        status: input.status,
+        bucket: input.bucket,
+        order: -now.getTime(), // 최신 문서가 위로
+        ...(input.line ? { line: input.line } : {}),
+        ...(input.meta ? { meta: input.meta } : {}),
+        ...(input.rows ? { rows: input.rows } : {}),
+        ...(input.reason ? { reason: input.reason } : {}),
+      };
+      setAdded((p) => [...p, { no: input.no, ...payload }]);
+      if (isFirebaseConfigured) {
+        await setDoc(doc(firebaseDb(), COL.approvals, input.no), payload);
+      }
+      return input.no;
+    },
+    [me.name, me.role],
+  );
+
+  return { ...state, data, createApproval };
 }
 
 export function useApprovalDoc(no: string) {

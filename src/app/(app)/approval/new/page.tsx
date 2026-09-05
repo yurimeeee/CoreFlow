@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   ArrowRight,
@@ -23,18 +24,35 @@ import {
   Table,
   Underline,
   Upload,
-  UserCheck,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  DRAFT_APPROVAL_LINE,
-  DRAFT_META,
   EXPENSE_ROWS,
   FORM_TEMPLATES,
   PURCHASE_ROWS,
 } from "@/lib/groupware/data";
 import { pill } from "@/lib/groupware/ui";
+import { useApprovals, useCurrentUser } from "@/lib/groupware/hooks";
 import { GwCard } from "@/components/app/primitives";
+
+/** 서식 → 결재 문서 유형 (APPROVAL_TYPE_COLORS 키) */
+const FORM_TYPE: Record<string, string> = {
+  지출결의서: "지출",
+  휴가신청서: "휴가",
+  품의서: "품의",
+  업무보고서: "보고",
+  "근무시간 변경 신청": "인사",
+  구매요청서: "품의",
+};
+
+const NO_PREFIX: Record<string, string> = {
+  지출: "EX",
+  휴가: "VC",
+  품의: "PR",
+  보고: "RP",
+  인사: "HR",
+};
 
 const FORM_ICONS: Record<string, React.ElementType> = {
   지출결의서: Receipt,
@@ -84,6 +102,10 @@ const areaCls =
 const labelCls = "mb-1.5 block text-[11.5px] font-semibold text-muted-foreground";
 
 export default function DraftPage() {
+  const router = useRouter();
+  const me = useCurrentUser();
+  const { createApproval } = useApprovals();
+
   const [form, setForm] = React.useState("지출결의서");
   const [title, setTitle] = React.useState("");
   const [sec, setSec] = React.useState("일반");
@@ -94,6 +116,10 @@ export default function DraftPage() {
   const [text, setText] = React.useState<Record<string, string>>({});
   const [expense, setExpense] = React.useState(EXPENSE_ROWS);
   const [purchase, setPurchase] = React.useState(PURCHASE_ROWS);
+  const [approvers, setApprovers] = React.useState<string[]>([]);
+  const [approverDraft, setApproverDraft] = React.useState("");
+  const [saving, setSaving] = React.useState<null | "draft" | "submit">(null);
+  const [savedNo, setSavedNo] = React.useState<string | null>(null);
 
   const t = (k: string) => text[k] ?? "";
   const setT = (k: string, v: string) => setText((p) => ({ ...p, [k]: v }));
@@ -102,6 +128,128 @@ export default function DraftPage() {
     (a, r) => a + won(r.qty) * won(r.price),
     0,
   );
+
+  const authorName = me.role ? `${me.name} ${me.role}` : me.name;
+  const docType = FORM_TYPE[form] ?? "보고";
+
+  const addApprover = () => {
+    const v = approverDraft.trim();
+    if (!v || approvers.includes(v)) return setApproverDraft("");
+    setApprovers((p) => [...p, v]);
+    setApproverDraft("");
+  };
+
+  const buildReason = () => {
+    if (form === "휴가신청서") return t("reason").trim();
+    if (form === "품의서")
+      return [
+        t("purpose") && `[품의 목적] ${t("purpose")}`,
+        t("detail"),
+        t("budget") && `예상 소요 예산: ${t("budget")}`,
+        t("effect") && `기대 효과: ${t("effect")}`,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+    if (form === "업무보고서")
+      return [
+        t("done") && `[금주 실적]\n${t("done")}`,
+        t("plan") && `[차주 계획]\n${t("plan")}`,
+        t("issue") && `[이슈 및 건의사항]\n${t("issue")}`,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+    if (form === "근무시간 변경 신청")
+      return [`변경 후 근무 시간대: ${shift}`, t("reason")]
+        .filter(Boolean)
+        .join("\n\n");
+    if (form === "구매요청서")
+      return purchase
+        .filter((r) => r.name.trim())
+        .map(
+          (r) =>
+            `· ${r.name} — ${won(r.qty)}개 × ${won(r.price).toLocaleString("ko-KR")}원`,
+        )
+        .join("\n");
+    return "";
+  };
+
+  const buildRows = () => {
+    if (form !== "지출결의서") return undefined;
+    const rows = expense
+      .filter((r) => r.desc.trim())
+      .map((r) => ({
+        date: r.date,
+        desc: r.desc.trim(),
+        amount: won(r.amount),
+        receipt: r.receipt,
+      }));
+    return rows.length ? rows : undefined;
+  };
+
+  const buildMeta = () => [
+    { label: "문서양식", value: form },
+    { label: "기안자", value: authorName },
+    { label: "보안등급", value: sec },
+    { label: "보존연한", value: retention },
+    ...(form === "휴가신청서" ? [{ label: "휴가종류", value: leaveKind }] : []),
+    ...(form === "업무보고서" ? [{ label: "보고구분", value: reportKind }] : []),
+  ];
+
+  const buildLine = () => {
+    const steps = approvers.length ? approvers : ["미지정"];
+    return [
+      {
+        kind: "기안",
+        name: me.name,
+        role: me.role || "기안자",
+        state: "기안 완료",
+        at: "",
+        done: true,
+      },
+      ...steps.map((name) => ({
+        kind: "결재",
+        name,
+        role: "결재자",
+        state: "대기",
+        at: "",
+        done: false,
+      })),
+    ];
+  };
+
+  const genNo = () => {
+    const d = new Date();
+    const mmdd = `${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+    return `${NO_PREFIX[docType] ?? "AP"}-${d.getFullYear()}-${mmdd}-${String(d.getTime()).slice(-4)}`;
+  };
+
+  const canSave = title.trim().length > 0 && saving === null;
+
+  const persist = async (mode: "draft" | "submit") => {
+    if (!canSave) return;
+    setSaving(mode);
+    try {
+      const no = savedNo ?? genNo();
+      await createApproval({
+        no,
+        type: docType,
+        title: title.trim(),
+        approver: approvers[approvers.length - 1] ?? "미지정",
+        status: "Waiting",
+        bucket: mode === "submit" ? "pending" : "drafted",
+        line: buildLine(),
+        meta: buildMeta(),
+        rows: buildRows(),
+        reason: buildReason() || undefined,
+      });
+      setSavedNo(no);
+      if (mode === "submit") {
+        router.push(`/approval/${encodeURIComponent(no)}`);
+      }
+    } finally {
+      setSaving(null);
+    }
+  };
 
   return (
     <div className="mx-auto flex max-w-[1080px] flex-col gap-4">
@@ -121,18 +269,27 @@ export default function DraftPage() {
             {FORM_TEMPLATES.find((f) => f.name === form)?.desc}
           </div>
         </div>
-        <div className="ml-auto flex gap-2">
-          <button className="flex h-9 items-center gap-1.5 rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-secondary-foreground hover:bg-secondary">
+        <div className="ml-auto flex items-center gap-2">
+          {savedNo && (
+            <span className="hidden text-[11.5px] text-muted-foreground sm:inline">
+              저장됨 · {savedNo}
+            </span>
+          )}
+          <button
+            onClick={() => persist("draft")}
+            disabled={!canSave}
+            className="flex h-9 items-center gap-1.5 rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-secondary-foreground hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
+          >
             <Save className="size-3.5" />
-            임시저장
+            {saving === "draft" ? "저장 중…" : "임시저장"}
           </button>
-          <button className="flex h-9 items-center gap-1.5 rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-secondary-foreground hover:bg-secondary">
-            <UserCheck className="size-3.5" />
-            결재선 설정
-          </button>
-          <button className="flex h-9 items-center gap-1.5 rounded-[9px] bg-primary px-4 text-[13px] font-semibold text-primary-foreground shadow-[0_1px_2px_rgba(79,70,229,0.35)] hover:bg-primary-hover">
+          <button
+            onClick={() => persist("submit")}
+            disabled={!canSave}
+            className="flex h-9 items-center gap-1.5 rounded-[9px] bg-primary px-4 text-[13px] font-semibold text-primary-foreground shadow-[0_1px_2px_rgba(79,70,229,0.35)] hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
+          >
             <Send className="size-3.5" />
-            결재 요청하기
+            {saving === "submit" ? "상신 중…" : "결재 요청하기"}
           </button>
         </div>
       </div>
@@ -165,7 +322,7 @@ export default function DraftPage() {
             기안 정보
           </div>
           <div className="mt-2.5 flex flex-col">
-            {DRAFT_META.map((m) => (
+            {buildMeta().map((m) => (
               <div
                 key={m.label}
                 className="flex items-center gap-2.5 border-t border-[#f1f5f9] py-2.5 text-[12.5px]"
@@ -184,63 +341,60 @@ export default function DraftPage() {
             <span className="text-[12.5px] font-semibold tracking-[-0.01em]">
               결재선
             </span>
-            <button className="ml-auto flex h-7 items-center gap-1 rounded-lg border border-border bg-card px-2.5 text-[11.5px] font-semibold text-primary hover:bg-[#f5f6ff]">
-              <Plus className="size-3" strokeWidth={2.2} />
-              결재선 변경
-            </button>
+            <span className="ml-auto text-[11px] text-muted-foreground">
+              기안 →{" "}
+              {approvers.length
+                ? `결재 ${approvers.length}단계`
+                : "결재자 미지정"}
+            </span>
           </div>
-          <div className="mt-3 flex gap-2 overflow-x-auto pb-0.5">
-            {DRAFT_APPROVAL_LINE.map((a, i) => {
-              const kc =
-                {
-                  기안: ["#f1f5f9", "#475569"],
-                  결재: ["#eef2ff", "#4338ca"],
-                  합의: ["#fff7ed", "#c2410c"],
-                  참조: ["#f0fdf4", "#15803d"],
-                }[a.kind] ?? ["#f1f5f9", "#475569"];
-              const done = a.state === "기안 완료";
-              return (
-                <div
-                  key={i}
-                  className="flex w-[118px] shrink-0 flex-col rounded-[11px] border px-2 pb-2.5 pt-2.5"
-                  style={{
-                    borderColor: done ? "#e0e7ff" : "#eef1f5",
-                    background: done ? "#fbfbff" : "#fff",
-                  }}
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="flex items-center gap-1.5 rounded-[9px] border border-[#e0e7ff] bg-[#f5f6ff] px-2.5 py-1.5 text-[11.5px] font-semibold text-[#4338ca]">
+              <span style={pill("#e0e7ff", "#4338ca")}>기안</span>
+              {me.name || "나"}
+            </span>
+            {approvers.map((name, i) => (
+              <span
+                key={name}
+                className="flex items-center gap-1.5 rounded-[9px] border border-border bg-card px-2.5 py-1.5 text-[11.5px] font-medium text-secondary-foreground"
+              >
+                <span style={pill("#eef2ff", "#4338ca")}>결재 {i + 1}</span>
+                {name}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setApprovers((p) => p.filter((x) => x !== name))
+                  }
+                  className="flex size-4 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary hover:text-secondary-foreground"
                 >
-                  <span
-                    className="self-center rounded-[5px] px-1.5 py-0.5 text-[10px] font-bold"
-                    style={{ background: kc[0], color: kc[1] }}
-                  >
-                    {a.kind}
-                  </span>
-                  <div
-                    className="mt-2 flex size-[54px] items-center justify-center self-center rounded-[10px] text-lg font-semibold text-primary"
-                    style={{
-                      border: done ? "1px solid #4f46e5" : "1px dashed #cbd5e1",
-                      background: done ? "#eef2ff" : "#fbfcfe",
-                    }}
-                  >
-                    {a.mark}
-                  </div>
-                  <div className="mt-2 text-center text-xs font-semibold">
-                    {a.name}
-                  </div>
-                  <div className="mt-0.5 text-center text-[11px] text-muted-foreground">
-                    {a.role}
-                  </div>
-                  <span
-                    className="mt-2 self-center"
-                    style={pill(
-                      done ? "#f0fdf4" : "#f8fafc",
-                      done ? "#15803d" : "#94a3b8",
-                    )}
-                  >
-                    {a.state}
-                  </span>
-                </div>
-              );
-            })}
+                  <X className="size-2.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+
+          <div className="mt-2.5 flex gap-1.5">
+            <input
+              value={approverDraft}
+              onChange={(e) => setApproverDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  addApprover();
+                }
+              }}
+              placeholder="결재자 이름 입력 후 Enter (예: 김세진 팀장)"
+              className={cn(inputCls, "h-8.5 flex-1")}
+            />
+            <button
+              type="button"
+              onClick={addApprover}
+              className="flex h-8.5 items-center gap-1 rounded-[9px] border border-border bg-card px-2.5 text-[11.5px] font-semibold text-primary hover:bg-[#f5f6ff]"
+            >
+              <Plus className="size-3" strokeWidth={2.2} />
+              추가
+            </button>
           </div>
         </GwCard>
       </div>
