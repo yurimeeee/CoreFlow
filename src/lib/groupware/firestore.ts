@@ -12,16 +12,16 @@
  *   workspace/main      회사(워크스페이스) 기본 정보 — 관리자만 쓰기
  */
 import {
-  APPROVAL_ROWS,
-  BOARD,
-  DETAIL_COMMENTS,
-  DETAIL_LINE,
-  DETAIL_META,
-  DETAIL_ROWS,
-  NOTICE_ALL,
-  NOTICE_PINNED,
-  PEOPLE,
-} from "./data";
+  SEED_APPROVAL_DETAIL,
+  SEED_APPROVAL_ROWS,
+  SEED_BOARD,
+  SEED_BOOKING_DATE,
+  SEED_BOOKINGS,
+  SEED_NOTICE_ALL,
+  SEED_NOTICE_PINNED,
+  SEED_PEOPLE,
+  SEED_WORKSPACE,
+} from "./seed-data";
 
 export const COL = {
   people: "orgPeople",
@@ -152,13 +152,13 @@ export interface SeedDoc {
 export function buildSeed(): SeedDoc[] {
   const out: SeedDoc[] = [];
 
-  // 임직원 디렉토리
-  PEOPLE.forEach((p) => {
+  /* 임직원 디렉토리 — orgPeople/{id} */
+  SEED_PEOPLE.forEach((p) => {
     out.push({ collection: COL.people, id: String(p.id), data: { ...p } });
   });
 
-  // 공지 — 필독 고정 + 일반
-  NOTICE_PINNED.forEach((p, i) => {
+  /* 공지 — 필독 고정 (pinned-*) + 일반 (n-*) */
+  SEED_NOTICE_PINNED.forEach((p, i) => {
     out.push({
       collection: COL.notices,
       id: `pinned-${i}`,
@@ -179,19 +179,19 @@ export function buildSeed(): SeedDoc[] {
         bg: p.bg,
         border: p.border,
         chip: p.chip,
-      },
+      } satisfies Omit<NoticeDoc, "id">,
     });
   });
-  NOTICE_ALL.forEach((n, i) => {
+  SEED_NOTICE_ALL.forEach((n, i) => {
     out.push({
       collection: COL.notices,
       id: `n-${i}`,
-      data: { ...n, pinned: false, order: i },
+      data: { ...n, pinned: false, order: 10 + i } satisfies Omit<NoticeDoc, "id">,
     });
   });
 
-  // Task — BOARD 를 flat 하게
-  BOARD.forEach((col) => {
+  /* 프로젝트 Task — 칸반 컬럼을 flat 하게 tasks/{id} */
+  SEED_BOARD.forEach((col, c) => {
     col.items.forEach((t, i) => {
       out.push({
         collection: COL.tasks,
@@ -204,41 +204,87 @@ export function buildSeed(): SeedDoc[] {
           dday: t.dday,
           done: t.done,
           total: t.total,
+          order: c * 100 + i,
+        } satisfies Omit<TaskDoc, "id">,
+      });
+    });
+  });
+
+  /* 전자결재 — 3개 버킷 approvals/{no} */
+  const buckets: ApprovalDoc["bucket"][] = ["pending", "drafted", "referenced"];
+  SEED_APPROVAL_ROWS.forEach((rows, b) => {
+    rows.forEach((r, i) => {
+      const detail = SEED_APPROVAL_DETAIL[r.no];
+      const extra: Partial<ApprovalDoc> = detail
+        ? {
+            line: detail.line,
+            meta: detail.meta,
+            rows: detail.rows,
+            comments: detail.comments,
+            reason: detail.reason,
+          }
+        : {
+            line: [
+              { kind: "기안", name: r.author.split(" ")[0], role: "기안자", state: "기안", at: r.date, done: true },
+              {
+                kind: "결재",
+                name: r.approver.split(" ")[0],
+                role: "결재자",
+                state: r.status === "Approved" ? "승인" : r.status === "Rejected" ? "반려" : "대기",
+                at: "",
+                done: r.status === "Approved",
+              },
+            ],
+            meta: [
+              { label: "문서번호", value: r.no },
+              { label: "기안자", value: r.author },
+              { label: "기안일자", value: `2026.${r.date}` },
+            ],
+          };
+      out.push({
+        collection: COL.approvals,
+        id: r.no,
+        data: {
+          type: r.type,
+          title: r.title,
+          author: r.author,
+          date: r.date,
+          approver: r.approver,
+          status: r.status,
+          bucket: buckets[b],
           order: i,
+          ...extra,
         },
       });
     });
   });
 
-  // 전자결재 — 3개 버킷
-  const buckets: ApprovalDoc["bucket"][] = ["pending", "drafted", "referenced"];
-  APPROVAL_ROWS.forEach((rows, b) => {
-    rows.forEach((r, i) => {
-      const data: Record<string, unknown> = {
-        ...r,
-        bucket: buckets[b],
-        order: i,
-      };
-      if (r.no === "EX-2026-0912") {
-        data.line = DETAIL_LINE;
-        data.meta = DETAIL_META;
-        data.rows = DETAIL_ROWS;
-        data.comments = DETAIL_COMMENTS;
-        data.reason =
-          "3분기 팀 워크숍(8/21–8/22, 강원 고성)에 집행된 숙박비 · 식대 · 이동 차량 렌트 비용의 정산을 요청합니다. 차량 렌트 건은 현장 결제로 영수증 원본 확보가 지연되어 카드 전표로 대체 증빙합니다.";
-      } else {
-        data.line = [
-          { kind: "기안", name: r.author.split(" ")[0], role: "기안자", state: "기안", at: r.date, done: true },
-          { kind: "결재", name: r.approver.split(" ")[0], role: "결재자", state: r.status === "Approved" ? "승인" : r.status === "Rejected" ? "반려" : "대기", at: "", done: r.status === "Approved" },
-        ];
-        data.meta = [
-          { label: "문서번호", value: r.no },
-          { label: "기안자", value: r.author },
-          { label: "기안일자", value: `2026.${r.date.replace(".", ".")}` },
-        ];
-      }
-      out.push({ collection: COL.approvals, id: r.no, data });
+  /* 회의실 · 자원 예약 — bookings/{id} */
+  SEED_BOOKINGS.forEach((bk) => {
+    out.push({
+      collection: COL.bookings,
+      id: bk.id,
+      data: {
+        res: bk.res,
+        from: bk.from,
+        to: bk.to,
+        title: bk.title,
+        who: bk.who,
+        date: SEED_BOOKING_DATE,
+        purpose: bk.purpose,
+        attendees: bk.attendees,
+        video: bk.video,
+        provider: bk.provider,
+        order: bk.from,
+      } satisfies Omit<BookingDoc, "id">,
     });
+  });
+
+  /* 워크스페이스(회사) 기본 정보 — workspace/main */
+  out.push({
+    collection: COL.workspace,
+    id: "main",
+    data: { ...SEED_WORKSPACE } satisfies WorkspaceDoc,
   });
 
   return out;

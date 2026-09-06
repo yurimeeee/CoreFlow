@@ -13,7 +13,8 @@ import { Button } from "@/components/ui/button";
 
 /**
  * ⚠️ 데모/부트스트랩용 — 그룹웨어 목 데이터를 Firestore 로 1회 시드합니다.
- * (임직원 · 공지 · Task · 전자결재). 이미 존재하면 merge 로 덮어씁니다.
+ * (임직원 · 공지 · Task · 전자결재 · 자원 예약 · 회사 정보).
+ * 이미 존재하면 merge 로 덮어씁니다. 시드 페이로드는 lib/groupware/seed-data.ts.
  */
 export default function SeedPage() {
   const { authUser, loading } = useAuthUser();
@@ -51,7 +52,7 @@ export default function SeedPage() {
     <AuthShell
       eyebrow="관리자 콘솔 · 데모"
       title="그룹웨어 데이터 시드"
-      subtitle="임직원 디렉토리 · 공지사항 · 프로젝트 Task · 전자결재 문서를 Firestore 에 채웁니다."
+      subtitle="임직원 디렉토리 · 공지사항 · 프로젝트 Task · 전자결재 · 자원 예약 · 회사 정보를 Firestore 에 채웁니다."
     >
       <Card>
         <CardContent className="flex flex-col gap-4 p-6 sm:p-8">
@@ -77,7 +78,9 @@ export default function SeedPage() {
             컬렉션 <code className="font-mono text-xs">orgPeople</code>{" "}
             <code className="font-mono text-xs">notices</code>{" "}
             <code className="font-mono text-xs">tasks</code>{" "}
-            <code className="font-mono text-xs">approvals</code>
+            <code className="font-mono text-xs">approvals</code>{" "}
+            <code className="font-mono text-xs">bookings</code>{" "}
+            <code className="font-mono text-xs">workspace</code>
           </div>
 
           {state === "running" && (
