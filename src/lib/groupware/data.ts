@@ -1,10 +1,12 @@
 /**
  * CoreFlow 그룹웨어 — 정적 타입 · 색상 설정 · 필터 옵션
  *
- * 이 파일에는 더 이상 가데이터(가짜 인물/조직/문서/일정 레코드)가 없습니다.
- * Firestore 컬렉션이 비어 있으면 각 화면은 빈 상태(empty state)를 그립니다.
- * 아래 남아있는 값들은 전부 "데이터"가 아니라 화면이 동작하는 데 필요한
- * 구조(타입), 색상 매핑, 필터·탭 옵션 라벨입니다.
+ * 인물/문서/일정 "레코드"는 Firestore 컬렉션이 단일 소스이고, 비어 있으면
+ * 각 화면은 빈 상태(empty state)를 그립니다.
+ * 아래 값들은 대부분 "데이터"가 아니라 화면이 동작하는 데 필요한 구조(타입),
+ * 색상 매핑, 필터·탭 옵션 라벨입니다. 예외적으로 조직 편제(DEPT_TREE·
+ * ORG_BRANCHES)와 대시보드 오늘 일정(DASH_SCHEDULE)은 아직 전용 컬렉션이
+ * 없어 데모용 정적 값을 유지합니다.
  */
 
 export type PersonStatus = "online" | "remote" | "away" | "leave";
@@ -38,9 +40,33 @@ export const PEOPLE: Person[] = [];
 
 export const personById = (id: number) => PEOPLE.find((p) => p.id === id);
 
-export const DEPT_TREE: { name: string; count: number; depth: number; key: string }[] = [];
-export const DEPT_FILTERS: string[] = ["전체"];
-export const ORG_BRANCHES: { head: number; dept: string; teams: [string, number][] }[] = [];
+/** 조직 편제 트리 — 부서/팀 구조와 인원 규모 (데모용 정적 편제) */
+export const DEPT_TREE: { name: string; count: number; depth: number; key: string }[] = [
+  { name: "넥스트코어 (대표이사)", count: 46, depth: 0, key: "전체" },
+  { name: "기술본부", count: 23, depth: 1, key: "기술본부" },
+  { name: "플랫폼개발팀", count: 12, depth: 2, key: "플랫폼개발팀" },
+  { name: "프론트엔드팀", count: 7, depth: 2, key: "프론트엔드팀" },
+  { name: "QA팀", count: 4, depth: 2, key: "QA팀" },
+  { name: "디자인본부", count: 7, depth: 1, key: "디자인본부" },
+  { name: "프로덕트디자인팀", count: 6, depth: 2, key: "프로덕트디자인팀" },
+  { name: "마케팅본부", count: 8, depth: 1, key: "마케팅본부" },
+  { name: "마케팅팀", count: 7, depth: 2, key: "마케팅팀" },
+  { name: "경영지원본부", count: 8, depth: 1, key: "경영지원본부" },
+  { name: "인사팀", count: 5, depth: 2, key: "인사팀" },
+  { name: "총무팀", count: 3, depth: 2, key: "총무팀" },
+];
+
+export const DEPT_FILTERS: string[] = [
+  "전체", "플랫폼개발팀", "프론트엔드팀", "프로덕트디자인팀", "마케팅팀", "인사팀",
+];
+
+/** 본부장(head) → 산하 팀[이름, 인원] — 조직도 브랜치 렌더링용 */
+export const ORG_BRANCHES: { head: number; dept: string; teams: [string, number][] }[] = [
+  { head: 1, dept: "기술본부", teams: [["플랫폼개발팀", 12], ["프론트엔드팀", 7], ["QA팀", 4]] },
+  { head: 11, dept: "디자인본부", teams: [["프로덕트디자인팀", 6]] },
+  { head: 12, dept: "마케팅본부", teams: [["마케팅팀", 7]] },
+  { head: 10, dept: "경영지원본부", teams: [["인사팀", 5], ["총무팀", 3]] },
+];
 
 /* ---------------- 대시보드 ---------------- */
 
@@ -48,7 +74,13 @@ export const DASH_NOTICES: { title: string; dept: string; date: string; must: bo
 export const DASH_TASKS: {
   id: number; title: string; tag: string; due: string; dday: string; done: boolean;
 }[] = [];
-export const DASH_SCHEDULE: { time: string; title: string; place: string; color: string }[] = [];
+/** 대시보드 "오늘 일정" 위젯 — 전용 컬렉션 없음, 데모용 정적 값 */
+export const DASH_SCHEDULE: { time: string; title: string; place: string; color: string }[] = [
+  { time: "10:00", title: "플랫폼 주간 스프린트 회의", place: "본사 7F 회의실 A", color: "#4f46e5" },
+  { time: "13:30", title: "결재 정책 유관부서 리뷰", place: "온라인 (Meet)", color: "#6366f1" },
+  { time: "15:00", title: "신규 입사자 온보딩 멘토링", place: "본사 5F 라운지", color: "#16a34a" },
+  { time: "17:00", title: "주간 업무보고 상신 마감", place: "전자결재", color: "#f59e0b" },
+];
 export const DASH_APPROVALS: { type: string; title: string; state: string }[] = [];
 
 /* ---------------- 근태 ---------------- */
