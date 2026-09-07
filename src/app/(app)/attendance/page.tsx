@@ -17,15 +17,15 @@ import {
   ATT_DAY_DATA,
   ATT_OOO,
   ATT_TYPE_COLORS,
-  LEAVE_HISTORY,
   OOO_COLORS,
   WEEK_LIMIT,
   WEEK_WARN,
 } from "@/lib/groupware/data";
 import { pill } from "@/lib/groupware/ui";
 import { useNow } from "@/lib/groupware/use-now";
-import { useAttendance } from "@/lib/groupware/hooks";
+import { useAttendance, useLeaves } from "@/lib/groupware/hooks";
 import { GwCard, PageHeader, Segmented, Toggle } from "@/components/app/primitives";
+import { LeaveRequestModal } from "./LeaveRequestModal";
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 const two = (n: number) => String(n).padStart(2, "0");
@@ -44,8 +44,27 @@ export default function AttendancePage() {
   const now = useNow();
   const { working, inAt, outAt, weekWorked, history, checkIn, checkOut } =
     useAttendance();
+  const { data: leaves, balance, addLeave } = useLeaves();
   const [view, setView] = React.useState<"calendar" | "list">("calendar");
   const [remoteToday, setRemoteToday] = React.useState(false);
+  const [leaveModal, setLeaveModal] = React.useState<"leave" | "overtime" | null>(
+    null,
+  );
+  const [cal, setCal] = React.useState(() => {
+    const d = new Date();
+    return { y: d.getFullYear(), m: d.getMonth() };
+  });
+
+  const shiftMonth = (delta: number) =>
+    setCal(({ y, m }) => {
+      const next = new Date(y, m + delta, 1);
+      return { y: next.getFullYear(), m: next.getMonth() };
+    });
+
+  const firstWeekday = new Date(cal.y, cal.m, 1).getDay();
+  const daysInMonth = new Date(cal.y, cal.m + 1, 0).getDate();
+  const isCurrentMonth =
+    !!now && now.getFullYear() === cal.y && now.getMonth() === cal.m;
 
   const clock = now ? `${two(now.getHours())}:${two(now.getMinutes())}` : "--:--";
   const seconds = now ? `:${two(now.getSeconds())}` : ":--";
@@ -83,15 +102,16 @@ export default function AttendancePage() {
   })();
 
   const cells: React.ReactNode[] = [];
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < firstWeekday; i++) {
     cells.push(
       <div key={`e${i}`} className="min-h-[84px] rounded-[10px] bg-[#fbfcfe]" />,
     );
   }
-  for (let d = 1; d <= 30; d++) {
+  for (let d = 1; d <= daysInMonth; d++) {
     const rec = ATT_DAY_DATA[d];
-    const weekend = (d + 1) % 7 === 0 || (d + 2) % 7 === 0;
-    const today = d === 2;
+    const wd = new Date(cal.y, cal.m, d).getDay();
+    const weekend = wd === 0 || wd === 6;
+    const today = isCurrentMonth && d === now?.getDate();
     const tc = rec ? ATT_TYPE_COLORS[rec[2]] : null;
     const ooo = (ATT_OOO[d] ?? []).slice(0, 4);
     cells.push(
@@ -148,11 +168,17 @@ export default function AttendancePage() {
         desc={now ? `${now.getFullYear()}년 ${now.getMonth() + 1}월` : ""}
         actions={
           <>
-            <button className="flex h-9 items-center gap-1.5 rounded-[9px] border border-border bg-card px-3.5 text-[13px] font-semibold text-secondary-foreground hover:bg-secondary">
+            <button
+              onClick={() => setLeaveModal("leave")}
+              className="flex h-9 items-center gap-1.5 rounded-[9px] border border-border bg-card px-3.5 text-[13px] font-semibold text-secondary-foreground hover:bg-secondary"
+            >
               <Palmtree className="size-4 text-primary" />
               연차 / 반차 신청
             </button>
-            <button className="flex h-9 items-center gap-1.5 rounded-[9px] bg-primary px-3.5 text-[13px] font-semibold text-primary-foreground shadow-[0_1px_2px_rgba(79,70,229,0.35)] hover:bg-primary-hover">
+            <button
+              onClick={() => setLeaveModal("overtime")}
+              className="flex h-9 items-center gap-1.5 rounded-[9px] bg-primary px-3.5 text-[13px] font-semibold text-primary-foreground shadow-[0_1px_2px_rgba(79,70,229,0.35)] hover:bg-primary-hover"
+            >
               <Timer className="size-4" />
               초과근무 신청
             </button>
@@ -302,11 +328,13 @@ export default function AttendancePage() {
             </span>
           </div>
           <div className="grid grid-cols-3 gap-2.5">
-            {[
-              ["총 연차", "0", "#f8fafc", "#eef1f5", "#0f172a"],
-              ["사용", "0", "#f8fafc", "#eef1f5", "#64748b"],
-              ["잔여", "0", "#f5f6ff", "#e0e7ff", "#3730a3"],
-            ].map(([label, v, bg, bd, fg]) => (
+            {(
+              [
+                ["총 연차", balance.total, "#f8fafc", "#eef1f5", "#0f172a"],
+                ["사용", balance.used, "#f8fafc", "#eef1f5", "#64748b"],
+                ["잔여", balance.remaining, "#f5f6ff", "#e0e7ff", "#3730a3"],
+              ] as [string, number, string, string, string][]
+            ).map(([label, v, bg, bd, fg]) => (
               <div
                 key={label}
                 className="rounded-[11px] border p-3"
@@ -329,33 +357,56 @@ export default function AttendancePage() {
           </div>
           <div>
             <div className="flex h-2 overflow-hidden rounded-full bg-[#eef1f5]">
-              <div className="w-0 bg-primary" />
+              <div
+                className="bg-primary transition-[width]"
+                style={{
+                  width: `${Math.min(100, Math.round((balance.used / balance.total) * 100))}%`,
+                }}
+              />
             </div>
             <div className="mt-1.5 flex justify-between text-[11.5px] text-muted-foreground">
-              <span>사용률 0%</span>
+              <span>
+                사용률{" "}
+                {Math.round((balance.used / balance.total) * 100)}%
+              </span>
               <span>소멸 예정 {now ? now.getFullYear() : ""}.12.31</span>
             </div>
           </div>
           <div className="flex flex-col gap-2 border-t border-[#f1f5f9] pt-3">
             <div className="text-[11px] font-semibold tracking-[0.03em] text-muted-foreground">
-              최근 사용 내역
+              최근 신청 내역
             </div>
-            {LEAVE_HISTORY.map((l) => (
-              <div key={l.date} className="flex items-center gap-2.5 text-[12.5px]">
+            {leaves.length === 0 && (
+              <div className="py-2 text-[12px] text-muted-foreground">
+                신청 내역이 없습니다
+              </div>
+            )}
+            {leaves.slice(0, 5).map((l) => (
+              <div key={l.id} className="flex items-center gap-2.5 text-[12.5px]">
                 <span
                   style={pill(
-                    l.type === "반차" ? "#f5f3ff" : "#eef2ff",
-                    l.type === "반차" ? "#6d28d9" : "#4338ca",
+                    l.kind === "반차"
+                      ? "#f5f3ff"
+                      : l.kind === "초과근무"
+                        ? "#fff7ed"
+                        : "#eef2ff",
+                    l.kind === "반차"
+                      ? "#6d28d9"
+                      : l.kind === "초과근무"
+                        ? "#c2410c"
+                        : "#4338ca",
                   )}
                 >
-                  {l.type}
+                  {l.kind}
                 </span>
                 <span className="flex-1 truncate text-secondary-foreground">
-                  {l.date}
+                  {l.start}
+                  {l.end !== l.start ? ` ~ ${l.end}` : ""}
                 </span>
                 <span className="tabular-nums text-muted-foreground">
-                  {l.days}
+                  {l.kind === "초과근무" ? `${l.hours}h` : `${l.days}일`}
                 </span>
+                <span style={pill("#f1f5f9", "#64748b")}>{l.status}</span>
               </div>
             ))}
           </div>
@@ -381,12 +432,35 @@ export default function AttendancePage() {
             ]}
           />
           <div className="ml-auto flex items-center gap-2.5">
-            <span className="text-[13px] font-semibold">2026년 9월</span>
+            <span className="text-[13px] font-semibold tabular-nums">
+              {cal.y}년 {cal.m + 1}월
+            </span>
             <div className="flex gap-1">
-              <button className="flex size-[30px] items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:bg-secondary">
+              <button
+                onClick={() => shiftMonth(-1)}
+                aria-label="이전 달"
+                className="flex size-[30px] items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:bg-secondary"
+              >
                 <ChevronLeft className="size-[15px]" />
               </button>
-              <button className="flex size-[30px] items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:bg-secondary">
+              {!isCurrentMonth && (
+                <button
+                  onClick={() =>
+                    setCal(() => {
+                      const d = new Date();
+                      return { y: d.getFullYear(), m: d.getMonth() };
+                    })
+                  }
+                  className="flex h-[30px] items-center rounded-lg border border-border bg-card px-2.5 text-[11.5px] font-semibold text-secondary-foreground hover:bg-secondary"
+                >
+                  오늘
+                </button>
+              )}
+              <button
+                onClick={() => shiftMonth(1)}
+                aria-label="다음 달"
+                className="flex size-[30px] items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:bg-secondary"
+              >
                 <ChevronRight className="size-[15px]" />
               </button>
             </div>
@@ -468,6 +542,18 @@ export default function AttendancePage() {
           </div>
         )}
       </GwCard>
+
+      {leaveModal && (
+        <LeaveRequestModal
+          mode={leaveModal}
+          remaining={balance.remaining}
+          onClose={() => setLeaveModal(null)}
+          onSubmit={async (input) => {
+            await addLeave(input);
+            setLeaveModal(null);
+          }}
+        />
+      )}
     </div>
   );
 }
