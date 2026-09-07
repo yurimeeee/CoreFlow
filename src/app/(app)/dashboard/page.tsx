@@ -271,7 +271,7 @@ export default function DashboardPage() {
           <div className="flex flex-col">
             {listNotices.map((n) => (
               <Link
-                href="/notice"
+                href={`/notice/${n.id}`}
                 key={n.id}
                 className="flex items-center gap-2.5 border-b border-[#f1f5f9] py-2.5 transition-[padding] hover:pl-2"
               >

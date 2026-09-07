@@ -13,8 +13,7 @@ import {
   Loader2,
   Printer,
 } from "lucide-react";
-import { DETAIL_ATTACHMENTS } from "@/lib/groupware/data";
-import { useApprovalDoc } from "@/lib/groupware/hooks";
+import { useApprovalDoc, useWorkspace } from "@/lib/groupware/hooks";
 import { avatarStyle, pill } from "@/lib/groupware/ui";
 import { GwCard } from "@/components/app/primitives";
 
@@ -31,6 +30,8 @@ export default function ApprovalDetailPage() {
   const params = useParams<{ id: string }>();
   const no = decodeURIComponent(params.id ?? "EX-2026-0912");
   const { doc, loading, setStatus } = useApprovalDoc(no);
+  const { data: workspace } = useWorkspace();
+  const orgName = (workspace.name || "NEXTCORE").toUpperCase();
 
   if (loading) {
     return (
@@ -66,6 +67,7 @@ export default function ApprovalDetailPage() {
   const rows = doc.rows ?? [];
   const total = rows.reduce((a, r) => a + r.amount, 0);
   const isExpense = doc.type === "지출" && rows.length > 0;
+  const attachments = doc.attachments ?? [];
 
   return (
     <div className="mx-auto flex max-w-[980px] flex-col gap-4">
@@ -96,11 +98,17 @@ export default function ApprovalDetailPage() {
           </div>
         </div>
         <div className="ml-auto flex flex-wrap gap-1.5">
-          <button className="flex h-9 items-center gap-1.5 rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-secondary-foreground hover:bg-secondary">
+          <button
+            onClick={() => window.print()}
+            className="flex h-9 items-center gap-1.5 rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-secondary-foreground hover:bg-secondary"
+          >
             <Download className="size-3.5" />
             PDF
           </button>
-          <button className="flex h-9 items-center gap-1.5 rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-secondary-foreground hover:bg-secondary">
+          <button
+            onClick={() => window.print()}
+            className="flex h-9 items-center gap-1.5 rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-secondary-foreground hover:bg-secondary"
+          >
             <Printer className="size-3.5" />
             인쇄
           </button>
@@ -188,7 +196,7 @@ export default function ApprovalDetailPage() {
         <div className="flex flex-col gap-6 p-6 sm:px-8 sm:pb-8 sm:pt-7">
           <div className="border-b-2 border-[#0f172a] pb-4 text-center">
             <div className="text-[11.5px] font-semibold tracking-[0.14em] text-muted-foreground">
-              NEXTCORE
+              {orgName}
             </div>
             <div className="mt-2 text-[27px] font-bold tracking-[0.22em]">
               {isExpense ? "지출결의서" : doc.title}
@@ -265,13 +273,16 @@ export default function ApprovalDetailPage() {
             </div>
           )}
 
-          {isExpense && (
+          {attachments.length > 0 && (
             <div>
               <div className="mb-2 text-[13px] font-semibold">첨부 파일</div>
               <div className="flex flex-col gap-1.5">
-                {DETAIL_ATTACHMENTS.map((f) => (
-                  <div
+                {attachments.map((f) => (
+                  <a
                     key={f.name}
+                    href={f.url || undefined}
+                    target={f.url ? "_blank" : undefined}
+                    rel="noreferrer"
                     className="flex items-center gap-2.5 rounded-[10px] border border-border px-3 py-2.5 transition-colors hover:border-ring hover:bg-secondary"
                   >
                     <span className="flex size-[30px] shrink-0 items-center justify-center rounded-lg bg-[#f1f5f9]">
@@ -288,7 +299,7 @@ export default function ApprovalDetailPage() {
                       {f.size}
                     </span>
                     <Download className="size-3.5 text-[#cbd5e1]" />
-                  </div>
+                  </a>
                 ))}
               </div>
             </div>

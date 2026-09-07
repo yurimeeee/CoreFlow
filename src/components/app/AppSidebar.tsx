@@ -4,35 +4,40 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronsUpDown, LogOut, Waypoints } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { CURRENT_USER } from "@/lib/groupware/data";
-import { useCurrentUser } from "@/lib/groupware/hooks";
+import { useCurrentUser, useWorkspace } from "@/lib/groupware/hooks";
 import { NAV_ITEMS } from "./nav";
 
 export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const me = useCurrentUser();
+  const { data: workspace } = useWorkspace();
+  const workspaceName = workspace.name || "CoreFlow";
 
   const displayName = me.name;
   const displayRole = me.role;
-  const displayTeam = me.team || CURRENT_USER.workspace;
+  const displayTeam = me.team || workspaceName;
 
   return (
     <aside className="flex h-full w-66 flex-col bg-[#1e293b] text-slate-100">
       <div className="p-3.5 pb-3">
-        <button className="flex w-full items-center gap-2.5 rounded-[10px] border border-transparent p-2 text-left transition-colors hover:border-[#475569] hover:bg-[#334155]">
+        <Link
+          href="/settings"
+          onClick={onNavigate}
+          className="flex w-full items-center gap-2.5 rounded-[10px] border border-transparent p-2 text-left transition-colors hover:border-[#475569] hover:bg-[#334155]"
+        >
           <span className="flex size-8 items-center justify-center rounded-[9px] bg-gradient-to-br from-[#4f46e5] to-[#6366f1] text-white">
             <Waypoints className="size-[18px]" strokeWidth={2.4} />
           </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[13.5px] font-semibold text-slate-50">
-              {CURRENT_USER.workspace}
+              {workspaceName}
             </span>
             <span className="mt-px block text-[11.5px] text-slate-400">
               기업 워크스페이스
             </span>
           </span>
           <ChevronsUpDown className="size-3.5 text-slate-400" />
-        </button>
+        </Link>
       </div>
 
       <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2.5">

@@ -19,6 +19,7 @@ import {
 } from "@/lib/groupware/data";
 import { pill } from "@/lib/groupware/ui";
 import { useApprovals } from "@/lib/groupware/hooks";
+import { useNow } from "@/lib/groupware/use-now";
 import { GwCard, PageHeader, StatCard } from "@/components/app/primitives";
 
 const STAT_ICONS: Record<string, React.ElementType> = {
@@ -30,12 +31,44 @@ const STAT_ICONS: Record<string, React.ElementType> = {
 
 const BUCKETS = ["pending", "drafted", "referenced"] as const;
 
+const PERIODS = [
+  { label: "전체 기간", days: 0 },
+  { label: "최근 7일", days: 7 },
+  { label: "최근 30일", days: 30 },
+];
+
+/** "MM.DD" → 기준 시각(now) 대비 ms. 미래 날짜는 작년으로 보정 */
+function parseDocDate(mmdd: string, now: Date): number {
+  const [m, d] = mmdd.split(".").map(Number);
+  if (!m || !d) return 0;
+  let dt = new Date(now.getFullYear(), m - 1, d);
+  if (dt.getTime() > now.getTime()) dt = new Date(now.getFullYear() - 1, m - 1, d);
+  return dt.getTime();
+}
+
 export default function ApprovalPage() {
   const router = useRouter();
   const [tab, setTab] = React.useState(0);
+  const [periodIdx, setPeriodIdx] = React.useState(0);
   const { data } = useApprovals();
+  const now = useNow();
+
+  const counts = React.useMemo(() => {
+    const by = (s: string) => data.filter((r) => r.status === s).length;
+    return {
+      "결재 대기": by("Waiting"),
+      "진행 중": by("In Progress"),
+      완료: by("Approved"),
+      반려: by("Rejected"),
+    } as Record<string, number>;
+  }, [data]);
+
+  const period = PERIODS[periodIdx];
+  const cutoff =
+    period.days > 0 && now ? now.getTime() - period.days * 86_400_000 : 0;
   const rows = data
     .filter((r) => r.bucket === BUCKETS[tab])
+    .filter((r) => !cutoff || (now ? parseDocDate(r.date, now) : 0) >= cutoff)
     .sort((a, b) => a.order - b.order);
 
   return (
@@ -60,7 +93,7 @@ export default function ApprovalPage() {
             <StatCard
               key={st.label}
               label={st.label}
-              value={st.value}
+              value={counts[st.label] ?? 0}
               valueColor={st.color}
               iconBg={st.bg}
               icon={<Icon className="size-[17px]" style={{ color: st.color }} />}
@@ -87,9 +120,19 @@ export default function ApprovalPage() {
               </button>
             ))}
           </div>
-          <div className="ml-auto flex h-8.5 items-center gap-1.5 rounded-[9px] border border-border bg-secondary px-2.5">
+          <div className="ml-auto flex h-8.5 items-center gap-1.5 rounded-[9px] border border-border bg-secondary pl-2.5 pr-1.5">
             <SlidersHorizontal className="size-3.5 text-muted-foreground" />
-            <span className="text-[12.5px] text-muted-foreground">전체 기간</span>
+            <select
+              value={periodIdx}
+              onChange={(e) => setPeriodIdx(Number(e.target.value))}
+              className="bg-transparent text-[12.5px] text-muted-foreground focus-visible:outline-none"
+            >
+              {PERIODS.map((p, i) => (
+                <option key={p.label} value={i}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 

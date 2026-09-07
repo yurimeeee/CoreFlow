@@ -27,7 +27,7 @@ import {
   type Person,
   type PersonStatus,
 } from "@/lib/groupware/data";
-import { useOrgPeople } from "@/lib/groupware/hooks";
+import { useOrgPeople, useWorkspace } from "@/lib/groupware/hooks";
 import { avatarStyle, pill, statusDot, statusPill } from "@/lib/groupware/ui";
 import { GwCard, PageHeader, Segmented } from "@/components/app/primitives";
 
@@ -45,6 +45,7 @@ export default function OrgPage() {
   const [profileId, setProfileId] = React.useState<number | null>(null);
   const [addOpen, setAddOpen] = React.useState(false);
   const { people: directory, source, addPerson } = useOrgPeople();
+  const { data: workspace } = useWorkspace();
 
   const byId = React.useCallback(
     (id: number) => directory.find((p) => p.id === id),
@@ -226,7 +227,7 @@ export default function OrgPage() {
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="text-[13.5px] font-semibold text-slate-50">
-                        {ceo?.name ?? "노정헌"}
+                        {ceo?.name || workspace.ceo || "대표이사"}
                       </div>
                       <div className="mt-0.5 text-[11.5px] text-slate-400">
                         {ceo?.role ?? "대표이사"}
@@ -673,14 +674,20 @@ function ProfileDrawer({
           </div>
 
           <div className="flex gap-2">
-            <button className="flex h-9.5 flex-1 items-center justify-center gap-1.5 rounded-[10px] bg-primary text-[13px] font-semibold text-primary-foreground shadow-[0_1px_2px_rgba(79,70,229,0.35)] hover:bg-primary-hover">
+            <a
+              href={`mailto:${p.email}`}
+              className="flex h-9.5 flex-1 items-center justify-center gap-1.5 rounded-[10px] bg-primary text-[13px] font-semibold text-primary-foreground shadow-[0_1px_2px_rgba(79,70,229,0.35)] hover:bg-primary-hover"
+            >
               <Mail className="size-4" />
               이메일
-            </button>
-            <button className="flex h-9.5 flex-1 items-center justify-center gap-1.5 rounded-[10px] border border-border bg-card text-[13px] font-semibold text-secondary-foreground hover:bg-secondary">
+            </a>
+            <a
+              href={`sms:${p.mobile}`}
+              className="flex h-9.5 flex-1 items-center justify-center gap-1.5 rounded-[10px] border border-border bg-card text-[13px] font-semibold text-secondary-foreground hover:bg-secondary"
+            >
               <MessageSquare className="size-4" />
               메시지
-            </button>
+            </a>
           </div>
 
           <div className="flex flex-col gap-2">

@@ -3,16 +3,13 @@
 import * as React from "react";
 import {
   CheckSquare,
-  ChevronDown,
   Clock,
-  FolderKanban,
   GanttChart,
   List,
   Plus,
   Search,
   SquareKanban,
 } from "lucide-react";
-import { GANTT_SRC } from "@/lib/groupware/data";
 import { TASK_COLUMNS, type TaskDoc } from "@/lib/groupware/firestore";
 import { useTasks } from "@/lib/groupware/hooks";
 import { avatarStyle, ddayStyle } from "@/lib/groupware/ui";
@@ -20,7 +17,15 @@ import { GwCard, PageHeader, Segmented, Tag } from "@/components/app/primitives"
 
 type View = "kanban" | "list" | "gantt";
 
-const MEMBERS = ["김", "정", "박", "이", "최"];
+const GANTT_DAYS = 14;
+/** 오늘을 간트 2일차에 맞추고, dday("D-7"/"D+2") 로 막대 위치를 계산 */
+function ganttBar(dday: string, total: number) {
+  const n = Number(dday.replace(/[^\-0-9]/g, "")) || 0;
+  const due = Math.min(Math.max(2 + n, 1), GANTT_DAYS);
+  const len = Math.min(Math.max(3 + total, 2), 7);
+  const start = Math.min(Math.max(due - len, 0), GANTT_DAYS - 1);
+  return { start, len: Math.min(len, GANTT_DAYS - start) };
+}
 
 export default function TasksPage() {
   const [view, setView] = React.useState<View>("kanban");
@@ -51,6 +56,10 @@ export default function TasksPage() {
 
   const flat = columns.flatMap((c) =>
     c.items.filter(match).map((t) => ({ ...t, col: c.name, color: c.color })),
+  );
+  const members = Array.from(new Set(tasks.map((t) => t.who).filter(Boolean))).slice(
+    0,
+    6,
   );
 
   return (
@@ -86,11 +95,6 @@ export default function TasksPage() {
             },
           ]}
         />
-        <div className="flex h-8.5 items-center gap-1.5 rounded-[9px] border border-border bg-card px-2.5 text-[12.5px] font-medium text-secondary-foreground">
-          <FolderKanban className="size-3.5 text-muted-foreground" />
-          전체 프로젝트
-          <ChevronDown className="size-3.5 text-muted-foreground" />
-        </div>
         <div className="flex h-8.5 min-w-[200px] items-center gap-1.5 rounded-[9px] border border-border bg-card px-2.5">
           <Search className="size-3.5 text-muted-foreground" />
           <input
@@ -100,20 +104,23 @@ export default function TasksPage() {
             className="min-w-0 flex-1 bg-transparent text-[12.5px] focus-visible:outline-none"
           />
         </div>
-        <div className="ml-auto flex items-center">
-          {MEMBERS.map((m, i) => (
-            <span
-              key={m}
-              style={{
-                ...avatarStyle(m, 28),
-                border: "2px solid var(--color-background)",
-                marginLeft: i === 0 ? 0 : -8,
-              }}
-            >
-              {m}
-            </span>
-          ))}
-        </div>
+        {members.length > 0 && (
+          <div className="ml-auto flex items-center">
+            {members.map((m, i) => (
+              <span
+                key={m}
+                title={m}
+                style={{
+                  ...avatarStyle(m.charAt(0), 28),
+                  border: "2px solid var(--color-background)",
+                  marginLeft: i === 0 ? 0 : -8,
+                }}
+              >
+                {m.charAt(0)}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {view === "kanban" && (
@@ -289,7 +296,7 @@ export default function TasksPage() {
                 Task
               </div>
               <div className="flex flex-1">
-                {Array.from({ length: 14 }, (_, i) => (
+                {Array.from({ length: GANTT_DAYS }, (_, i) => (
                   <div
                     key={i}
                     className="flex-1 text-center text-[10.5px] tabular-nums"
@@ -303,41 +310,49 @@ export default function TasksPage() {
                 ))}
               </div>
             </div>
-            {GANTT_SRC.map((g) => (
-              <div
-                key={g.title}
-                className="flex items-center border-b border-[#f8fafc] py-2.5"
-              >
-                <div className="flex w-[220px] shrink-0 items-center gap-1.5 pr-3.5">
-                  <Tag label={g.tag} />
-                  <span className="flex-1 truncate text-[12.5px] font-medium">
-                    {g.title}
-                  </span>
-                </div>
-                <div className="relative h-6 flex-1">
-                  <div className="absolute inset-0 flex">
-                    {Array.from({ length: 14 }, (_, i) => (
-                      <div
-                        key={i}
-                        className="flex-1 border-l border-[#f8fafc]"
-                      />
-                    ))}
-                  </div>
-                  <div
-                    className="absolute top-[3px] flex h-[18px] items-center rounded-md px-2 shadow-[0_1px_2px_rgba(15,23,42,0.12)]"
-                    style={{
-                      background: g.color,
-                      left: `${(g.start / 14) * 100}%`,
-                      width: `${(g.len / 14) * 100}%`,
-                    }}
-                  >
-                    <span className="whitespace-nowrap text-[10.5px] font-semibold text-white">
-                      {g.who}
+            {flat.length === 0 && (
+              <div className="py-10 text-center text-[12.5px] text-muted-foreground">
+                표시할 Task가 없습니다
+              </div>
+            )}
+            {flat.map((t) => {
+              const bar = ganttBar(t.dday, t.total);
+              return (
+                <div
+                  key={t.id}
+                  className="flex items-center border-b border-[#f8fafc] py-2.5"
+                >
+                  <div className="flex w-[220px] shrink-0 items-center gap-1.5 pr-3.5">
+                    <Tag label={t.tag} />
+                    <span className="flex-1 truncate text-[12.5px] font-medium">
+                      {t.title}
                     </span>
                   </div>
+                  <div className="relative h-6 flex-1">
+                    <div className="absolute inset-0 flex">
+                      {Array.from({ length: GANTT_DAYS }, (_, i) => (
+                        <div
+                          key={i}
+                          className="flex-1 border-l border-[#f8fafc]"
+                        />
+                      ))}
+                    </div>
+                    <div
+                      className="absolute top-[3px] flex h-[18px] items-center rounded-md px-2 shadow-[0_1px_2px_rgba(15,23,42,0.12)]"
+                      style={{
+                        background: t.color,
+                        left: `${(bar.start / GANTT_DAYS) * 100}%`,
+                        width: `${(bar.len / GANTT_DAYS) * 100}%`,
+                      }}
+                    >
+                      <span className="whitespace-nowrap text-[10.5px] font-semibold text-white">
+                        {t.who}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </GwCard>
       )}

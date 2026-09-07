@@ -7,7 +7,6 @@ import {
   Building2,
   CalendarDays,
   Check,
-  ChevronDown,
   CircleDot,
   HardDrive,
   Info,
@@ -31,7 +30,9 @@ import {
   Webhook,
   X,
 } from "lucide-react";
+import { updatePassword } from "firebase/auth";
 import { cn } from "@/lib/utils";
+import { firebaseAuth } from "@/lib/firebase";
 import {
   INTEGRATIONS,
   NOTIFY_GROUPS,
@@ -118,15 +119,32 @@ interface Edits {
   twoFA?: boolean;
   toggles?: Record<string, boolean>;
   ints?: Record<string, boolean>;
+  lang?: string;
+  tz?: string;
   saving?: boolean;
   touched?: boolean;
 }
 
+const LANGS = ["한국어 (Korean)", "English", "日本語"];
+const TIMEZONES = [
+  "(GMT+09:00) 서울",
+  "(GMT+00:00) UTC",
+  "(GMT-08:00) 로스앤젤레스",
+];
+
 export default function SettingsPage() {
   const [tab, setTab] = React.useState<Tab>("profile");
-  const { profile, canSave, save } = useGwSettings();
+  const { profile, canSave, save, uploadImage, clearImage } = useGwSettings();
   const me = useCurrentUser();
   const [edits, setEdits] = React.useState<Edits>({});
+  const [avatarUrl, setAvatarUrl] = React.useState<string | null>(null);
+  const [signatureUrl, setSignatureUrl] = React.useState<string | null>(null);
+  const [pw, setPw] = React.useState("");
+  const [pw2, setPw2] = React.useState("");
+  const [pwBusy, setPwBusy] = React.useState(false);
+  const [pwMsg, setPwMsg] = React.useState<{ ok: boolean; text: string } | null>(
+    null,
+  );
   const isAdmin = profile?.role === "ADMIN" || profile?.role === "SUPER_ADMIN";
   const isAdminTab = tab === "company" || tab === "members" || tab === "integration";
   const activeTab: Tab = isAdminTab && !isAdmin ? "profile" : tab;
@@ -137,6 +155,10 @@ export default function SettingsPage() {
   const twoFA = edits.twoFA ?? gw?.twoFA ?? true;
   const toggles = edits.toggles ?? gw?.toggles ?? DEFAULT_TOGGLES;
   const ints = edits.ints ?? gw?.integrations ?? DEFAULT_INTS;
+  const lang = edits.lang ?? gw?.lang ?? LANGS[0];
+  const tz = edits.tz ?? gw?.tz ?? TIMEZONES[0];
+  const photo = avatarUrl ?? profile?.profileImageUrl ?? null;
+  const signature = signatureUrl ?? profile?.signatureUrl ?? null;
   const dirty = Object.keys(edits).some((k) => k !== "saving");
 
   const setName = (v: string) => setEdits((e) => ({ ...e, name: v }));
@@ -149,10 +171,88 @@ export default function SettingsPage() {
     setEdits((e) => ({ ...e, ints: fn(e.ints ?? ints) }));
   const touch = () => setEdits((e) => ({ ...e, touched: true }));
 
+  const pickImage = (kind: "profile" | "signature") => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const url = await uploadImage(kind, file);
+      if (!url) return;
+      if (kind === "profile") setAvatarUrl(url);
+      else setSignatureUrl(url);
+    };
+    input.click();
+  };
+
+  const changePassword = async () => {
+    setPwMsg(null);
+    if (pw.length < 8 || pw !== pw2) {
+      setPwMsg({ ok: false, text: "8자 이상, 두 입력이 일치해야 합니다." });
+      return;
+    }
+    const user = firebaseAuth().currentUser;
+    if (!user) return;
+    setPwBusy(true);
+    try {
+      await updatePassword(user, pw);
+      setPwMsg({ ok: true, text: "비밀번호가 변경되었습니다." });
+      setPw("");
+      setPw2("");
+    } catch (e: unknown) {
+      const code = (e as { code?: string }).code;
+      setPwMsg({
+        ok: false,
+        text:
+          code === "auth/requires-recent-login"
+            ? "보안을 위해 다시 로그인한 뒤 변경해 주세요."
+            : "비밀번호 변경에 실패했습니다.",
+      });
+    } finally {
+      setPwBusy(false);
+    }
+  };
+
+  const ua = React.useSyncExternalStore(
+    () => () => {},
+    () => navigator.userAgent,
+    () => "",
+  );
+  const sessions = React.useMemo(() => {
+    const current = ua
+      ? [
+          {
+            device: /Mobi|Android|iPhone/.test(ua)
+              ? "모바일 브라우저"
+              : "이 브라우저",
+            meta: ua.length > 64 ? `${ua.slice(0, 64)}…` : ua,
+            time: "현재 접속 중",
+            current: true,
+            icon: "Monitor" as const,
+          },
+        ]
+      : [];
+    return [...current, ...SESSIONS];
+  }, [ua]);
+
+  const lastChanged = (() => {
+    const u = profile?.updatedAt as { toDate?: () => Date } | Date | undefined;
+    const d = u instanceof Date ? u : u?.toDate?.();
+    return d
+      ? `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(
+          d.getDate(),
+        ).padStart(2, "0")}`
+      : null;
+  })();
+
   const commit = async () => {
     setEdits((e) => ({ ...e, saving: true }));
     // 이메일은 Firebase Auth 계정과 연동되므로 여기서는 저장하지 않습니다.
-    await save({ name, gwSettings: { toggles, integrations: ints, twoFA } });
+    await save({
+      name,
+      gwSettings: { toggles, integrations: ints, twoFA, lang, tz },
+    });
     setEdits({});
   };
 
@@ -205,21 +305,42 @@ export default function SettingsPage() {
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-4">
-                <span style={avatarStyle(name.charAt(0), 64)}>
-                  {name.charAt(0).toUpperCase()}
-                </span>
+                {photo ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={photo}
+                    alt={name}
+                    className="size-16 rounded-full object-cover"
+                  />
+                ) : (
+                  <span style={avatarStyle(name.charAt(0), 64)}>
+                    {name.charAt(0).toUpperCase()}
+                  </span>
+                )}
                 <div className="flex flex-col gap-1.5">
                   <div className="flex gap-1.5">
-                    <button className="flex h-8.5 items-center gap-1.5 rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-secondary-foreground hover:bg-secondary">
+                    <button
+                      onClick={() => pickImage("profile")}
+                      disabled={!canSave}
+                      className="flex h-8.5 items-center gap-1.5 rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-secondary-foreground hover:bg-secondary disabled:opacity-50"
+                    >
                       <Upload className="size-3.5" />
                       이미지 변경
                     </button>
-                    <button className="h-8.5 rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-muted-foreground hover:bg-secondary">
-                      삭제
-                    </button>
+                    {photo && (
+                      <button
+                        onClick={async () => {
+                          await clearImage("profile");
+                          setAvatarUrl(null);
+                        }}
+                        className="h-8.5 rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-muted-foreground hover:bg-secondary"
+                      >
+                        삭제
+                      </button>
+                    )}
                   </div>
                   <span className="text-[11.5px] text-muted-foreground">
-                    PNG, JPG · 최대 2MB · 권장 400×400px
+                    PNG, JPG · 최대 5MB · 권장 400×400px
                   </span>
                 </div>
               </div>
@@ -251,22 +372,30 @@ export default function SettingsPage() {
                   <ReadOnly>{profile?.position || "미배정"}</ReadOnly>
                 </Field>
                 <Field label="언어">
-                  <button
-                    onClick={touch}
-                    className={cn(fieldInput, "flex items-center text-left")}
+                  <select
+                    value={lang}
+                    onChange={(e) =>
+                      setEdits((s) => ({ ...s, lang: e.target.value }))
+                    }
+                    className={fieldInput}
                   >
-                    <span className="flex-1">한국어 (Korean)</span>
-                    <ChevronDown className="size-3.5 text-muted-foreground" />
-                  </button>
+                    {LANGS.map((l) => (
+                      <option key={l}>{l}</option>
+                    ))}
+                  </select>
                 </Field>
                 <Field label="타임존">
-                  <button
-                    onClick={touch}
-                    className={cn(fieldInput, "flex items-center text-left")}
+                  <select
+                    value={tz}
+                    onChange={(e) =>
+                      setEdits((s) => ({ ...s, tz: e.target.value }))
+                    }
+                    className={fieldInput}
                   >
-                    <span className="flex-1">(GMT+09:00) 서울</span>
-                    <ChevronDown className="size-3.5 text-muted-foreground" />
-                  </button>
+                    {TIMEZONES.map((z) => (
+                      <option key={z}>{z}</option>
+                    ))}
+                  </select>
                 </Field>
               </div>
               <div className="border-t border-[#f1f5f9] pt-4.5">
@@ -278,26 +407,49 @@ export default function SettingsPage() {
                 </div>
                 <div className="mt-3 flex flex-wrap items-stretch gap-3.5">
                   <div className="flex min-h-[108px] flex-[1_1_260px] flex-col items-center justify-center gap-1.5 rounded-[11px] border border-border bg-card p-3.5">
-                    <div className="font-mono text-[10.5px] tracking-[0.04em] text-[#cbd5e1]">
-                      SIGNATURE PREVIEW
-                    </div>
-                    <div className="text-[26px] font-medium tracking-[-0.02em]">
-                      {name.split("").join(" ")}
-                    </div>
-                    <div className="text-[11px] text-muted-foreground">
-                      {profile?.departmentId || "부서 미배정"}
-                      {profile?.position ? ` · ${profile.position}` : ""}
-                    </div>
+                    {signature ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={signature}
+                        alt="전자결재 서명"
+                        className="max-h-[72px] object-contain"
+                      />
+                    ) : (
+                      <>
+                        <div className="font-mono text-[10.5px] tracking-[0.04em] text-[#cbd5e1]">
+                          SIGNATURE PREVIEW
+                        </div>
+                        <div className="text-[26px] font-medium tracking-[-0.02em]">
+                          {name.split("").join(" ")}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {profile?.departmentId || "부서 미배정"}
+                          {profile?.position ? ` · ${profile.position}` : ""}
+                        </div>
+                      </>
+                    )}
                   </div>
                   <div className="flex flex-[1_1_200px] flex-col justify-center gap-2">
-                    <button className="flex h-9.5 items-center justify-center gap-1.5 rounded-[10px] border border-dashed border-[#cbd5e1] bg-secondary text-[12.5px] font-semibold text-secondary-foreground hover:border-ring hover:bg-[#f5f6ff]">
+                    <button
+                      onClick={() => pickImage("signature")}
+                      disabled={!canSave}
+                      className="flex h-9.5 items-center justify-center gap-1.5 rounded-[10px] border border-dashed border-[#cbd5e1] bg-secondary text-[12.5px] font-semibold text-secondary-foreground hover:border-ring hover:bg-[#f5f6ff] disabled:opacity-50"
+                    >
                       <Upload className="size-3.5" />
                       서명 이미지 업로드
                     </button>
-                    <button className="flex h-9.5 items-center justify-center gap-1.5 rounded-[10px] border border-border bg-card text-[12.5px] font-semibold text-secondary-foreground hover:bg-secondary">
-                      <PenLine className="size-3.5" />
-                      직접 그려서 등록
-                    </button>
+                    {signature && (
+                      <button
+                        onClick={async () => {
+                          await clearImage("signature");
+                          setSignatureUrl(null);
+                        }}
+                        className="flex h-9.5 items-center justify-center gap-1.5 rounded-[10px] border border-border bg-card text-[12.5px] font-semibold text-secondary-foreground hover:bg-secondary"
+                      >
+                        <PenLine className="size-3.5" />
+                        서명 삭제
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -407,14 +559,45 @@ export default function SettingsPage() {
                 </div>
                 <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-3.5 border-t border-[#f1f5f9] pt-4.5">
                   <Field label="새 비밀번호">
-                    <input type="password" defaultValue="1234567890" className={fieldInput} />
+                    <input
+                      type="password"
+                      value={pw}
+                      onChange={(e) => setPw(e.target.value)}
+                      autoComplete="new-password"
+                      className={fieldInput}
+                    />
                   </Field>
                   <Field label="새 비밀번호 확인">
-                    <input type="password" defaultValue="1234567890" className={fieldInput} />
+                    <input
+                      type="password"
+                      value={pw2}
+                      onChange={(e) => setPw2(e.target.value)}
+                      autoComplete="new-password"
+                      className={fieldInput}
+                    />
                   </Field>
                 </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    onClick={changePassword}
+                    disabled={pwBusy || !canSave || !pw}
+                    className="h-9 rounded-[9px] bg-primary px-4 text-[13px] font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
+                  >
+                    {pwBusy ? "변경 중…" : "비밀번호 변경"}
+                  </button>
+                  {pwMsg && (
+                    <span
+                      className="text-[12px] font-medium"
+                      style={{ color: pwMsg.ok ? "#15803d" : "#b91c1c" }}
+                    >
+                      {pwMsg.text}
+                    </span>
+                  )}
+                </div>
                 <div className="text-[11.5px] text-muted-foreground">
-                  마지막 변경 2026.05.12 · 90일마다 변경이 권장됩니다
+                  {lastChanged
+                    ? `마지막 변경 ${lastChanged} · 90일마다 변경이 권장됩니다`
+                    : "90일마다 비밀번호 변경이 권장됩니다"}
                 </div>
               </GwCard>
 
@@ -424,13 +607,18 @@ export default function SettingsPage() {
                     최근 접속 기기
                   </h3>
                   <span className="text-[11.5px] text-muted-foreground">
-                    4개 세션
+                    {sessions.length}개 세션
                   </span>
-                  <button className="ml-auto h-8 rounded-[9px] border border-[#fecaca] bg-card px-3 text-[12.5px] font-semibold text-[#b91c1c] hover:bg-[#fef2f2]">
+                  <button
+                    onClick={() => {
+                      if (confirm("이 기기에서 로그아웃할까요?")) me.logout();
+                    }}
+                    className="ml-auto h-8 rounded-[9px] border border-[#fecaca] bg-card px-3 text-[12.5px] font-semibold text-[#b91c1c] hover:bg-[#fef2f2]"
+                  >
                     전체 강제 로그아웃
                   </button>
                 </div>
-                {SESSIONS.map((d) => {
+                {sessions.map((d) => {
                   const Icon = SESSION_ICONS[d.icon];
                   return (
                     <div
@@ -463,6 +651,7 @@ export default function SettingsPage() {
                       </span>
                       <button
                         disabled={d.current}
+                        onClick={() => !d.current && me.logout()}
                         className={cn(
                           "h-7.5 whitespace-nowrap rounded-lg px-2.5 text-xs font-semibold",
                           d.current
