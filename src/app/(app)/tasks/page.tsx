@@ -6,6 +6,7 @@ import {
   Clock,
   GanttChart,
   List,
+  ListChecks,
   Plus,
   Search,
   SquareKanban,
@@ -14,6 +15,7 @@ import { TASK_COLUMNS, type TaskDoc } from "@/lib/groupware/firestore";
 import { useTasks } from "@/lib/groupware/hooks";
 import { avatarStyle, ddayStyle } from "@/lib/groupware/ui";
 import { GwCard, PageHeader, Segmented, Tag } from "@/components/app/primitives";
+import { EmptyState } from "@/components/app/EmptyState";
 
 type View = "kanban" | "list" | "gantt";
 
@@ -285,6 +287,28 @@ export default function TasksPage() {
               </div>
             </div>
           ))}
+          {flat.length === 0 && (
+            <EmptyState
+              className="rounded-none border-0 shadow-none"
+              tint={["#f5f3ff", "#6d28d9"]}
+              icon={<ListChecks className="size-[26px]" />}
+              title={query ? "검색 결과가 없습니다" : "등록된 Task가 없습니다"}
+              desc={
+                query
+                  ? "담당자나 제목 검색어를 바꿔 보세요."
+                  : "칸반 보드에서 새 Task를 추가하면 목록에 표시됩니다."
+              }
+              cta={
+                query
+                  ? undefined
+                  : {
+                      label: "칸반 보드 열기",
+                      icon: <SquareKanban className="size-4" />,
+                      onClick: () => setView("kanban"),
+                    }
+              }
+            />
+          )}
         </GwCard>
       )}
 

@@ -3,6 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import {
+  BellOff,
   CalendarClock,
   Loader2,
   Megaphone,
@@ -10,6 +11,7 @@ import {
   Pin,
   PenSquare,
   Search,
+  SearchX,
   ShieldAlert,
   X,
 } from "lucide-react";
@@ -18,6 +20,7 @@ import { NOTICE_CATEGORIES, NOTICE_CAT_COLORS } from "@/lib/groupware/data";
 import { pill } from "@/lib/groupware/ui";
 import { useNotices } from "@/lib/groupware/hooks";
 import { GwCard, PageHeader } from "@/components/app/primitives";
+import { EmptyState } from "@/components/app/EmptyState";
 
 const PIN_ICONS: Record<string, React.ElementType> = {
   ShieldAlert,
@@ -158,6 +161,38 @@ export default function NoticePage() {
           </span>
         </div>
 
+        {!loading && rows.length === 0 ? (
+          <EmptyState
+            className="rounded-none border-0 shadow-none"
+            tint={
+              q || cat !== "전체" ? ["#f1f5f9", "#64748b"] : ["#fff7ed", "#c2410c"]
+            }
+            icon={
+              q || cat !== "전체" ? (
+                <SearchX className="size-[26px]" />
+              ) : (
+                <BellOff className="size-[26px]" />
+              )
+            }
+            title={
+              q || cat !== "전체" ? "검색 결과가 없습니다" : "등록된 공지가 없습니다"
+            }
+            desc={
+              q || cat !== "전체"
+                ? "검색어나 카테고리 필터를 완화해 보세요."
+                : "첫 공지를 작성하면 전사 구성원에게 바로 게시됩니다."
+            }
+            cta={
+              q || cat !== "전체"
+                ? undefined
+                : {
+                    label: "공지 작성",
+                    icon: <PenSquare className="size-4" />,
+                    onClick: () => setComposeOpen(true),
+                  }
+            }
+          />
+        ) : (
         <div className="overflow-x-auto">
           <div className="flex min-w-[760px] border-b border-[#eef1f5] bg-secondary px-4.5 py-2.5 text-[11.5px] font-semibold text-muted-foreground">
             <div className="w-[84px] shrink-0">카테고리</div>
@@ -209,6 +244,7 @@ export default function NoticePage() {
             );
           })}
         </div>
+        )}
       </GwCard>
 
       {composeOpen && (

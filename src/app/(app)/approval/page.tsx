@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   CircleCheck,
   CircleX,
+  FilePlus2,
   Inbox,
   Loader,
   Plus,
@@ -21,6 +22,7 @@ import { pill } from "@/lib/groupware/ui";
 import { useApprovals } from "@/lib/groupware/hooks";
 import { useNow } from "@/lib/groupware/use-now";
 import { GwCard, PageHeader, StatCard } from "@/components/app/primitives";
+import { EmptyState } from "@/components/app/EmptyState";
 
 const STAT_ICONS: Record<string, React.ElementType> = {
   Inbox,
@@ -136,6 +138,35 @@ export default function ApprovalPage() {
           </div>
         </div>
 
+        {rows.length === 0 ? (
+          <EmptyState
+            className="rounded-none border-0 shadow-none"
+            icon={<Inbox className="size-[26px]" />}
+            title={
+              periodIdx > 0
+                ? "해당 기간에 문서가 없습니다"
+                : ["결재할 문서가 없습니다", "상신한 문서가 없습니다", "참조 문서가 없습니다"][tab]
+            }
+            desc={
+              periodIdx > 0
+                ? "기간 필터를 넓혀 보세요."
+                : [
+                    "현재 내 차례로 넘어온 문서가 없습니다. 새 문서를 기안해 보세요.",
+                    "임시저장 중이거나 상신한 문서가 여기에 표시됩니다.",
+                    "내가 참조자로 지정된 문서가 여기에 표시됩니다.",
+                  ][tab]
+            }
+            cta={
+              tab === 0 || tab === 1
+                ? {
+                    label: "새 결재 기안하기",
+                    icon: <FilePlus2 className="size-4" />,
+                    onClick: () => router.push("/approval/new"),
+                  }
+                : undefined
+            }
+          />
+        ) : (
         <div className="overflow-x-auto">
           <div className="flex min-w-[880px] border-b border-[#eef1f5] bg-secondary px-4.5 py-2.5 text-[11.5px] font-semibold text-muted-foreground">
             <div className="w-[116px] shrink-0">문서번호</div>
@@ -179,6 +210,7 @@ export default function ApprovalPage() {
             );
           })}
         </div>
+        )}
       </GwCard>
     </div>
   );

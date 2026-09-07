@@ -30,6 +30,7 @@ import {
 import { useOrgPeople, useWorkspace } from "@/lib/groupware/hooks";
 import { avatarStyle, pill, statusDot, statusPill } from "@/lib/groupware/ui";
 import { GwCard, PageHeader, Segmented } from "@/components/app/primitives";
+import { EmptyState } from "@/components/app/EmptyState";
 
 const STATUS_OPTIONS: { value: PersonStatus; label: string }[] = [
   { value: "online", label: "근무 중" },
@@ -200,6 +201,32 @@ export default function OrgPage() {
 
         <div className="flex min-w-[320px] flex-[1_1_560px] flex-col gap-4">
           {view === "grid" ? (
+            people.length === 0 ? (
+              <EmptyState
+                tint={["#f0fdf4", "#15803d"]}
+                icon={<Users className="size-[26px]" />}
+                title={query || dept !== "전체" ? "일치하는 구성원이 없습니다" : "등록된 구성원이 없습니다"}
+                desc={
+                  query || dept !== "전체"
+                    ? "검색어나 부서 필터를 완화해 보세요."
+                    : "구성원을 추가하거나 멤버를 초대하면 조직도에 표시됩니다."
+                }
+                cta={
+                  query || dept !== "전체"
+                    ? undefined
+                    : {
+                        label: "새 구성원 추가",
+                        icon: <Plus className="size-4" />,
+                        onClick: () => setAddOpen(true),
+                      }
+                }
+                alt={
+                  query || dept !== "전체"
+                    ? undefined
+                    : { label: "멤버 초대", href: "/admin/invite" }
+                }
+              />
+            ) : (
             <div className="grid grid-cols-[repeat(auto-fill,minmax(268px,1fr))] gap-3.5">
               {people.map((p) => (
                 <PersonCard
@@ -209,6 +236,7 @@ export default function OrgPage() {
                 />
               ))}
             </div>
+            )
           ) : (
             <GwCard className="overflow-x-auto p-6">
               <div className="flex min-w-[720px] flex-col items-center">
