@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import {
   CalendarClock,
   Loader2,
@@ -91,9 +92,10 @@ export default function NoticePage() {
               const accent = p.accent ?? "#dc2626";
               const chip = p.chip ?? ["#fee2e2", "#b91c1c"];
               return (
-                <div
+                <Link
+                  href={`/notice/${p.id}`}
                   key={p.id}
-                  className="cursor-pointer rounded-[13px] border p-4.5 transition-all hover:-translate-y-px"
+                  className="block cursor-pointer rounded-[13px] border p-4.5 transition-all hover:-translate-y-px"
                   style={{
                     background: p.bg ?? "#fef2f2",
                     borderColor: p.border ?? "#fecaca",
@@ -127,7 +129,7 @@ export default function NoticePage() {
                     <span>·</span>
                     <span>조회 {p.views}</span>
                   </div>
-                </div>
+                </Link>
               );
             })}
           </div>
@@ -167,7 +169,8 @@ export default function NoticePage() {
           {rows.map((n) => {
             const c = NOTICE_CAT_COLORS[n.cat] ?? ["#f1f5f9", "#475569"];
             return (
-              <div
+              <Link
+                href={`/notice/${n.id}`}
                 key={n.id}
                 className="flex min-w-[760px] cursor-pointer items-center border-b border-[#f1f5f9] px-4.5 py-3 text-[12.5px] transition-colors hover:bg-secondary"
               >
@@ -202,7 +205,7 @@ export default function NoticePage() {
                 <div className="w-[70px] shrink-0 text-right tabular-nums text-muted-foreground">
                   {n.views}
                 </div>
-              </div>
+              </Link>
             );
           })}
         </div>
