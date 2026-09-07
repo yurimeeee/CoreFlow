@@ -24,7 +24,7 @@ export default function SeedPage() {
   const [progress, setProgress] = React.useState({ done: 0, total: 0 });
   const [error, setError] = React.useState<string | null>(null);
 
-  const total = buildSeed().length;
+  const total = buildSeed().length + 3; // +3 = leaves 샘플 (연차·반차·초과근무)
 
   const seed = async () => {
     setState("running");
@@ -80,6 +80,7 @@ export default function SeedPage() {
             <code className="font-mono text-xs">tasks</code>{" "}
             <code className="font-mono text-xs">approvals</code>{" "}
             <code className="font-mono text-xs">bookings</code>{" "}
+            <code className="font-mono text-xs">leaves</code>{" "}
             <code className="font-mono text-xs">workspace</code>
           </div>
 

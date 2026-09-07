@@ -67,6 +67,18 @@ service cloud.firestore {
       allow read, write: if isSignedIn() && request.auth.uid == uid;
     }
 
+    /* ---------------- leaves/{id} (연차·초과근무 신청) ---------------- */
+    match /leaves/{id} {
+      // 본인 신청 또는 관리자만 조회 (목록 쿼리는 uid == 본인 으로 제한)
+      allow read: if isSignedIn()
+        && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isSignedIn()
+        && request.resource.data.uid == request.auth.uid
+        && (request.resource.data.status == '대기' || isAdmin());
+      allow update, delete: if isAdmin()
+        || (isSignedIn() && resource.data.uid == request.auth.uid);
+    }
+
     /* ---------------- workspace/{id} (회사 기본 정보) ---------------- */
     match /workspace/{id} {
       allow read: if isSignedIn();

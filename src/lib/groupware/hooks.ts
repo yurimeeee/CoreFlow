@@ -6,6 +6,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  increment,
   onSnapshot,
   orderBy,
   query,
@@ -13,7 +14,12 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
-import { firebaseDb, isFirebaseConfigured } from "@/lib/firebase";
+import {
+  getDownloadURL,
+  ref as storageRef,
+  uploadBytes,
+} from "firebase/storage";
+import { firebaseDb, firebaseStorage, isFirebaseConfigured } from "@/lib/firebase";
 import { useAuthUser } from "@/hooks/useAuthUser";
 import type { UserDoc } from "@/types/user";
 import {
@@ -26,11 +32,13 @@ import {
   type Person,
 } from "./data";
 import {
+  ANNUAL_LEAVE_TOTAL,
   COL,
   buildSeed,
   type ApprovalDoc,
   type AttendanceDoc,
   type BookingDoc,
+  type LeaveDoc,
   type NoticeDoc,
   type TaskDoc,
   type WorkspaceDoc,
@@ -163,6 +171,21 @@ export function useNotices() {
   return { ...state, addNotice };
 }
 
+export function useNoticeDoc(id: string) {
+  const state = useGwCollection<NoticeDoc>(COL.notices, NOTICE_FALLBACK);
+  const doc_ = state.data.find((n) => n.id === id) ?? null;
+
+  React.useEffect(() => {
+    if (!isFirebaseConfigured || !id) return;
+    updateDoc(doc(firebaseDb(), COL.notices, id), {
+      views: increment(1),
+      unread: false,
+    }).catch(() => {});
+  }, [id]);
+
+  return { notice: doc_, loading: state.loading };
+}
+
 /* ------------------------------------------------------------------ */
 /*  Task                                                               */
 /* ------------------------------------------------------------------ */
@@ -264,6 +287,7 @@ export type NewApproval = {
   line?: ApprovalDoc["line"];
   meta?: ApprovalDoc["meta"];
   rows?: ApprovalDoc["rows"];
+  attachments?: ApprovalDoc["attachments"];
   reason?: string;
 };
 
@@ -295,6 +319,9 @@ export function useApprovals() {
         ...(input.line ? { line: input.line } : {}),
         ...(input.meta ? { meta: input.meta } : {}),
         ...(input.rows ? { rows: input.rows } : {}),
+        ...(input.attachments && input.attachments.length
+          ? { attachments: input.attachments }
+          : {}),
         ...(input.reason ? { reason: input.reason } : {}),
       };
       setAdded((p) => [...p, { no: input.no, ...payload }]);
@@ -515,12 +542,89 @@ export function useAttendance() {
     working: cur.working,
     inAt: cur.inAt,
     outAt: cur.outAt,
-    weekWorked: cur.weekWorked ?? 32,
+    weekWorked: cur.weekWorked ?? 0,
     history: cur.history ?? ATT_ROWS,
     source: remote ? ("firestore" as const) : ("fallback" as const),
     checkIn,
     checkOut,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/*  휴가 / 초과근무 신청 (leaves/{id})                                   */
+/* ------------------------------------------------------------------ */
+
+const LEAVE_TYPES_COUNTED = ["연차", "반차"];
+
+export function useLeaves() {
+  const { authUser } = useAuthUser();
+  const me = useCurrentUser();
+  const uid = authUser?.uid;
+  const [remote, setRemote] = React.useState<LeaveDoc[]>([]);
+  const [loading, setLoading] = React.useState(isFirebaseConfigured);
+  const [added, setAdded] = React.useState<LeaveDoc[]>([]);
+
+  React.useEffect(() => {
+    if (!isFirebaseConfigured || !uid) return;
+    const q = query(collection(firebaseDb(), COL.leaves), where("uid", "==", uid));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setRemote(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as LeaveDoc));
+        setLoading(false);
+      },
+      () => setLoading(false),
+    );
+    return unsub;
+  }, [uid]);
+
+  const data = React.useMemo(() => {
+    const extra = added.filter((a) => !remote.some((r) => r.id === a.id));
+    return [...remote, ...extra].sort((a, b) => b.order - a.order);
+  }, [remote, added]);
+
+  const usedDays = data
+    .filter((l) => LEAVE_TYPES_COUNTED.includes(l.kind) && l.status !== "반려")
+    .reduce((sum, l) => sum + (l.days || 0), 0);
+  const balance = {
+    total: ANNUAL_LEAVE_TOTAL,
+    used: usedDays,
+    remaining: Math.max(0, ANNUAL_LEAVE_TOTAL - usedDays),
+  };
+
+  const addLeave = React.useCallback(
+    async (input: {
+      kind: string;
+      start: string;
+      end: string;
+      days: number;
+      hours?: number;
+      reason: string;
+    }) => {
+      const id = String(Date.now());
+      const now = new Date();
+      const payload: Omit<LeaveDoc, "id"> = {
+        uid: uid ?? "local",
+        who: me.name,
+        kind: input.kind,
+        start: input.start,
+        end: input.end,
+        days: input.days,
+        hours: input.hours ?? 0,
+        reason: input.reason,
+        status: "대기",
+        order: now.getTime(),
+      };
+      setAdded((p) => [...p, { id, ...payload }]);
+      if (isFirebaseConfigured && uid) {
+        await setDoc(doc(firebaseDb(), COL.leaves, id), payload);
+      }
+      return id;
+    },
+    [uid, me.name],
+  );
+
+  return { data, loading, balance, addLeave };
 }
 
 /* ------------------------------------------------------------------ */
@@ -541,10 +645,45 @@ export function useGwSettings() {
     [authUser],
   );
 
+  /** 프로필/서명 이미지를 Storage(users/{uid})에 올리고 users 문서에 URL 저장 */
+  const uploadImage = React.useCallback(
+    async (kind: "profile" | "signature", file: File) => {
+      if (!isFirebaseConfigured || !authUser) return null;
+      const ext = (file.name.split(".").pop() || "png").toLowerCase();
+      const snap = await uploadBytes(
+        storageRef(firebaseStorage(), `users/${authUser.uid}/${kind}.${ext}`),
+        file,
+        { contentType: file.type || "image/png", customMetadata: { kind } },
+      );
+      const url = await getDownloadURL(snap.ref);
+      const field = kind === "profile" ? "profileImageUrl" : "signatureUrl";
+      await updateDoc(doc(firebaseDb(), COL.users, authUser.uid), {
+        [field]: url,
+        updatedAt: new Date(),
+      });
+      return url;
+    },
+    [authUser],
+  );
+
+  const clearImage = React.useCallback(
+    async (kind: "profile" | "signature") => {
+      if (!isFirebaseConfigured || !authUser) return;
+      const field = kind === "profile" ? "profileImageUrl" : "signatureUrl";
+      await updateDoc(doc(firebaseDb(), COL.users, authUser.uid), {
+        [field]: null,
+        updatedAt: new Date(),
+      });
+    },
+    [authUser],
+  );
+
   return {
     profile,
     canSave: !!authUser && !!profile && isFirebaseConfigured,
     save,
+    uploadImage,
+    clearImage,
   };
 }
 
@@ -646,6 +785,7 @@ export async function runSeed(
   if (!isFirebaseConfigured) throw new Error("Firebase 미설정");
   const db = firebaseDb();
   const seed = buildSeed();
+  const total = seed.length + (admin ? 3 : 0); // +3 = leaves 샘플
   let done = 0;
 
   // 부트스트랩: 시드 실행자의 users/{uid} 문서가 없으면 SUPER_ADMIN 으로 생성
@@ -677,7 +817,28 @@ export async function runSeed(
   for (const s of seed) {
     await setDoc(doc(db, s.collection, s.id), s.data, { merge: true });
     done += 1;
-    onProgress?.(done, seed.length);
+    onProgress?.(done, total);
+  }
+
+  // 시드 실행자 본인 앞으로 휴가·초과근무 신청 샘플 (leaves 는 uid 종속이라 여기서 생성)
+  if (admin) {
+    const who = admin.name?.trim() || admin.email?.split("@")[0] || "관리자";
+    const y = new Date().getFullYear();
+    const sampleLeaves = [
+      { kind: "연차", start: `${y}-03-14`, end: `${y}-03-14`, days: 1, hours: 0, reason: "개인 사유", status: "승인" },
+      { kind: "반차", start: `${y}-05-02`, end: `${y}-05-02`, days: 0.5, hours: 0, reason: "병원 진료", status: "승인" },
+      { kind: "초과근무", start: `${y}-06-20`, end: `${y}-06-20`, days: 0, hours: 3, reason: "배포 대응", status: "승인" },
+    ];
+    for (let i = 0; i < sampleLeaves.length; i++) {
+      await setDoc(doc(db, COL.leaves, `${admin.uid}-seed-${i}`), {
+        uid: admin.uid,
+        who,
+        order: Date.now() - i * 1000,
+        ...sampleLeaves[i],
+      });
+      done += 1;
+      onProgress?.(done, total);
+    }
   }
   return done;
 }

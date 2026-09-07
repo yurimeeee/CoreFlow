@@ -30,6 +30,7 @@ export const COL = {
   approvals: "approvals",
   bookings: "bookings",
   attendance: "attendance",
+  leaves: "leaves",
   users: "users",
   workspace: "workspace",
 } as const;
@@ -93,6 +94,7 @@ export interface ApprovalDoc {
   meta?: { label: string; value: string }[];
   rows?: { date: string; desc: string; amount: number; receipt: string }[];
   comments?: { name: string; role: string; at: string; body: string }[];
+  attachments?: { name: string; size: string; url: string; kind: string }[];
   reason?: string;
 }
 
@@ -120,6 +122,23 @@ export interface AttendanceDoc {
   weekWorked: number;
   history: { day: string; in: string; out: string; hours: string; pct: number; type: string; color: string }[];
 }
+
+export interface LeaveDoc {
+  id: string;
+  uid: string;
+  who: string;
+  kind: string; // 연차 | 반차 | 경조 | 병가 | 초과근무
+  start: string; // yyyy-mm-dd
+  end: string; // yyyy-mm-dd
+  days: number; // 소요 일수 (초과근무는 0)
+  hours: number; // 초과근무 시간 (그 외 0)
+  reason: string;
+  status: "대기" | "승인" | "반려";
+  order: number;
+}
+
+/** 연차 부여 기본값 (전용 정책 컬렉션 없음 · 데모 기준) */
+export const ANNUAL_LEAVE_TOTAL = 15;
 
 export interface WorkspaceDoc {
   name: string;
