@@ -6,13 +6,9 @@ import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   ArrowRight,
-  Bold,
   Clock4,
   FileBarChart,
   FileSignature,
-  Italic,
-  List,
-  ListOrdered,
   Lock,
   Palmtree,
   Paperclip,
@@ -21,19 +17,23 @@ import {
   Save,
   Send,
   ShoppingCart,
-  Table,
-  Underline,
   Upload,
   X,
 } from "lucide-react";
+import {
+  getDownloadURL,
+  ref as storageRef,
+  uploadBytes,
+} from "firebase/storage";
 import { cn } from "@/lib/utils";
+import { firebaseStorage, isFirebaseConfigured } from "@/lib/firebase";
 import {
   EXPENSE_ROWS,
   FORM_TEMPLATES,
   PURCHASE_ROWS,
 } from "@/lib/groupware/data";
 import { pill } from "@/lib/groupware/ui";
-import { useApprovals, useCurrentUser } from "@/lib/groupware/hooks";
+import { useApprovals, useCurrentUser, useLeaves } from "@/lib/groupware/hooks";
 import { GwCard } from "@/components/app/primitives";
 
 /** 서식 → 결재 문서 유형 (APPROVAL_TYPE_COLORS 키) */
@@ -65,6 +65,18 @@ const FORM_ICONS: Record<string, React.ElementType> = {
 
 const won = (v: string) => Number(v.replace(/[^0-9]/g, "")) || 0;
 const fmt = (v: number) => v.toLocaleString("ko-KR") + "원";
+const fmtSize = (b: number) =>
+  b < 1024 * 1024
+    ? `${Math.max(1, Math.round(b / 1024))} KB`
+    : `${(b / 1024 / 1024).toFixed(1)} MB`;
+const extKind = (name: string) =>
+  /\.(png|jpe?g|gif|webp)$/i.test(name) ? "image" : "pdf";
+const todayDot = () => {
+  const d = new Date();
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(
+    d.getDate(),
+  ).padStart(2, "0")}`;
+};
 
 function Chips({
   options,
@@ -105,12 +117,26 @@ export default function DraftPage() {
   const router = useRouter();
   const me = useCurrentUser();
   const { createApproval } = useApprovals();
+  const { balance: leaveBalance } = useLeaves();
 
   const [form, setForm] = React.useState("지출결의서");
   const [title, setTitle] = React.useState("");
   const [sec, setSec] = React.useState("일반");
   const [retention, setRetention] = React.useState("5년");
   const [leaveKind, setLeaveKind] = React.useState("연차");
+  const [leaveStart, setLeaveStart] = React.useState(() =>
+    new Date().toISOString().slice(0, 10),
+  );
+  const [leaveEnd, setLeaveEnd] = React.useState(() =>
+    new Date().toISOString().slice(0, 10),
+  );
+  const leaveDays = Math.max(
+    1,
+    Math.round(
+      (new Date(leaveEnd).getTime() - new Date(leaveStart).getTime()) /
+        86_400_000,
+    ) + 1,
+  );
   const [reportKind, setReportKind] = React.useState("주간");
   const [shift, setShift] = React.useState("08:00 – 17:00");
   const [text, setText] = React.useState<Record<string, string>>({});
@@ -120,6 +146,10 @@ export default function DraftPage() {
   const [approverDraft, setApproverDraft] = React.useState("");
   const [saving, setSaving] = React.useState<null | "draft" | "submit">(null);
   const [savedNo, setSavedNo] = React.useState<string | null>(null);
+  const [attachments, setAttachments] = React.useState<
+    { name: string; size: string; url: string; kind: string }[]
+  >([]);
+  const [uploading, setUploading] = React.useState(false);
 
   const t = (k: string) => text[k] ?? "";
   const setT = (k: string, v: string) => setText((p) => ({ ...p, [k]: v }));
@@ -140,7 +170,13 @@ export default function DraftPage() {
   };
 
   const buildReason = () => {
-    if (form === "휴가신청서") return t("reason").trim();
+    if (form === "휴가신청서")
+      return [
+        `${leaveKind} · ${leaveStart} ~ ${leaveEnd} (${leaveDays}일)`,
+        t("reason").trim(),
+      ]
+        .filter(Boolean)
+        .join("\n\n");
     if (form === "품의서")
       return [
         t("purpose") && `[품의 목적] ${t("purpose")}`,
@@ -191,7 +227,12 @@ export default function DraftPage() {
     { label: "기안자", value: authorName },
     { label: "보안등급", value: sec },
     { label: "보존연한", value: retention },
-    ...(form === "휴가신청서" ? [{ label: "휴가종류", value: leaveKind }] : []),
+    ...(form === "휴가신청서"
+      ? [
+          { label: "휴가종류", value: leaveKind },
+          { label: "휴가기간", value: `${leaveStart} ~ ${leaveEnd} (${leaveDays}일)` },
+        ]
+      : []),
     ...(form === "업무보고서" ? [{ label: "보고구분", value: reportKind }] : []),
   ];
 
@@ -225,6 +266,35 @@ export default function DraftPage() {
 
   const canSave = title.trim().length > 0 && saving === null;
 
+  const uploadAttachments = async (files: FileList | null) => {
+    if (!files?.length) return;
+    const no = savedNo ?? genNo();
+    setSavedNo(no);
+    setUploading(true);
+    try {
+      for (const file of Array.from(files)) {
+        let url = "";
+        if (isFirebaseConfigured) {
+          const snap = await uploadBytes(
+            storageRef(
+              firebaseStorage(),
+              `approvals/${no}/${Date.now()}-${file.name}`,
+            ),
+            file,
+            { contentType: file.type || "application/octet-stream" },
+          );
+          url = await getDownloadURL(snap.ref);
+        }
+        setAttachments((p) => [
+          ...p,
+          { name: file.name, size: fmtSize(file.size), url, kind: extKind(file.name) },
+        ]);
+      }
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const persist = async (mode: "draft" | "submit") => {
     if (!canSave) return;
     setSaving(mode);
@@ -240,6 +310,7 @@ export default function DraftPage() {
         line: buildLine(),
         meta: buildMeta(),
         rows: buildRows(),
+        attachments,
         reason: buildReason() || undefined,
       });
       setSavedNo(no);
@@ -400,25 +471,6 @@ export default function DraftPage() {
       </div>
 
       <GwCard className="shadow-[0_4px_18px_rgba(15,23,42,0.05)]">
-        <div className="flex flex-wrap items-center gap-1 border-b border-[#eef1f5] px-3.5 py-2.5">
-          {[Bold, Italic, Underline, List, ListOrdered, Table, Paperclip].map(
-            (Icon, i) => (
-              <button
-                key={i}
-                className={cn(
-                  "flex size-8 items-center justify-center rounded-lg text-secondary-foreground hover:bg-secondary",
-                  i === 5 && "ml-1.5",
-                )}
-              >
-                <Icon className="size-[15px]" />
-              </button>
-            ),
-          )}
-          <span className="ml-auto text-[11.5px] text-[#cbd5e1]">
-            자동 저장됨 · 09:41
-          </span>
-        </div>
-
         <div className="flex flex-col gap-5 p-6 sm:px-7 sm:pb-7">
           <input
             value={title}
@@ -456,7 +508,7 @@ export default function DraftPage() {
                       ...p,
                       {
                         id: Date.now(),
-                        date: "2026.09.03",
+                        date: todayDot(),
                         desc: "",
                         amount: "0",
                         receipt: "미첨부",
@@ -551,24 +603,34 @@ export default function DraftPage() {
               <div className="flex flex-wrap gap-3">
                 <div className="flex-[1_1_180px]">
                   <div className={labelCls}>시작일</div>
-                  <div className={cn(inputCls, "flex items-center")}>
-                    2026.09.10
-                  </div>
+                  <input
+                    type="date"
+                    value={leaveStart}
+                    onChange={(e) => {
+                      setLeaveStart(e.target.value);
+                      if (e.target.value > leaveEnd) setLeaveEnd(e.target.value);
+                    }}
+                    className={inputCls}
+                  />
                 </div>
                 <div className="flex-[1_1_180px]">
                   <div className={labelCls}>종료일</div>
-                  <div className={cn(inputCls, "flex items-center")}>
-                    2026.09.11
-                  </div>
+                  <input
+                    type="date"
+                    value={leaveEnd}
+                    min={leaveStart}
+                    onChange={(e) => setLeaveEnd(e.target.value)}
+                    className={inputCls}
+                  />
                 </div>
                 <div className="flex-[1_1_160px]">
-                  <div className={labelCls}>잔여 연차</div>
+                  <div className={labelCls}>신청 일수 / 잔여</div>
                   <div className="flex h-9.5 items-baseline gap-1.5 rounded-[9px] border border-[#e0e7ff] bg-[#f5f6ff] px-3">
                     <span className="text-[15px] font-semibold tabular-nums text-[#3730a3]">
-                      10일
+                      {leaveKind === "반차" ? 0.5 : leaveDays}일
                     </span>
                     <span className="text-[11.5px] text-[#6366f1]">
-                      신청 후 8일
+                      잔여 {leaveBalance.remaining}일
                     </span>
                   </div>
                 </div>
@@ -781,15 +843,54 @@ export default function DraftPage() {
 
           <div className="flex flex-col gap-3 border-t border-[#f1f5f9] pt-5">
             <div className="text-[13px] font-semibold">파일 첨부</div>
-            <div className="flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-[1.5px] border-dashed border-[#cbd5e1] bg-secondary p-6 transition-colors hover:border-ring hover:bg-[#f5f6ff]">
+            <label
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                uploadAttachments(e.dataTransfer.files);
+              }}
+              className="flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-[1.5px] border-dashed border-[#cbd5e1] bg-secondary p-6 transition-colors hover:border-ring hover:bg-[#f5f6ff]"
+            >
+              <input
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  uploadAttachments(e.target.files);
+                  e.target.value = "";
+                }}
+              />
               <Upload className="size-4 text-secondary-foreground" />
               <span className="text-[12.5px] font-semibold text-secondary-foreground">
-                파일을 여기로 끌어다 놓거나 클릭해 업로드
+                {uploading
+                  ? "업로드 중…"
+                  : "파일을 여기로 끌어다 놓거나 클릭해 업로드"}
               </span>
               <span className="text-[11.5px] text-muted-foreground">
                 PDF, JPG, XLSX · 파일당 최대 20MB
               </span>
-            </div>
+            </label>
+            {attachments.map((f, i) => (
+              <div
+                key={`${f.name}-${i}`}
+                className="flex items-center gap-2.5 rounded-[10px] border border-border px-3 py-2.5 text-[12.5px]"
+              >
+                <Paperclip className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="flex-1 truncate">{f.name}</span>
+                <span className="tabular-nums text-[11.5px] text-muted-foreground">
+                  {f.size}
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setAttachments((p) => p.filter((_, x) => x !== i))
+                  }
+                  className="flex size-5 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary"
+                >
+                  <X className="size-3" />
+                </button>
+              </div>
+            ))}
           </div>
         </div>
       </GwCard>
