@@ -25,6 +25,7 @@ import {
 import { cn } from "@/lib/utils";
 import { NOTIFS, NOTIF_CAT_COLORS } from "@/lib/groupware/data";
 import { pill } from "@/lib/groupware/ui";
+import { CommandPalette } from "./CommandPalette";
 import { screenTitle } from "./nav";
 
 const NOTIF_ICONS: Record<string, React.ElementType> = {
@@ -44,8 +45,20 @@ export function AppHeader({ onMenu }: { onMenu: () => void }) {
   const pathname = usePathname();
   const [notifOpen, setNotifOpen] = React.useState(false);
   const [quickOpen, setQuickOpen] = React.useState(false);
+  const [paletteOpen, setPaletteOpen] = React.useState(false);
   const [tab, setTab] = React.useState("전체");
   const [read, setRead] = React.useState<Record<string, boolean>>({});
+
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const items = NOTIFS.filter((n) => tab === "전체" || n.cat === tab);
   const unread = NOTIFS.filter((n) => !read[n.id]).length;
@@ -72,7 +85,10 @@ export function AppHeader({ onMenu }: { onMenu: () => void }) {
       </div>
 
       <div className="hidden flex-1 justify-center md:flex">
-        <button className="flex h-9 w-full max-w-[420px] items-center gap-2.5 rounded-[9px] border border-border bg-secondary px-2.5 text-left transition-colors hover:border-[#cbd5e1] hover:bg-card">
+        <button
+          onClick={() => setPaletteOpen(true)}
+          className="flex h-9 w-full max-w-[420px] items-center gap-2.5 rounded-[9px] border border-border bg-secondary px-2.5 text-left transition-colors hover:border-[#cbd5e1] hover:bg-card"
+        >
           <Search className="size-[15px] text-muted-foreground" />
           <span className="flex-1 text-[13px] text-muted-foreground">
             문서, 구성원, 프로젝트 검색
@@ -284,6 +300,10 @@ export function AppHeader({ onMenu }: { onMenu: () => void }) {
           )}
         </div>
       </div>
+
+      {paletteOpen && (
+        <CommandPalette onClose={() => setPaletteOpen(false)} />
+      )}
     </header>
   );
 }
