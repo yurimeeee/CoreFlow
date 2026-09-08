@@ -23,7 +23,8 @@ import {
   Timer,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { NOTIFS, NOTIF_CAT_COLORS } from "@/lib/groupware/data";
+import { NOTIF_CAT_COLORS } from "@/lib/groupware/data";
+import { useNotifications } from "@/lib/groupware/hooks";
 import { pill } from "@/lib/groupware/ui";
 import { CommandPalette } from "./CommandPalette";
 import { screenTitle } from "./nav";
@@ -49,26 +50,47 @@ export function AppHeader({ onMenu }: { onMenu: () => void }) {
   const [tab, setTab] = React.useState("전체");
   const [read, setRead] = React.useState<Record<string, boolean>>({});
 
+  const notifs = useNotifications();
+
+  const quickActions = React.useMemo(
+    () => [
+      { label: "기안 작성", key: "D", icon: FilePlus2, href: "/approval/new" },
+      { label: "Task 추가", key: "T", icon: SquarePlus, href: "/tasks" },
+      { label: "연차 신청", key: "V", icon: Palmtree, href: "/attendance" },
+      { label: "공지 작성", key: "N", icon: Megaphone, href: "/notice" },
+    ],
+    [],
+  );
+
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setPaletteOpen((v) => !v);
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = document.activeElement;
+      const typing =
+        el instanceof HTMLElement &&
+        (el.tagName === "INPUT" ||
+          el.tagName === "TEXTAREA" ||
+          el.isContentEditable);
+      if (typing) return;
+      const hit = quickActions.find(
+        (a) => a.key.toLowerCase() === e.key.toLowerCase(),
+      );
+      if (hit) {
+        e.preventDefault();
+        router.push(hit.href);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [quickActions, router]);
 
-  const items = NOTIFS.filter((n) => tab === "전체" || n.cat === tab);
-  const unread = NOTIFS.filter((n) => !read[n.id]).length;
-
-  const quickActions = [
-    { label: "기안 작성", key: "D", icon: FilePlus2, href: "/approval/new" },
-    { label: "Task 추가", key: "T", icon: SquarePlus, href: "/tasks" },
-    { label: "연차 신청", key: "V", icon: Palmtree, href: "/attendance" },
-    { label: "공지 작성", key: "N", icon: Megaphone, href: "/notice" },
-  ];
+  const items = notifs.filter((n) => tab === "전체" || n.cat === tab);
+  const unread = notifs.filter((n) => !read[n.id]).length;
 
   return (
     <header className="relative z-20 flex h-15 shrink-0 items-center gap-4 border-b border-border bg-card/85 px-4 backdrop-blur sm:px-5.5">
@@ -151,7 +173,7 @@ export function AppHeader({ onMenu }: { onMenu: () => void }) {
                   <button
                     onClick={() => {
                       const m: Record<string, boolean> = {};
-                      NOTIFS.forEach((n) => (m[n.id] = true));
+                      notifs.forEach((n) => (m[n.id] = true));
                       setRead(m);
                     }}
                     className="ml-auto flex items-center gap-1 rounded-[7px] px-1.5 py-1 text-[11.5px] font-semibold text-primary hover:bg-accent"
@@ -163,7 +185,7 @@ export function AppHeader({ onMenu }: { onMenu: () => void }) {
 
                 <div className="flex gap-1 px-3 pb-2.5">
                   {NOTIF_TABS.map((t) => {
-                    const c = NOTIFS.filter(
+                    const c = notifs.filter(
                       (x) => (t === "전체" || x.cat === t) && !read[x.id],
                     ).length;
                     return (

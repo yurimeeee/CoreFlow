@@ -15,12 +15,13 @@ import {
   SquareKanban,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { DASH_SCHEDULE } from "@/lib/groupware/data";
+import { RESOURCES, slotLabel } from "@/lib/groupware/data";
 import { ddayStyle, pill } from "@/lib/groupware/ui";
 import { useNow } from "@/lib/groupware/use-now";
 import {
   useApprovals,
   useAttendance,
+  useBookings,
   useCurrentUser,
   useNotices,
   useTasks,
@@ -39,7 +40,29 @@ export default function DashboardPage() {
   const { data: notices } = useNotices();
   const { data: allTasks, toggleDone } = useTasks();
   const { data: approvals } = useApprovals();
+  const { data: bookings } = useBookings();
   const [rollIdx, setRollIdx] = React.useState(0);
+
+  const RES_COLOR: Record<string, string> = {
+    회의실: "#4f46e5",
+    "법인 차량": "#16a34a",
+    "프로젝트 랩탑": "#f59e0b",
+    빔프로젝터: "#6366f1",
+  };
+  const today = new Date().toISOString().slice(0, 10);
+  const schedule = bookings
+    .filter((b) => b.date === today)
+    .sort((a, b) => a.from - b.from)
+    .map((b) => {
+      const res = RESOURCES.find((r) => r.key === b.res);
+      return {
+        id: b.id,
+        time: slotLabel(b.from),
+        title: b.title || "예약",
+        place: res ? `${res.name} · ${res.meta}` : b.res,
+        color: res ? (RES_COLOR[res.type] ?? "#4f46e5") : "#4f46e5",
+      };
+    });
 
   const recentApprovals = approvals
     .filter((a) => a.bucket === "pending")
@@ -368,12 +391,17 @@ export default function DashboardPage() {
               오늘의 일정
             </h3>
             <span className="ml-auto text-[11.5px] text-muted-foreground">
-              {DASH_SCHEDULE.length}건
+              {schedule.length}건
             </span>
           </div>
-          {DASH_SCHEDULE.map((s) => (
+          {schedule.length === 0 && (
+            <div className="rounded-[9px] border border-dashed border-border px-3 py-6 text-center text-[12px] text-muted-foreground">
+              오늘 예약된 일정이 없습니다
+            </div>
+          )}
+          {schedule.map((s) => (
             <div
-              key={s.title}
+              key={s.id}
               className="flex gap-2.5 rounded-[9px] px-1.5 py-2 transition-colors hover:bg-secondary"
             >
               <div className="w-12 shrink-0 pt-px text-xs tabular-nums text-muted-foreground">

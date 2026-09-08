@@ -34,6 +34,7 @@ import {
 import {
   ANNUAL_LEAVE_TOTAL,
   COL,
+  TASK_COLUMNS,
   buildSeed,
   type ApprovalDoc,
   type AttendanceDoc,
@@ -256,13 +257,28 @@ export function useTasks() {
 
   const toggleDone = React.useCallback(async (t: TaskDoc) => {
     const nextDone = t.done === t.total ? 0 : t.total;
-    setOverlay((p) => ({ ...p, [t.id]: { done: nextDone } }));
+    setOverlay((p) => ({ ...p, [t.id]: { ...p[t.id], done: nextDone } }));
     if (isFirebaseConfigured) {
       await updateDoc(doc(firebaseDb(), COL.tasks, t.id), { done: nextDone });
     }
   }, []);
 
-  return { ...state, data, addTask, toggleDone };
+  /** 칸반 카드 클릭 시 다음 단계 컬럼으로 이동 (마지막 → 처음) */
+  const moveTask = React.useCallback(async (t: TaskDoc) => {
+    const keys = TASK_COLUMNS.map((c) => c.key);
+    const nextKey = keys[(keys.indexOf(t.colKey) + 1) % keys.length];
+    const lastCol = keys[keys.length - 1];
+    const patch: Partial<TaskDoc> =
+      nextKey === lastCol
+        ? { colKey: nextKey, done: t.total }
+        : { colKey: nextKey };
+    setOverlay((p) => ({ ...p, [t.id]: { ...p[t.id], ...patch } }));
+    if (isFirebaseConfigured) {
+      await updateDoc(doc(firebaseDb(), COL.tasks, t.id), patch);
+    }
+  }, []);
+
+  return { ...state, data, addTask, toggleDone, moveTask };
 }
 
 /* ------------------------------------------------------------------ */
@@ -772,6 +788,88 @@ export function useWorkspace() {
   }, []);
 
   return { data, loading, save };
+}
+
+/* ------------------------------------------------------------------ */
+/*  알림 센터 — 전용 컬렉션 없이 결재·공지·근태에서 파생                  */
+/* ------------------------------------------------------------------ */
+
+export interface Notification {
+  id: string;
+  cat: "결재" | "공지" | "근태";
+  title: string;
+  desc: string;
+  time: string;
+  to: string;
+  icon: string;
+}
+
+export function useNotifications(): Notification[] {
+  const { data: approvals } = useApprovals();
+  const { data: notices } = useNotices();
+  const { data: leaves } = useLeaves();
+
+  return React.useMemo(() => {
+    const byRecency = <T extends { _s: number }>(a: T, b: T) => a._s - b._s;
+
+    const ap = approvals
+      .filter(
+        (a) =>
+          a.bucket === "pending" &&
+          a.status !== "Approved" &&
+          a.status !== "Rejected",
+      )
+      .map((a) => ({
+        id: `ap-${a.no}`,
+        cat: "결재" as const,
+        title: `결재 대기 · ${a.title}`,
+        desc: `${a.author} 기안 · ${a.type}`,
+        time: a.date,
+        to: `/approval/${a.no}`,
+        icon: "FileCheck2",
+        _s: a.order,
+      }))
+      .sort(byRecency);
+
+    const no = notices
+      .filter((n) => n.unread)
+      .map((n) => ({
+        id: `no-${n.id}`,
+        cat: "공지" as const,
+        title: n.pinned ? `[필독] ${n.title}` : n.title,
+        desc: `${n.author} · ${n.date}`,
+        time: n.date,
+        to: `/notice/${n.id}`,
+        icon: "Megaphone",
+        _s: n.order,
+      }))
+      .sort(byRecency);
+
+    const lv = leaves
+      .filter((l) => l.status !== "대기")
+      .map((l) => ({
+        id: `lv-${l.id}`,
+        cat: "근태" as const,
+        title: `${l.kind} 신청이 ${l.status}되었습니다`,
+        desc:
+          l.end && l.end !== l.start ? `${l.start} ~ ${l.end}` : l.start,
+        time: l.start.slice(5).replace("-", "."),
+        to: "/attendance",
+        icon: l.status === "반려" ? "CircleX" : "CircleCheck",
+        _s: -l.order,
+      }))
+      .sort(byRecency);
+
+    return [...ap, ...no, ...lv].slice(0, 15).map((n) => ({
+      id: n.id,
+      cat: n.cat,
+      title: n.title,
+      desc: n.desc,
+      time: n.time,
+      to: n.to,
+      icon: n.icon,
+    }));
+  }, [approvals, notices, leaves]);
 }
 
 /* ------------------------------------------------------------------ */

@@ -34,7 +34,7 @@ export default function TasksPage() {
   const [query, setQuery] = React.useState("");
   const [adding, setAdding] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState("");
-  const { data: tasks, addTask, source } = useTasks();
+  const { data: tasks, addTask, moveTask, source } = useTasks();
 
   const q = query.trim().toLowerCase();
   const match = (t: TaskDoc) =>
@@ -146,9 +146,12 @@ export default function TasksPage() {
               </div>
 
               {col.items.filter(match).map((t) => (
-                <div
+                <button
                   key={t.id}
-                  className="flex cursor-pointer flex-col gap-2.5 rounded-[11px] border border-border bg-card p-3 transition-all hover:-translate-y-px hover:border-[#cbd5e1] hover:shadow-[0_8px_18px_rgba(15,23,42,0.08)]"
+                  type="button"
+                  onClick={() => moveTask(t)}
+                  title="클릭하면 다음 단계로 이동합니다"
+                  className="flex cursor-pointer flex-col gap-2.5 rounded-[11px] border border-border bg-card p-3 text-left transition-all hover:-translate-y-px hover:border-[#cbd5e1] hover:shadow-[0_8px_18px_rgba(15,23,42,0.08)]"
                 >
                   <div className="flex items-center gap-1.5">
                     <Tag label={t.tag} />
@@ -177,7 +180,7 @@ export default function TasksPage() {
                       {t.done}/{t.total}
                     </span>
                   </div>
-                </div>
+                </button>
               ))}
 
               {adding === col.key ? (
