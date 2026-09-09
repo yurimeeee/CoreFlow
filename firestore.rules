@@ -52,6 +52,15 @@ service cloud.firestore {
     match /notices/{id} {
       allow read: if isSignedIn();
       allow write: if isSignedIn();
+
+      /* 공지 댓글 — notices/{id}/comments/{cid} */
+      match /comments/{cid} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn()
+          && request.resource.data.uid == request.auth.uid;
+        allow update, delete: if isSignedIn()
+          && resource.data.uid == request.auth.uid;
+      }
     }
     match /tasks/{id} {
       allow read, write: if isSignedIn();
@@ -77,6 +86,17 @@ service cloud.firestore {
         && (request.resource.data.status == '대기' || isAdmin());
       allow update, delete: if isAdmin()
         || (isSignedIn() && resource.data.uid == request.auth.uid);
+    }
+
+    /* ---------------- events/{id} (캘린더 일정) ---------------- */
+    match /events/{id} {
+      // 워크스페이스 공용 캘린더라 로그인 사용자면 조회 가능
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.owner == request.auth.uid;
+      // 생성자 본인 또는 관리자만 수정·삭제
+      allow update, delete: if isAdmin()
+        || (isSignedIn() && resource.data.owner == request.auth.uid);
     }
 
     /* ---------------- workspace/{id} (회사 기본 정보) ---------------- */

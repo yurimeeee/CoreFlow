@@ -31,9 +31,14 @@ export const COL = {
   bookings: "bookings",
   attendance: "attendance",
   leaves: "leaves",
+  events: "events",
   users: "users",
   workspace: "workspace",
 } as const;
+
+/** notices/{id}/comments 서브컬렉션 경로 */
+export const noticeCommentsPath = (noticeId: string) =>
+  `${COL.notices}/${noticeId}/comments`;
 
 export const TASK_COLUMNS: { key: string; name: string; color: string }[] = [
   { key: "todo", name: "To Do", color: "#94a3b8" },
@@ -70,6 +75,8 @@ export interface NoticeDoc {
   pinned: boolean;
   body?: string;
   order: number;
+  /** 댓글 수 (notices/{id}/comments 서브컬렉션과 동기, increment 로 관리) */
+  comments?: number;
   /* 필독 카드 스타일 (pinned 전용) */
   icon?: string;
   accent?: string;
@@ -139,6 +146,42 @@ export interface LeaveDoc {
 
 /** 연차 부여 기본값 (전용 정책 컬렉션 없음 · 데모 기준) */
 export const ANNUAL_LEAVE_TOTAL = 15;
+
+export interface NoticeCommentDoc {
+  id: string;
+  uid: string;
+  author: string;
+  role: string;
+  body: string;
+  at: string; // yyyy.mm.dd HH:MM
+  order: number;
+}
+
+/** 캘린더 일정 — events/{id} (owner 본인만 수정/삭제) */
+export interface EventDoc {
+  id: string;
+  title: string;
+  date: string; // yyyy-mm-dd (시작일)
+  end?: string; // yyyy-mm-dd (종료일, 없으면 date 와 동일 = 하루 일정)
+  start: string; // HH:MM ("" = 종일)
+  finish: string; // HH:MM ("" = 종일)
+  allDay: boolean;
+  category: string; // 회의 | 미팅 | 개인 | 마감 | 기타
+  location: string;
+  memo: string;
+  owner: string; // uid
+  ownerName: string;
+  color: string;
+  order: number;
+}
+
+export const EVENT_CATEGORIES: { key: string; color: string }[] = [
+  { key: "회의", color: "#4f46e5" },
+  { key: "미팅", color: "#0ea5e9" },
+  { key: "개인", color: "#16a34a" },
+  { key: "마감", color: "#f59e0b" },
+  { key: "기타", color: "#64748b" },
+];
 
 export interface WorkspaceDoc {
   name: string;

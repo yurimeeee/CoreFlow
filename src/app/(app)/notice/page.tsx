@@ -7,6 +7,7 @@ import {
   CalendarClock,
   Loader2,
   Megaphone,
+  MessageSquare,
   Paperclip,
   Pin,
   PenSquare,
@@ -229,6 +230,12 @@ export default function NoticePage() {
                   </span>
                   {n.attach && (
                     <Paperclip className="size-3 text-muted-foreground" />
+                  )}
+                  {!!n.comments && (
+                    <span className="flex items-center gap-0.5 text-[11px] font-semibold text-primary">
+                      <MessageSquare className="size-3" />
+                      {n.comments}
+                    </span>
                   )}
                 </div>
                 <div className="w-[104px] shrink-0 truncate text-secondary-foreground">

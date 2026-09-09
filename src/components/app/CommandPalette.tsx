@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
+  CalendarDays,
   FileCheck2,
   Megaphone,
   Search,
@@ -11,6 +12,7 @@ import {
 } from "lucide-react";
 import {
   useApprovals,
+  useEvents,
   useNotices,
   useOrgPeople,
   useTasks,
@@ -31,6 +33,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
   const { data: notices } = useNotices();
   const { data: approvals } = useApprovals();
   const { data: tasks } = useTasks();
+  const { data: events } = useEvents();
 
   const term = q.trim().toLowerCase();
 
@@ -80,8 +83,18 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
           href: "/tasks",
         });
     }
+    for (const e of events) {
+      if (has(e.title + e.location + e.ownerName))
+        out.push({
+          icon: CalendarDays,
+          group: "일정",
+          title: e.title,
+          sub: `${e.date}${e.allDay ? " · 종일" : ` · ${e.start}`}`,
+          href: "/calendar",
+        });
+    }
     return out.slice(0, 24);
-  }, [term, people, notices, approvals, tasks]);
+  }, [term, people, notices, approvals, tasks, events]);
 
   const go = (href: string) => {
     onClose();

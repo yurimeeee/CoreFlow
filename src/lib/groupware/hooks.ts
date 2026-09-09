@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import {
+  arrayUnion,
   collection,
   deleteDoc,
   doc,
@@ -34,12 +35,16 @@ import {
 import {
   ANNUAL_LEAVE_TOTAL,
   COL,
+  EVENT_CATEGORIES,
   TASK_COLUMNS,
   buildSeed,
+  noticeCommentsPath,
   type ApprovalDoc,
   type AttendanceDoc,
   type BookingDoc,
+  type EventDoc,
   type LeaveDoc,
+  type NoticeCommentDoc,
   type NoticeDoc,
   type TaskDoc,
   type WorkspaceDoc,
@@ -163,6 +168,7 @@ export function useNotices() {
         attach: false,
         unread: true,
         pinned: input.pinned,
+        comments: 0,
         order: -now.getTime(), // 최신 글이 위로 오도록
       });
     },
@@ -185,6 +191,73 @@ export function useNoticeDoc(id: string) {
   }, [id]);
 
   return { notice: doc_, loading: state.loading };
+}
+
+/** 공지 댓글 — notices/{id}/comments 서브컬렉션 */
+export function useNoticeComments(noticeId: string) {
+  const me = useCurrentUser();
+  const { authUser } = useAuthUser();
+  const [data, setData] = React.useState<NoticeCommentDoc[]>([]);
+  const [loading, setLoading] = React.useState(isFirebaseConfigured);
+  const [added, setAdded] = React.useState<NoticeCommentDoc[]>([]);
+
+  React.useEffect(() => {
+    if (!isFirebaseConfigured || !noticeId) return;
+    const q = query(
+      collection(firebaseDb(), noticeCommentsPath(noticeId)),
+      orderBy("order"),
+    );
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setData(
+          snap.docs.map((d) => ({ id: d.id, ...d.data() }) as NoticeCommentDoc),
+        );
+        setLoading(false);
+      },
+      () => setLoading(false),
+    );
+    return unsub;
+  }, [noticeId]);
+
+  const comments = React.useMemo(() => {
+    const extra = added.filter((a) => !data.some((d) => d.id === a.id));
+    return [...data, ...extra].sort((a, b) => a.order - b.order);
+  }, [data, added]);
+
+  const addComment = React.useCallback(
+    async (body: string) => {
+      const text = body.trim();
+      if (!text) return;
+      const id = String(Date.now());
+      const now = new Date();
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const at = `${now.getFullYear()}.${pad(now.getMonth() + 1)}.${pad(
+        now.getDate(),
+      )} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+      const payload: Omit<NoticeCommentDoc, "id"> = {
+        uid: authUser?.uid ?? "local",
+        author: me.name,
+        role: me.role,
+        body: text,
+        at,
+        order: now.getTime(),
+      };
+      setAdded((p) => [...p, { id, ...payload }]);
+      if (isFirebaseConfigured) {
+        await setDoc(
+          doc(firebaseDb(), noticeCommentsPath(noticeId), id),
+          payload,
+        );
+        await updateDoc(doc(firebaseDb(), COL.notices, noticeId), {
+          comments: increment(1),
+        }).catch(() => {});
+      }
+    },
+    [noticeId, me.name, me.role, authUser?.uid],
+  );
+
+  return { comments, loading, addComment };
 }
 
 /* ------------------------------------------------------------------ */
@@ -353,6 +426,7 @@ export function useApprovals() {
 }
 
 export function useApprovalDoc(no: string) {
+  const me = useCurrentUser();
   // undefined = 아직 로드 안 됨, null = 문서 없음
   const [remote, setRemote] = React.useState<ApprovalDoc | null | undefined>(
     () =>
@@ -394,7 +468,140 @@ export function useApprovalDoc(no: string) {
     [no],
   );
 
-  return { doc: document, loading, setStatus };
+  /** 결재 의견(코멘트) 추가 — comments 배열에 append */
+  const addComment = React.useCallback(
+    async (body: string) => {
+      const text = body.trim();
+      if (!text) return;
+      const now = new Date();
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const comment = {
+        name: me.name,
+        role: me.role || "결재자",
+        at: `${now.getFullYear()}.${pad(now.getMonth() + 1)}.${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`,
+        body: text,
+      };
+      setRemote((r) =>
+        r ? { ...r, comments: [...(r.comments ?? []), comment] } : r,
+      );
+      if (isFirebaseConfigured) {
+        await updateDoc(doc(firebaseDb(), COL.approvals, no), {
+          comments: arrayUnion(comment),
+        });
+      }
+    },
+    [no, me.name, me.role],
+  );
+
+  return { doc: document, loading, setStatus, addComment };
+}
+
+/* ------------------------------------------------------------------ */
+/*  캘린더 일정 — events/{id}                                           */
+/* ------------------------------------------------------------------ */
+
+export interface EventInput {
+  title: string;
+  date: string; // yyyy-mm-dd
+  end?: string; // yyyy-mm-dd
+  start: string; // HH:MM
+  finish: string; // HH:MM
+  allDay: boolean;
+  category: string;
+  location: string;
+  memo: string;
+}
+
+const eventColor = (category: string) =>
+  EVENT_CATEGORIES.find((c) => c.key === category)?.color ?? "#64748b";
+
+const eventOrder = (date: string, start: string) =>
+  Number(date.replace(/-/g, "")) * 10000 +
+  Number((start || "0000").replace(":", ""));
+
+export function useEvents() {
+  const { authUser } = useAuthUser();
+  const me = useCurrentUser();
+  const uid = authUser?.uid ?? "local";
+  const state = useGwCollection<EventDoc>(COL.events, []);
+  const [added, setAdded] = React.useState<EventDoc[]>([]);
+  const [patches, setPatches] = React.useState<
+    Record<string, Partial<EventDoc> | null>
+  >({});
+
+  const data = React.useMemo(() => {
+    const base = [
+      ...state.data,
+      ...added.filter((a) => !state.data.some((e) => e.id === a.id)),
+    ];
+    return base
+      .map((e) => {
+        const p = patches[e.id];
+        if (p === null) return null;
+        return p ? { ...e, ...p } : e;
+      })
+      .filter((e): e is EventDoc => e !== null)
+      .sort((a, b) => a.order - b.order);
+  }, [state.data, added, patches]);
+
+  const toPayload = React.useCallback(
+    (input: EventInput): Omit<EventDoc, "id"> => ({
+      title: input.title.trim() || "새 일정",
+      date: input.date,
+      end: input.end || input.date,
+      start: input.allDay ? "" : input.start,
+      finish: input.allDay ? "" : input.finish,
+      allDay: input.allDay,
+      category: input.category,
+      location: input.location.trim(),
+      memo: input.memo.trim(),
+      owner: uid,
+      ownerName: me.name,
+      color: eventColor(input.category),
+      order: eventOrder(input.date, input.allDay ? "" : input.start),
+    }),
+    [uid, me.name],
+  );
+
+  const addEvent = React.useCallback(
+    async (input: EventInput) => {
+      const id = String(Date.now());
+      const payload = toPayload(input);
+      setAdded((p) => [...p, { id, ...payload }]);
+      if (isFirebaseConfigured && authUser) {
+        await setDoc(doc(firebaseDb(), COL.events, id), payload);
+      }
+      return id;
+    },
+    [toPayload, authUser],
+  );
+
+  const saveEvent = React.useCallback(
+    async (id: string, input: EventInput) => {
+      const payload = toPayload(input);
+      setPatches((p) => ({ ...p, [id]: payload }));
+      if (isFirebaseConfigured) {
+        await updateDoc(doc(firebaseDb(), COL.events, id), payload);
+      }
+    },
+    [toPayload],
+  );
+
+  const removeEvent = React.useCallback(async (id: string) => {
+    setPatches((p) => ({ ...p, [id]: null }));
+    if (isFirebaseConfigured) {
+      await deleteDoc(doc(firebaseDb(), COL.events, id));
+    }
+  }, []);
+
+  return {
+    data,
+    loading: state.loading,
+    myUid: uid,
+    addEvent,
+    saveEvent,
+    removeEvent,
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -883,7 +1090,7 @@ export async function runSeed(
   if (!isFirebaseConfigured) throw new Error("Firebase 미설정");
   const db = firebaseDb();
   const seed = buildSeed();
-  const total = seed.length + (admin ? 3 : 0); // +3 = leaves 샘플
+  const total = seed.length + (admin ? 3 + 4 : 0); // +3 leaves 샘플 +4 events 샘플
   let done = 0;
 
   // 부트스트랩: 시드 실행자의 users/{uid} 문서가 없으면 SUPER_ADMIN 으로 생성
@@ -933,6 +1140,44 @@ export async function runSeed(
         who,
         order: Date.now() - i * 1000,
         ...sampleLeaves[i],
+      });
+      done += 1;
+      onProgress?.(done, total);
+    }
+
+    // 캘린더 일정 샘플 (events 는 owner 종속이라 여기서 생성 · 이번 달 기준)
+    const n = new Date();
+    const p2 = (x: number) => String(x).padStart(2, "0");
+    const day = (d: number) =>
+      `${n.getFullYear()}-${p2(n.getMonth() + 1)}-${p2(Math.min(28, Math.max(1, d)))}`;
+    const catColor: Record<string, string> = {
+      회의: "#4f46e5", 미팅: "#0ea5e9", 개인: "#16a34a", 마감: "#f59e0b", 기타: "#64748b",
+    };
+    const sampleEvents = [
+      { title: "플랫폼 주간 스프린트 회의", date: day(n.getDate()), start: "10:00", finish: "11:00", category: "회의", location: "본사 7F 회의실 A" },
+      { title: "결재 정책 유관부서 리뷰", date: day(n.getDate() + 1), start: "13:30", finish: "14:30", category: "미팅", location: "온라인 (Meet)" },
+      { title: "신규 입사자 온보딩 멘토링", date: day(n.getDate() + 2), start: "15:00", finish: "16:00", category: "개인", location: "본사 5F 라운지" },
+      { title: "월간 업무보고 상신 마감", date: day(25), start: "", finish: "", category: "마감", location: "전자결재" },
+    ];
+    for (let i = 0; i < sampleEvents.length; i++) {
+      const e = sampleEvents[i];
+      const allDay = !e.start;
+      await setDoc(doc(db, COL.events, `${admin.uid}-evt-${i}`), {
+        title: e.title,
+        date: e.date,
+        end: e.date,
+        start: e.start,
+        finish: e.finish,
+        allDay,
+        category: e.category,
+        location: e.location,
+        memo: "",
+        owner: admin.uid,
+        ownerName: who,
+        color: catColor[e.category] ?? "#64748b",
+        order:
+          Number(e.date.replace(/-/g, "")) * 10000 +
+          Number((e.start || "0000").replace(":", "")),
       });
       done += 1;
       onProgress?.(done, total);

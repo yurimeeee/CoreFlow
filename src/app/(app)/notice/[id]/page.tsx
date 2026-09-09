@@ -1,17 +1,39 @@
 "use client";
 
+import * as React from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Loader2, Paperclip, Pin } from "lucide-react";
+import {
+  ArrowLeft,
+  Loader2,
+  MessageSquare,
+  Paperclip,
+  Pin,
+  Send,
+} from "lucide-react";
 import { NOTICE_CAT_COLORS } from "@/lib/groupware/data";
-import { useNoticeDoc } from "@/lib/groupware/hooks";
-import { pill } from "@/lib/groupware/ui";
+import { useNoticeComments, useNoticeDoc } from "@/lib/groupware/hooks";
+import { avatarStyle, pill } from "@/lib/groupware/ui";
 import { GwCard } from "@/components/app/primitives";
 
 export default function NoticeDetailPage() {
   const params = useParams<{ id: string }>();
   const id = decodeURIComponent(params.id ?? "");
   const { notice, loading } = useNoticeDoc(id);
+  const { comments, addComment } = useNoticeComments(id);
+  const [draft, setDraft] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+
+  const submit = async () => {
+    if (!draft.trim()) return;
+    setBusy(true);
+    try {
+      await addComment(draft);
+      setDraft("");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -83,6 +105,70 @@ export default function NoticeDetailPage() {
             첨부파일이 있는 공지입니다
           </div>
         )}
+      </GwCard>
+
+      <GwCard className="flex flex-col gap-4 p-6 sm:p-8">
+        <div className="flex items-center gap-2 text-[13px] font-semibold">
+          <MessageSquare className="size-4 text-primary" />
+          댓글
+          <span className="text-[12px] font-medium text-muted-foreground">
+            {comments.length}
+          </span>
+        </div>
+
+        <div className="flex flex-col divide-y divide-[#f1f5f9]">
+          {comments.map((c) => (
+            <div key={c.id} className="flex gap-2.5 py-3">
+              <span style={avatarStyle(c.author.charAt(0), 30)}>
+                {c.author.charAt(0)}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[12.5px] font-semibold">
+                    {c.author}
+                  </span>
+                  {c.role && (
+                    <span className="text-[11px] text-muted-foreground">
+                      {c.role}
+                    </span>
+                  )}
+                  <span className="ml-auto text-[11px] tabular-nums text-[#cbd5e1]">
+                    {c.at}
+                  </span>
+                </div>
+                <p className="mt-1 whitespace-pre-wrap text-[12.5px] leading-[1.65] text-secondary-foreground">
+                  {c.body}
+                </p>
+              </div>
+            </div>
+          ))}
+          {comments.length === 0 && (
+            <p className="py-6 text-center text-[12px] text-muted-foreground">
+              첫 댓글을 남겨보세요
+            </p>
+          )}
+        </div>
+
+        <div className="flex items-end gap-2 rounded-[10px] border border-border bg-secondary p-2.5">
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit();
+            }}
+            rows={2}
+            placeholder="댓글을 입력하세요 (⌘/Ctrl+Enter 로 등록)"
+            className="min-h-[40px] flex-1 resize-none rounded-[8px] border border-border bg-card px-2.5 py-2 text-[12.5px] leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+          <button
+            onClick={submit}
+            disabled={busy || !draft.trim()}
+            className="flex h-9 items-center gap-1.5 rounded-[9px] bg-primary px-3.5 text-[12.5px] font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
+          >
+            <Send className="size-3.5" />
+            등록
+          </button>
+        </div>
       </GwCard>
     </div>
   );

@@ -29,9 +29,33 @@ const won = (v: number) => v.toLocaleString("ko-KR") + "원";
 export default function ApprovalDetailPage() {
   const params = useParams<{ id: string }>();
   const no = decodeURIComponent(params.id ?? "EX-2026-0912");
-  const { doc, loading, setStatus } = useApprovalDoc(no);
+  const { doc, loading, setStatus, addComment } = useApprovalDoc(no);
   const { data: workspace } = useWorkspace();
   const orgName = (workspace.name || "NEXTCORE").toUpperCase();
+  const [opinion, setOpinion] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+
+  const decide = async (status: "Approved" | "Rejected") => {
+    setBusy(true);
+    try {
+      if (opinion.trim()) await addComment(opinion.trim());
+      await setStatus(status);
+      setOpinion("");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const postOpinion = async () => {
+    if (!opinion.trim()) return;
+    setBusy(true);
+    try {
+      await addComment(opinion.trim());
+      setOpinion("");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -113,15 +137,17 @@ export default function ApprovalDetailPage() {
             인쇄
           </button>
           <button
-            onClick={() => setStatus("Rejected")}
-            className="flex h-9 items-center gap-1.5 rounded-[9px] border border-[#fecaca] bg-card px-3.5 text-[12.5px] font-semibold text-[#b91c1c] hover:bg-[#fef2f2]"
+            onClick={() => decide("Rejected")}
+            disabled={busy}
+            className="flex h-9 items-center gap-1.5 rounded-[9px] border border-[#fecaca] bg-card px-3.5 text-[12.5px] font-semibold text-[#b91c1c] hover:bg-[#fef2f2] disabled:opacity-50"
           >
             <CircleX className="size-3.5" />
             반려
           </button>
           <button
-            onClick={() => setStatus("Approved")}
-            className="flex h-9 items-center gap-1.5 rounded-[9px] bg-primary px-4 text-[13px] font-semibold text-primary-foreground shadow-[0_1px_2px_rgba(79,70,229,0.35)] hover:bg-primary-hover"
+            onClick={() => decide("Approved")}
+            disabled={busy}
+            className="flex h-9 items-center gap-1.5 rounded-[9px] bg-primary px-4 text-[13px] font-semibold text-primary-foreground shadow-[0_1px_2px_rgba(79,70,229,0.35)] hover:bg-primary-hover disabled:opacity-50"
           >
             <Check className="size-3.5" strokeWidth={2.4} />
             승인
@@ -305,13 +331,19 @@ export default function ApprovalDetailPage() {
             </div>
           )}
 
-          {doc.comments && doc.comments.length > 0 && (
-            <div>
-              <div className="mb-2.5 text-[13px] font-semibold">결재 의견</div>
-              <div className="flex flex-col gap-2">
-                {doc.comments.map((c) => (
+          <div>
+            <div className="mb-2.5 text-[13px] font-semibold">
+              결재 의견
+              {doc.comments && doc.comments.length > 0 && (
+                <span className="ml-1.5 text-[11.5px] font-medium text-muted-foreground">
+                  {doc.comments.length}
+                </span>
+              )}
+            </div>
+            <div className="flex flex-col gap-2">
+              {(doc.comments ?? []).map((c, i) => (
                   <div
-                    key={c.name}
+                    key={`${c.name}-${i}`}
                     className="flex gap-2.5 rounded-[10px] border border-border p-3"
                   >
                     <span style={avatarStyle(c.name.charAt(0), 30)}>
@@ -335,9 +367,31 @@ export default function ApprovalDetailPage() {
                     </div>
                   </div>
                 ))}
+              {(doc.comments ?? []).length === 0 && (
+                <p className="rounded-[10px] border border-dashed border-border px-3 py-4 text-center text-[12px] text-muted-foreground">
+                  아직 등록된 의견이 없습니다
+                </p>
+              )}
+              <div className="mt-1 flex flex-col gap-2 rounded-[10px] border border-border bg-secondary p-3">
+                <textarea
+                  value={opinion}
+                  onChange={(e) => setOpinion(e.target.value)}
+                  rows={2}
+                  placeholder="결재 의견을 입력하세요. 승인·반려 시 함께 기록됩니다."
+                  className="w-full resize-none rounded-[8px] border border-border bg-card px-2.5 py-2 text-[12.5px] leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+                <div className="flex justify-end">
+                  <button
+                    onClick={postOpinion}
+                    disabled={busy || !opinion.trim()}
+                    className="h-8 rounded-[8px] border border-border bg-card px-3 text-[12px] font-semibold text-secondary-foreground hover:bg-secondary disabled:opacity-50"
+                  >
+                    의견만 등록
+                  </button>
+                </div>
               </div>
             </div>
-          )}
+          </div>
         </div>
       </GwCard>
     </div>
