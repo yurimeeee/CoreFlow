@@ -687,7 +687,20 @@ export function useOrgPeople() {
     [people],
   );
 
-  return { people, loading, source, addPerson };
+  const updatePerson = React.useCallback(
+    async (id: number, patch: Partial<Omit<Person, "id">>) => {
+      if (!isFirebaseConfigured) return;
+      await updateDoc(doc(firebaseDb(), COL.people, String(id)), patch);
+    },
+    [],
+  );
+
+  const removePerson = React.useCallback(async (id: number) => {
+    if (!isFirebaseConfigured) return;
+    await deleteDoc(doc(firebaseDb(), COL.people, String(id)));
+  }, []);
+
+  return { people, loading, source, addPerson, updatePerson, removePerson };
 }
 
 /* ------------------------------------------------------------------ */

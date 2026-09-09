@@ -10,10 +10,12 @@ import {
   Mail,
   MessageSquare,
   Network,
+  Pencil,
   Phone,
   Plus,
   Search,
   Smartphone,
+  Trash2,
   UserPlus,
   Users,
   X,
@@ -45,7 +47,13 @@ export default function OrgPage() {
   const [dept, setDept] = React.useState("전체");
   const [profileId, setProfileId] = React.useState<number | null>(null);
   const [addOpen, setAddOpen] = React.useState(false);
-  const { people: directory, source, addPerson } = useOrgPeople();
+  const {
+    people: directory,
+    source,
+    addPerson,
+    updatePerson,
+    removePerson,
+  } = useOrgPeople();
   const { data: workspace } = useWorkspace();
 
   const byId = React.useCallback(
@@ -341,6 +349,11 @@ export default function OrgPage() {
           directory={directory}
           onClose={() => setProfileId(null)}
           onOpen={setProfileId}
+          onSave={(patch) => updatePerson(selected.id, patch)}
+          onDelete={async () => {
+            await removePerson(selected.id);
+            setProfileId(null);
+          }}
         />
       )}
 
@@ -642,17 +655,73 @@ function ProfileDrawer({
   directory,
   onClose,
   onOpen,
+  onSave,
+  onDelete,
 }: {
   person: Person;
   directory: Person[];
   onClose: () => void;
   onOpen: (id: number) => void;
+  onSave: (patch: Partial<Omit<Person, "id">>) => Promise<void>;
+  onDelete: () => Promise<void>;
 }) {
+  const [editing, setEditing] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+  const [form, setForm] = React.useState(() => ({
+    name: p.name,
+    role: p.role,
+    dept: p.dept,
+    team: p.team,
+    email: p.email,
+    ext: p.ext,
+    mobile: p.mobile,
+    status: p.status,
+    boss: p.boss == null ? "" : String(p.boss),
+    tags: (p.tags ?? []).join(", "),
+  }));
+
   const boss =
     p.boss === null || p.boss === undefined
       ? null
       : (directory.find((x) => x.id === p.boss) ?? null);
   const mates = directory.filter((x) => x.team === p.team && x.id !== p.id);
+
+  const saveForm = async () => {
+    if (!form.name.trim() || busy) return;
+    setBusy(true);
+    try {
+      await onSave({
+        name: form.name.trim(),
+        role: form.role.trim(),
+        dept: form.dept.trim(),
+        team: form.team.trim() || form.dept.trim(),
+        email: form.email.trim(),
+        ext: form.ext.trim(),
+        mobile: form.mobile.trim(),
+        status: form.status,
+        boss: form.boss ? Number(form.boss) : null,
+        tags: form.tags
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean),
+      });
+      setEditing(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const del = async () => {
+    if (busy) return;
+    if (!window.confirm(`${p.name} 님을 조직도에서 삭제할까요? 되돌릴 수 없습니다.`))
+      return;
+    setBusy(true);
+    try {
+      await onDelete();
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div
@@ -665,16 +734,176 @@ function ProfileDrawer({
       >
         <div className="flex items-center gap-2 border-b border-[#eef1f5] px-4.5 py-4">
           <span className="text-[13px] font-semibold tracking-[-0.01em]">
-            임직원 프로필
+            {editing ? "프로필 편집" : "임직원 프로필"}
           </span>
+          {!editing && p.id !== 0 && (
+            <>
+              <button
+                onClick={() => setEditing(true)}
+                className="ml-auto flex h-7.5 items-center gap-1 rounded-lg border border-border bg-card px-2.5 text-[12px] font-semibold text-secondary-foreground hover:bg-secondary"
+              >
+                <Pencil className="size-3" />
+                편집
+              </button>
+              <button
+                onClick={del}
+                disabled={busy}
+                className="flex size-7.5 items-center justify-center rounded-lg border border-[#fecaca] text-[#b91c1c] hover:bg-[#fef2f2] disabled:opacity-50"
+                aria-label="구성원 삭제"
+              >
+                <Trash2 className="size-3.5" />
+              </button>
+            </>
+          )}
           <button
             onClick={onClose}
-            className="ml-auto flex size-[30px] items-center justify-center rounded-lg text-muted-foreground hover:bg-[#f1f5f9]"
+            className={cn(
+              "flex size-[30px] items-center justify-center rounded-lg text-muted-foreground hover:bg-[#f1f5f9]",
+              (editing || p.id === 0) && "ml-auto",
+            )}
           >
             <X className="size-4" />
           </button>
         </div>
 
+        {editing ? (
+          <div className="flex flex-1 flex-col overflow-y-auto">
+            <div className="grid grid-cols-2 gap-3 p-4.5">
+              <ModalField label="이름" required>
+                <input
+                  value={form.name}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, name: e.target.value }))
+                  }
+                  className={modalInput}
+                />
+              </ModalField>
+              <ModalField label="직급 / 직책">
+                <input
+                  value={form.role}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, role: e.target.value }))
+                  }
+                  className={modalInput}
+                />
+              </ModalField>
+              <ModalField label="부서">
+                <input
+                  value={form.dept}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, dept: e.target.value }))
+                  }
+                  className={modalInput}
+                />
+              </ModalField>
+              <ModalField label="팀 (필터용)">
+                <input
+                  value={form.team}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, team: e.target.value }))
+                  }
+                  className={modalInput}
+                />
+              </ModalField>
+              <ModalField label="이메일">
+                <input
+                  type="email"
+                  value={form.email}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, email: e.target.value }))
+                  }
+                  className={modalInput}
+                />
+              </ModalField>
+              <ModalField label="내선">
+                <input
+                  value={form.ext}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, ext: e.target.value }))
+                  }
+                  className={modalInput}
+                />
+              </ModalField>
+              <ModalField label="휴대폰">
+                <input
+                  value={form.mobile}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, mobile: e.target.value }))
+                  }
+                  className={modalInput}
+                />
+              </ModalField>
+              <ModalField label="상태">
+                <select
+                  value={form.status}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      status: e.target.value as PersonStatus,
+                    }))
+                  }
+                  className={modalInput}
+                >
+                  {STATUS_OPTIONS.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </ModalField>
+              <ModalField label="직속 상사">
+                <select
+                  value={form.boss}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, boss: e.target.value }))
+                  }
+                  className={modalInput}
+                >
+                  <option value="">없음 (최상위)</option>
+                  {directory
+                    .filter((x) => x.id !== p.id && x.id !== 0)
+                    .map((x) => (
+                      <option key={x.id} value={x.id}>
+                        {x.name} · {x.role}
+                      </option>
+                    ))}
+                </select>
+              </ModalField>
+              <div className="col-span-2">
+                <ModalField label="담당 업무 태그 (쉼표로 구분)">
+                  <input
+                    value={form.tags}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, tags: e.target.value }))
+                    }
+                    placeholder="React, 디자인시스템"
+                    className={modalInput}
+                  />
+                </ModalField>
+              </div>
+            </div>
+            <div className="mt-auto flex gap-2 border-t border-[#eef1f5] bg-secondary px-4.5 py-3.5">
+              <button
+                onClick={() => setEditing(false)}
+                className="h-10 flex-1 rounded-[10px] border border-border bg-card text-[13px] font-semibold text-secondary-foreground hover:bg-[#f1f5f9]"
+              >
+                취소
+              </button>
+              <button
+                onClick={saveForm}
+                disabled={!form.name.trim() || busy}
+                className={cn(
+                  "h-10 flex-[2] rounded-[10px] text-[13px] font-semibold transition-colors",
+                  !form.name.trim() || busy
+                    ? "cursor-not-allowed bg-[#f1f5f9] text-muted-foreground"
+                    : "bg-primary text-primary-foreground shadow-[0_1px_2px_rgba(79,70,229,0.35)] hover:bg-primary-hover",
+                )}
+              >
+                {busy ? "저장 중…" : "변경 사항 저장"}
+              </button>
+            </div>
+          </div>
+        ) : (
         <div className="flex flex-1 flex-col gap-5 overflow-y-auto p-4.5">
           <div className="flex items-center gap-3.5">
             <div className="relative">
@@ -814,6 +1043,7 @@ function ProfileDrawer({
             </div>
           )}
         </div>
+        )}
       </div>
     </div>
   );
