@@ -3,14 +3,17 @@
 import * as React from "react";
 import {
   CalendarDays,
+  Check,
   ChevronLeft,
   ChevronRight,
+  ClipboardCheck,
   Home,
   List,
   LogIn,
   LogOut,
   Palmtree,
   Timer,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -21,9 +24,13 @@ import {
   WEEK_LIMIT,
   WEEK_WARN,
 } from "@/lib/groupware/data";
-import { pill } from "@/lib/groupware/ui";
+import { avatarStyle, pill } from "@/lib/groupware/ui";
 import { useNow } from "@/lib/groupware/use-now";
-import { useAttendance, useLeaves } from "@/lib/groupware/hooks";
+import {
+  useAttendance,
+  useLeaves,
+  usePendingLeaves,
+} from "@/lib/groupware/hooks";
 import { GwCard, PageHeader, Segmented, Toggle } from "@/components/app/primitives";
 import { LeaveRequestModal } from "./LeaveRequestModal";
 
@@ -45,6 +52,7 @@ export default function AttendancePage() {
   const { working, inAt, outAt, weekWorked, history, checkIn, checkOut } =
     useAttendance();
   const { data: leaves, balance, addLeave } = useLeaves();
+  const pending = usePendingLeaves();
   const [view, setView] = React.useState<"calendar" | "list">("calendar");
   const [remoteToday, setRemoteToday] = React.useState(false);
   const [leaveModal, setLeaveModal] = React.useState<"leave" | "overtime" | null>(
@@ -406,12 +414,98 @@ export default function AttendancePage() {
                 <span className="tabular-nums text-muted-foreground">
                   {l.kind === "초과근무" ? `${l.hours}h` : `${l.days}일`}
                 </span>
-                <span style={pill("#f1f5f9", "#64748b")}>{l.status}</span>
+                <span
+                  style={pill(
+                    l.status === "승인"
+                      ? "#f0fdf4"
+                      : l.status === "반려"
+                        ? "#fef2f2"
+                        : "#fff7ed",
+                    l.status === "승인"
+                      ? "#15803d"
+                      : l.status === "반려"
+                        ? "#b91c1c"
+                        : "#c2410c",
+                  )}
+                >
+                  {l.status}
+                </span>
               </div>
             ))}
           </div>
         </GwCard>
       </div>
+
+      {pending.isAdmin && (
+        <GwCard className="flex flex-col">
+          <div className="flex items-center gap-2 border-b border-[#eef1f5] px-4.5 py-3.5">
+            <ClipboardCheck className="size-4 text-primary" />
+            <h3 className="text-[13.5px] font-semibold tracking-[-0.01em]">
+              연차·근태 승인 대기
+            </h3>
+            <span
+              style={pill(
+                pending.data.length ? "#fff7ed" : "#f1f5f9",
+                pending.data.length ? "#c2410c" : "#94a3b8",
+              )}
+            >
+              {pending.data.length}건
+            </span>
+            <span className="ml-auto text-[11.5px] text-muted-foreground">
+              결재자 승인
+            </span>
+          </div>
+
+          {pending.data.length === 0 ? (
+            <p className="px-4.5 py-8 text-center text-[12.5px] text-muted-foreground">
+              {pending.loading
+                ? "불러오는 중…"
+                : "승인 대기 중인 신청이 없습니다"}
+            </p>
+          ) : (
+            pending.data.map((l) => (
+              <div
+                key={l.id}
+                className="flex flex-wrap items-center gap-3 border-b border-[#f1f5f9] px-4.5 py-3 last:border-0"
+              >
+                <span style={avatarStyle(l.who.charAt(0), 32)}>
+                  {l.who.charAt(0)}
+                </span>
+                <div className="min-w-0">
+                  <div className="text-[13px] font-semibold">
+                    {l.who}{" "}
+                    <span className="font-normal text-muted-foreground">
+                      · {l.kind}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 text-[11.5px] text-muted-foreground">
+                    {l.start}
+                    {l.end !== l.start ? ` ~ ${l.end}` : ""} ·{" "}
+                    {l.kind === "초과근무" ? `${l.hours}시간` : `${l.days}일`}
+                    {l.reason ? ` · ${l.reason}` : ""}
+                  </div>
+                </div>
+                <div className="ml-auto flex gap-1.5">
+                  <button
+                    onClick={() => pending.reject(l.id)}
+                    className="flex h-8 items-center gap-1 rounded-[8px] border border-[#fecaca] bg-card px-2.5 text-[12px] font-semibold text-[#b91c1c] hover:bg-[#fef2f2]"
+                  >
+                    <X className="size-3.5" />
+                    반려
+                  </button>
+                  <button
+                    onClick={() => pending.approve(l.id)}
+                    className="flex h-8 items-center gap-1 rounded-[8px] bg-primary px-2.5 text-[12px] font-semibold text-primary-foreground hover:bg-primary-hover"
+                  >
+                    <Check className="size-3.5" strokeWidth={2.6} />
+                    승인
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </GwCard>
+      )}
 
       <GwCard>
         <div className="flex flex-wrap items-center gap-2.5 border-b border-[#eef1f5] px-4.5 py-3.5">

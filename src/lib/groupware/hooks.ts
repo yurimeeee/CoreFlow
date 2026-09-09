@@ -863,6 +863,57 @@ export function useLeaves() {
   return { data, loading, balance, addLeave };
 }
 
+/**
+ * 결재자(관리자) 관점의 연차·근태 승인 대기 목록.
+ * 관리자만 `status == "대기"` 전체 쿼리 가능 (leaves 규칙: isAdmin).
+ */
+export function usePendingLeaves() {
+  const { profile } = useAuthUser();
+  const isAdmin =
+    profile?.role === "ADMIN" || profile?.role === "SUPER_ADMIN";
+  const [data, setData] = React.useState<LeaveDoc[]>([]);
+  const [loaded, setLoaded] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!isFirebaseConfigured || !isAdmin) return;
+    const q = query(
+      collection(firebaseDb(), COL.leaves),
+      where("status", "==", "대기"),
+    );
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setData(
+          snap.docs
+            .map((d) => ({ id: d.id, ...d.data() }) as LeaveDoc)
+            .sort((a, b) => b.order - a.order),
+        );
+        setLoaded(true);
+      },
+      () => setLoaded(true),
+    );
+    return unsub;
+  }, [isAdmin]);
+
+  const decide = React.useCallback(
+    async (id: string, status: "승인" | "반려") => {
+      setData((p) => p.filter((l) => l.id !== id));
+      if (isFirebaseConfigured) {
+        await updateDoc(doc(firebaseDb(), COL.leaves, id), { status });
+      }
+    },
+    [],
+  );
+
+  return {
+    isAdmin,
+    data: isAdmin ? data : [],
+    loading: isAdmin && isFirebaseConfigured && !loaded,
+    approve: (id: string) => decide(id, "승인"),
+    reject: (id: string) => decide(id, "반려"),
+  };
+}
+
 /* ------------------------------------------------------------------ */
 /*  개인 설정 (users/{uid}.gwSettings)                                  */
 /* ------------------------------------------------------------------ */
@@ -1145,7 +1196,7 @@ export async function runSeed(
     const sampleLeaves = [
       { kind: "연차", start: `${y}-03-14`, end: `${y}-03-14`, days: 1, hours: 0, reason: "개인 사유", status: "승인" },
       { kind: "반차", start: `${y}-05-02`, end: `${y}-05-02`, days: 0.5, hours: 0, reason: "병원 진료", status: "승인" },
-      { kind: "초과근무", start: `${y}-06-20`, end: `${y}-06-20`, days: 0, hours: 3, reason: "배포 대응", status: "승인" },
+      { kind: "초과근무", start: `${y}-06-20`, end: `${y}-06-20`, days: 0, hours: 3, reason: "배포 대응", status: "대기" },
     ];
     for (let i = 0; i < sampleLeaves.length; i++) {
       await setDoc(doc(db, COL.leaves, `${admin.uid}-seed-${i}`), {
