@@ -190,9 +190,14 @@ export interface WorkspaceDoc {
   address: string;
   phone: string;
   fiscalYearStart: string;
+  /** 역할 기반 접근 제어 오버라이드 — { 기능키: [SuperAdmin, Admin, Manager, Member] } (0/1/2) */
+  rbac?: Record<string, number[]>;
 }
 
-export const WORKSPACE_FIELD_LABELS: { key: keyof WorkspaceDoc; label: string; placeholder: string }[] = [
+/** 텍스트로 편집 가능한 워크스페이스 필드 (rbac 등 구조 필드 제외) */
+export type WorkspaceTextField = Exclude<keyof WorkspaceDoc, "rbac">;
+
+export const WORKSPACE_FIELD_LABELS: { key: WorkspaceTextField; label: string; placeholder: string }[] = [
   { key: "name", label: "회사명", placeholder: "주식회사 ○○" },
   { key: "bizNo", label: "사업자등록번호", placeholder: "000-00-00000" },
   { key: "ceo", label: "대표이사", placeholder: "홍길동" },

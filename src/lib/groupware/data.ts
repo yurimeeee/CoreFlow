@@ -240,17 +240,33 @@ export const NOTIF_CAT_COLORS: Record<string, [string, string, string]> = {
 
 /* ---------------- 설정 ---------------- */
 
-/** 권한 행렬 구조(기능 목록 · 역할 목록)만 유지 — 실제 배정값은 0으로 초기화 */
-export const RBAC_ROWS: { label: string; hint: string; cells: number[] }[] = [
-  { label: "워크스페이스 설정 변경", hint: "회사 정보 · 보안 정책 · 연동", cells: [0, 0, 0, 0] },
-  { label: "멤버 초대 및 권한 부여", hint: "계정 승인 · 역할 변경", cells: [0, 0, 0, 0] },
-  { label: "전자결재 양식 관리", hint: "양식 생성 · 결재선 정책", cells: [0, 0, 0, 0] },
-  { label: "부서 근태 조회 및 승인", hint: "팀원 출퇴근 · 연차 승인", cells: [0, 0, 0, 0] },
-  { label: "공지사항 작성 및 고정", hint: "전사 공지 · 필독 지정", cells: [0, 0, 0, 0] },
-  { label: "개인 근태 · 결재 사용", hint: "본인 문서 상신 및 조회", cells: [0, 0, 0, 0] },
+/**
+ * 권한 행렬 — 기능(행) × 역할(열).
+ * cells 값: 0 = 없음 · 1 = 부분 허용 · 2 = 허용.
+ * 아래 값은 권장 기본값이며, `workspace/main.rbac` 에 저장된 오버라이드가 있으면 그쪽을 씁니다.
+ */
+export const RBAC_ROWS: {
+  key: string;
+  label: string;
+  hint: string;
+  cells: number[];
+}[] = [
+  { key: "workspace", label: "워크스페이스 설정 변경", hint: "회사 정보 · 보안 정책 · 연동", cells: [2, 1, 0, 0] },
+  { key: "members", label: "멤버 초대 및 권한 부여", hint: "계정 승인 · 역할 변경", cells: [2, 2, 0, 0] },
+  { key: "approvalForms", label: "전자결재 양식 관리", hint: "양식 생성 · 결재선 정책", cells: [2, 2, 1, 0] },
+  { key: "attendanceApprove", label: "부서 근태 조회 및 승인", hint: "팀원 출퇴근 · 연차 승인", cells: [2, 2, 2, 0] },
+  { key: "notice", label: "공지사항 작성 및 고정", hint: "전사 공지 · 필독 지정", cells: [2, 2, 1, 0] },
+  { key: "selfService", label: "개인 근태 · 결재 사용", hint: "본인 문서 상신 및 조회", cells: [2, 2, 2, 2] },
 ];
 
 export const ROLE_COLS = ["Super Admin", "Admin", "Manager", "Member"];
+
+/** RBAC_ROWS 의 권장 기본값을 { rowKey: cells[] } 형태로 */
+export const DEFAULT_RBAC: Record<string, number[]> = Object.fromEntries(
+  RBAC_ROWS.map((r) => [r.key, [...r.cells]]),
+);
+
+export const RBAC_CELL_LABELS = ["없음", "부분", "허용"];
 
 export const PENDING_MEMBERS: {
   name: string; role: string; email: string; dept: string; requested: string;

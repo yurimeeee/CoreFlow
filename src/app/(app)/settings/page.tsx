@@ -20,6 +20,7 @@ import {
   Monitor,
   PenLine,
   Plug,
+  RotateCcw,
   ShieldCheck,
   Smartphone,
   Tablet,
@@ -34,8 +35,10 @@ import { updatePassword } from "firebase/auth";
 import { cn } from "@/lib/utils";
 import { firebaseAuth } from "@/lib/firebase";
 import {
+  DEFAULT_RBAC,
   INTEGRATIONS,
   NOTIFY_GROUPS,
+  RBAC_CELL_LABELS,
   RBAC_ROWS,
   ROLE_COLS,
   SESSIONS,
@@ -121,6 +124,7 @@ interface Edits {
   ints?: Record<string, boolean>;
   lang?: string;
   tz?: string;
+  rbac?: Record<string, number[]>;
   saving?: boolean;
   touched?: boolean;
 }
@@ -135,6 +139,7 @@ const TIMEZONES = [
 export default function SettingsPage() {
   const [tab, setTab] = React.useState<Tab>("profile");
   const { profile, canSave, save, uploadImage, clearImage } = useGwSettings();
+  const { data: workspace, save: saveWorkspace } = useWorkspace();
   const me = useCurrentUser();
   const [edits, setEdits] = React.useState<Edits>({});
   const [avatarUrl, setAvatarUrl] = React.useState<string | null>(null);
@@ -157,6 +162,8 @@ export default function SettingsPage() {
   const ints = edits.ints ?? gw?.integrations ?? DEFAULT_INTS;
   const lang = edits.lang ?? gw?.lang ?? LANGS[0];
   const tz = edits.tz ?? gw?.tz ?? TIMEZONES[0];
+  const rbac = edits.rbac ?? workspace.rbac ?? DEFAULT_RBAC;
+  const rbacDirty = !!edits.rbac;
   const photo = avatarUrl ?? profile?.profileImageUrl ?? null;
   const signature = signatureUrl ?? profile?.signatureUrl ?? null;
   const dirty = Object.keys(edits).some((k) => k !== "saving");
@@ -170,6 +177,16 @@ export default function SettingsPage() {
   const setInts = (fn: (p: Record<string, boolean>) => Record<string, boolean>) =>
     setEdits((e) => ({ ...e, ints: fn(e.ints ?? ints) }));
   const touch = () => setEdits((e) => ({ ...e, touched: true }));
+
+  const cycleRbac = (rowKey: string, colIdx: number) =>
+    setEdits((e) => {
+      const base = e.rbac ?? workspace.rbac ?? DEFAULT_RBAC;
+      const cur = base[rowKey] ?? DEFAULT_RBAC[rowKey] ?? [0, 0, 0, 0];
+      const next = [...cur];
+      next[colIdx] = ((next[colIdx] ?? 0) + 1) % 3;
+      return { ...e, rbac: { ...base, [rowKey]: next } };
+    });
+  const resetRbac = () => setEdits((e) => ({ ...e, rbac: DEFAULT_RBAC }));
 
   const pickImage = (kind: "profile" | "signature") => {
     const input = document.createElement("input");
@@ -253,6 +270,8 @@ export default function SettingsPage() {
       name,
       gwSettings: { toggles, integrations: ints, twoFA, lang, tz },
     });
+    // RBAC 는 워크스페이스 문서(관리자 전용)에 저장
+    if (edits.rbac) await saveWorkspace({ rbac: edits.rbac });
     setEdits({});
   };
 
@@ -677,16 +696,25 @@ export default function SettingsPage() {
                       역할 기반 접근 제어 (RBAC)
                     </h3>
                     <p className="mt-0.5 text-xs text-muted-foreground">
-                      역할별로 워크스페이스 기능 권한을 설정합니다
+                      셀을 클릭해 권한을 순환합니다 · 없음 → 부분 → 허용
                     </p>
                   </div>
-                  <Link
-                    href="/admin/invite"
-                    className="ml-auto flex h-8.5 items-center gap-1.5 rounded-[9px] bg-primary px-3 text-[12.5px] font-semibold text-primary-foreground hover:bg-primary-hover"
-                  >
-                    <UserPlus className="size-3.5" />
-                    멤버 초대
-                  </Link>
+                  <div className="ml-auto flex items-center gap-2">
+                    <button
+                      onClick={resetRbac}
+                      className="flex h-8.5 items-center gap-1.5 rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-secondary-foreground hover:bg-secondary"
+                    >
+                      <RotateCcw className="size-3.5" />
+                      기본값
+                    </button>
+                    <Link
+                      href="/admin/invite"
+                      className="flex h-8.5 items-center gap-1.5 rounded-[9px] bg-primary px-3 text-[12.5px] font-semibold text-primary-foreground hover:bg-primary-hover"
+                    >
+                      <UserPlus className="size-3.5" />
+                      멤버 초대
+                    </Link>
+                  </div>
                 </div>
                 <div className="overflow-x-auto">
                   <div className="flex min-w-[720px] border-b border-[#eef1f5] bg-secondary px-5 py-2.5 text-[11.5px] font-semibold text-muted-foreground">
@@ -697,54 +725,81 @@ export default function SettingsPage() {
                       </div>
                     ))}
                   </div>
-                  {RBAC_ROWS.map((r) => (
-                    <div
-                      key={r.label}
-                      className="flex min-w-[720px] items-center border-b border-[#f1f5f9] px-5 py-3"
-                    >
-                      <div className="min-w-[200px] flex-1 pr-3.5">
-                        <div className="text-[13px] font-medium">{r.label}</div>
-                        <div className="mt-0.5 text-[11.5px] text-muted-foreground">
-                          {r.hint}
+                  {RBAC_ROWS.map((r) => {
+                    const cells = rbac[r.key] ?? DEFAULT_RBAC[r.key];
+                    return (
+                      <div
+                        key={r.key}
+                        className="flex min-w-[720px] items-center border-b border-[#f1f5f9] px-5 py-3"
+                      >
+                        <div className="min-w-[200px] flex-1 pr-3.5">
+                          <div className="text-[13px] font-medium">{r.label}</div>
+                          <div className="mt-0.5 text-[11.5px] text-muted-foreground">
+                            {r.hint}
+                          </div>
                         </div>
+                        {ROLE_COLS.map((rc, i) => {
+                          const c = cells[i] ?? 0;
+                          return (
+                            <div
+                              key={rc}
+                              className="flex w-[110px] shrink-0 justify-center"
+                            >
+                              <button
+                                onClick={() => cycleRbac(r.key, i)}
+                                title={`${rc} · ${RBAC_CELL_LABELS[c]} (클릭하여 변경)`}
+                                className="flex size-[26px] items-center justify-center rounded-[7px] transition-transform hover:scale-110"
+                                style={{
+                                  background:
+                                    c === 2
+                                      ? "#f0fdf4"
+                                      : c === 1
+                                        ? "#fff7ed"
+                                        : "#f8fafc",
+                                }}
+                              >
+                                {c === 2 ? (
+                                  <Check
+                                    className="size-3.5 text-[#15803d]"
+                                    strokeWidth={2.6}
+                                  />
+                                ) : c === 1 ? (
+                                  <Minus
+                                    className="size-3.5 text-[#c2410c]"
+                                    strokeWidth={2.6}
+                                  />
+                                ) : (
+                                  <X
+                                    className="size-3 text-[#cbd5e1]"
+                                    strokeWidth={2.4}
+                                  />
+                                )}
+                              </button>
+                            </div>
+                          );
+                        })}
                       </div>
-                      {r.cells.map((c, i) => (
-                        <div
-                          key={i}
-                          className="flex w-[110px] shrink-0 justify-center"
-                        >
-                          <span
-                            className="flex size-[22px] items-center justify-center rounded-[7px]"
-                            style={{
-                              background:
-                                c === 2
-                                  ? "#f0fdf4"
-                                  : c === 1
-                                    ? "#fff7ed"
-                                    : "#f8fafc",
-                            }}
-                          >
-                            {c === 2 ? (
-                              <Check
-                                className="size-3.5 text-[#15803d]"
-                                strokeWidth={2.6}
-                              />
-                            ) : c === 1 ? (
-                              <Minus
-                                className="size-3.5 text-[#c2410c]"
-                                strokeWidth={2.6}
-                              />
-                            ) : (
-                              <X
-                                className="size-3 text-[#cbd5e1]"
-                                strokeWidth={2.4}
-                              />
-                            )}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  ))}
+                    );
+                  })}
+                </div>
+                <div className="flex flex-wrap items-center gap-3 border-t border-[#eef1f5] px-5 py-3 text-[11.5px] text-muted-foreground">
+                  {rbacDirty && (
+                    <span className="font-semibold text-primary">
+                      · 저장하지 않은 변경 있음
+                    </span>
+                  )}
+                  <span className="flex items-center gap-1">
+                    <Check className="size-3 text-[#15803d]" strokeWidth={2.6} />
+                    허용
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <Minus className="size-3 text-[#c2410c]" strokeWidth={2.6} />
+                    부분
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <X className="size-3 text-[#cbd5e1]" strokeWidth={2.4} />
+                    없음
+                  </span>
                 </div>
               </GwCard>
 
