@@ -50,7 +50,12 @@ export interface UserDoc {
   gwSettings?: {
     toggles?: Record<string, boolean>;
     integrations?: Record<string, boolean>;
+    /** 2FA 활성화 여부 — twoFASecret 이 등록되어 있을 때만 true 가 유효합니다. */
     twoFA?: boolean;
+    /** TOTP 비밀키 (base32). 앱에서 검증하므로 클라이언트에 노출됩니다. */
+    twoFASecret?: string;
+    /** 백업 코드는 평문이 아닌 SHA-256 해시로만 저장합니다. */
+    twoFABackupCodeHashes?: string[];
     lang?: string;
     tz?: string;
   };

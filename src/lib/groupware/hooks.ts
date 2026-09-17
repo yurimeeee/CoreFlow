@@ -5,6 +5,7 @@ import {
   arrayUnion,
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDoc,
   increment,
@@ -28,6 +29,8 @@ import {
   isFirebaseConfigured,
 } from "@/lib/firebase";
 import { useAuthUser } from "@/hooks/useAuthUser";
+import { clearTwoFactorVerified } from "@/lib/twoFactorSession";
+import { generateBackupCodes, hashBackupCode } from "@/lib/totp";
 import type { UserDoc } from "@/types/user";
 import {
   APPROVAL_ROWS,
@@ -978,6 +981,69 @@ export function useGwSettings() {
     save,
     uploadImage,
     clearImage,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/*  2FA (TOTP) 등록 · 해제 · 백업 코드                                   */
+/* ------------------------------------------------------------------ */
+
+export function useTwoFactor() {
+  const { authUser, profile } = useAuthUser();
+  const gw = profile?.gwSettings;
+  const secret = gw?.twoFASecret ?? null;
+  const backupHashes = gw?.twoFABackupCodeHashes ?? [];
+  const backupCount = backupHashes.length;
+  const enabled = !!gw?.twoFA && !!secret;
+
+  /** QR 스캔 후 코드 확인까지 끝난 시크릿을 등록하고 백업 코드를 발급합니다. */
+  const enroll = React.useCallback(
+    async (secretToSave: string, backupCodes: string[]) => {
+      if (!isFirebaseConfigured || !authUser) return;
+      const hashes = await Promise.all(backupCodes.map(hashBackupCode));
+      await updateDoc(doc(firebaseDb(), COL.users, authUser.uid), {
+        "gwSettings.twoFA": true,
+        "gwSettings.twoFASecret": secretToSave,
+        "gwSettings.twoFABackupCodeHashes": hashes,
+        updatedAt: new Date(),
+      });
+    },
+    [authUser],
+  );
+
+  const disable = React.useCallback(async () => {
+    if (!isFirebaseConfigured || !authUser) return;
+    await updateDoc(doc(firebaseDb(), COL.users, authUser.uid), {
+      "gwSettings.twoFA": false,
+      "gwSettings.twoFASecret": deleteField(),
+      "gwSettings.twoFABackupCodeHashes": deleteField(),
+      updatedAt: new Date(),
+    });
+    clearTwoFactorVerified(authUser.uid);
+  }, [authUser]);
+
+  /** 기존 백업 코드를 모두 폐기하고 새 8개를 발급합니다. */
+  const regenerateBackupCodes = React.useCallback(async (): Promise<
+    string[] | null
+  > => {
+    if (!isFirebaseConfigured || !authUser || !secret) return null;
+    const codes = generateBackupCodes();
+    const hashes = await Promise.all(codes.map(hashBackupCode));
+    await updateDoc(doc(firebaseDb(), COL.users, authUser.uid), {
+      "gwSettings.twoFABackupCodeHashes": hashes,
+      updatedAt: new Date(),
+    });
+    return codes;
+  }, [authUser, secret]);
+
+  return {
+    enabled,
+    secret,
+    backupCount,
+    backupHashes,
+    enroll,
+    disable,
+    regenerateBackupCodes,
   };
 }
 

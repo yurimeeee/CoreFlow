@@ -48,10 +48,16 @@ import {
   useGwSettings,
   usePendingUsers,
   useSessions,
+  useTwoFactor,
   useWorkspace,
 } from "@/lib/groupware/hooks";
 import { avatarStyle, pill } from "@/lib/groupware/ui";
 import { GwCard } from "@/components/app/primitives";
+import {
+  TwoFactorBackupCodesModal,
+  TwoFactorDisableModal,
+  TwoFactorSetupModal,
+} from "@/components/settings/TwoFactorSetup";
 
 type Tab =
   | "profile"
@@ -119,7 +125,6 @@ INTEGRATIONS.forEach((i) => (DEFAULT_INTS[i.name] = i.on));
 interface Edits {
   name?: string;
   email?: string;
-  twoFA?: boolean;
   toggles?: Record<string, boolean>;
   ints?: Record<string, boolean>;
   lang?: string;
@@ -149,6 +154,14 @@ export default function SettingsPage() {
   const { profile, canSave, save, uploadImage, clearImage } = useGwSettings();
   const { data: workspace, save: saveWorkspace } = useWorkspace();
   const me = useCurrentUser();
+  const twoFactor = useTwoFactor();
+  const [twoFAModal, setTwoFAModal] = React.useState<"setup" | "disable" | null>(
+    null,
+  );
+  const [newBackupCodes, setNewBackupCodes] = React.useState<string[] | null>(
+    null,
+  );
+  const [regenBusy, setRegenBusy] = React.useState(false);
   const [edits, setEdits] = React.useState<Edits>({});
   const [avatarUrl, setAvatarUrl] = React.useState<string | null>(null);
   const [signatureUrl, setSignatureUrl] = React.useState<string | null>(null);
@@ -165,7 +178,6 @@ export default function SettingsPage() {
   const gw = profile?.gwSettings;
   const name = edits.name ?? profile?.name ?? me.name;
   const email = edits.email ?? profile?.email ?? me.email ?? "";
-  const twoFA = edits.twoFA ?? gw?.twoFA ?? true;
   const toggles = edits.toggles ?? gw?.toggles ?? DEFAULT_TOGGLES;
   const ints = edits.ints ?? gw?.integrations ?? DEFAULT_INTS;
   const lang = edits.lang ?? gw?.lang ?? LANGS[0];
@@ -178,8 +190,6 @@ export default function SettingsPage() {
 
   const setName = (v: string) => setEdits((e) => ({ ...e, name: v }));
   const setEmail = (v: string) => setEdits((e) => ({ ...e, email: v }));
-  const setTwoFA = (fn: (p: boolean) => boolean) =>
-    setEdits((e) => ({ ...e, twoFA: fn(e.twoFA ?? twoFA) }));
   const setToggles = (fn: (p: Record<string, boolean>) => Record<string, boolean>) =>
     setEdits((e) => ({ ...e, toggles: fn(e.toggles ?? toggles) }));
   const setInts = (fn: (p: Record<string, boolean>) => Record<string, boolean>) =>
@@ -256,7 +266,10 @@ export default function SettingsPage() {
     // 이메일은 Firebase Auth 계정과 연동되므로 여기서는 저장하지 않습니다.
     await save({
       name,
-      gwSettings: { toggles, integrations: ints, twoFA, lang, tz },
+      "gwSettings.toggles": toggles,
+      "gwSettings.integrations": ints,
+      "gwSettings.lang": lang,
+      "gwSettings.tz": tz,
     });
     // RBAC 는 워크스페이스 문서(관리자 전용)에 저장
     if (edits.rbac) await saveWorkspace({ rbac: edits.rbac });
@@ -536,17 +549,16 @@ export default function SettingsPage() {
                     </p>
                   </div>
                   <Toggle
-                    on={twoFA}
-                    onClick={() => {
-                      setTwoFA((v) => !v);
-                      touch();
-                    }}
+                    on={twoFactor.enabled}
+                    onClick={() =>
+                      setTwoFAModal(twoFactor.enabled ? "disable" : "setup")
+                    }
                   />
                 </div>
                 <div
                   className="flex items-center gap-2 rounded-[10px] border p-3 text-[12px] leading-[1.5]"
                   style={
-                    twoFA
+                    twoFactor.enabled
                       ? {
                           background: "#f5f6ff",
                           borderColor: "#e0e7ff",
@@ -560,10 +572,32 @@ export default function SettingsPage() {
                   }
                 >
                   <Info className="size-3.5 shrink-0" />
-                  {twoFA
-                    ? "Google Authenticator 등록됨 · 백업 코드 8개 중 6개 사용 가능"
-                    : "2FA가 꺼져 있습니다. 관리자 정책에 따라 30일 내 활성화가 필요합니다."}
+                  {twoFactor.enabled
+                    ? `OTP 앱 등록됨 · 백업 코드 ${twoFactor.backupCount}개 사용 가능`
+                    : "2FA가 꺼져 있습니다. 토글을 켜서 OTP 앱을 등록하세요."}
                 </div>
+                {twoFactor.enabled && (
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <button
+                      onClick={async () => {
+                        setRegenBusy(true);
+                        const codes = await twoFactor.regenerateBackupCodes();
+                        setRegenBusy(false);
+                        if (codes) setNewBackupCodes(codes);
+                      }}
+                      disabled={regenBusy}
+                      className="h-8.5 rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-secondary-foreground hover:bg-secondary disabled:opacity-60"
+                    >
+                      {regenBusy ? "재발급 중…" : "백업 코드 재발급"}
+                    </button>
+                    <button
+                      onClick={() => setTwoFAModal("disable")}
+                      className="h-8.5 rounded-[9px] border border-[#fecaca] bg-card px-3 text-[12.5px] font-semibold text-[#b91c1c] hover:bg-[#fef2f2]"
+                    >
+                      2FA 비활성화
+                    </button>
+                  </div>
+                )}
                 <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-3.5 border-t border-[#f1f5f9] pt-4.5">
                   <Field label="새 비밀번호">
                     <input
@@ -914,6 +948,29 @@ export default function SettingsPage() {
           </button>
         </div>
       </div>
+
+      {twoFAModal === "setup" && (
+        <TwoFactorSetupModal
+          accountName={email || name}
+          onClose={() => setTwoFAModal(null)}
+          onEnrolled={(codes) => {
+            setTwoFAModal(null);
+            setNewBackupCodes(codes);
+          }}
+        />
+      )}
+      {twoFAModal === "disable" && (
+        <TwoFactorDisableModal
+          onClose={() => setTwoFAModal(null)}
+          onDisabled={() => setTwoFAModal(null)}
+        />
+      )}
+      {newBackupCodes && (
+        <TwoFactorBackupCodesModal
+          codes={newBackupCodes}
+          onClose={() => setNewBackupCodes(null)}
+        />
+      )}
     </div>
   );
 }
