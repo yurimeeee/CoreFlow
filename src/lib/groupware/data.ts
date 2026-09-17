@@ -291,9 +291,7 @@ export const INTEGRATIONS: {
   { name: "Google Drive", desc: "결재 첨부파일을 드라이브에 보관", icon: "HardDrive", bg: "#f0fdf4", color: "#15803d", on: false },
 ];
 
-export const SESSIONS: {
-  device: string; meta: string; time: string; current: boolean; icon: string;
-}[] = [];
+/** 접속 기기 목록은 실제 데이터(Firestore `sessions` 컬렉션, useSessions())로 대체됨 */
 
 /** 알림 종류(키·라벨)만 유지 — on 기본값과 webhook 연동 상태는 계정별 실데이터 */
 export const NOTIFY_GROUPS: {

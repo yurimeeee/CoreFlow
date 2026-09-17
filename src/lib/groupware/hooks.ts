@@ -20,7 +20,13 @@ import {
   ref as storageRef,
   uploadBytes,
 } from "firebase/storage";
-import { firebaseDb, firebaseStorage, isFirebaseConfigured } from "@/lib/firebase";
+import { signOut } from "firebase/auth";
+import {
+  firebaseAuth,
+  firebaseDb,
+  firebaseStorage,
+  isFirebaseConfigured,
+} from "@/lib/firebase";
 import { useAuthUser } from "@/hooks/useAuthUser";
 import type { UserDoc } from "@/types/user";
 import {
@@ -46,6 +52,7 @@ import {
   type LeaveDoc,
   type NoticeCommentDoc,
   type NoticeDoc,
+  type SessionDoc,
   type TaskDoc,
   type WorkspaceDoc,
 } from "./firestore";
@@ -972,6 +979,175 @@ export function useGwSettings() {
     uploadImage,
     clearImage,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/*  접속 기기(브라우저) 세션 추적 — sessions/{sessionId}                  */
+/* ------------------------------------------------------------------ */
+
+const HEARTBEAT_MS = 5 * 60 * 1000; // 5분마다 lastActive 갱신
+
+function readSessionId(uid: string): string {
+  const key = `cf-session-id:${uid}`;
+  try {
+    let id = window.localStorage.getItem(key);
+    if (!id) {
+      id =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `s-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      window.localStorage.setItem(key, id);
+    }
+    return id;
+  } catch {
+    return `s-${Date.now()}`;
+  }
+}
+
+function forgetSessionId(uid: string) {
+  try {
+    window.localStorage.removeItem(`cf-session-id:${uid}`);
+  } catch {
+    // localStorage 접근 불가(프라이빗 모드 등) — 무시
+  }
+}
+
+/** User-Agent 로 기기/브라우저 이름과 아이콘 키를 대략 유추 */
+export function parseDevice(ua: string): { label: string; icon: string } {
+  const isTablet = /iPad|Tablet/i.test(ua) || (/Android/i.test(ua) && !/Mobile/i.test(ua));
+  const isMobile = !isTablet && /Mobi|Android|iPhone/i.test(ua);
+  const os = /Mac OS X/i.test(ua)
+    ? "Mac"
+    : /Windows/i.test(ua)
+      ? "Windows"
+      : /Android/i.test(ua)
+        ? "Android"
+        : /iPhone|iPad|iOS/i.test(ua)
+          ? "iOS"
+          : /Linux/i.test(ua)
+            ? "Linux"
+            : "알 수 없는 기기";
+  const browser = /Edg\//.test(ua)
+    ? "Edge"
+    : /Chrome\//.test(ua)
+      ? "Chrome"
+      : /Firefox\//.test(ua)
+        ? "Firefox"
+        : /Safari\//.test(ua)
+          ? "Safari"
+          : "브라우저";
+  const icon = isTablet ? "Tablet" : isMobile ? "Smartphone" : os === "Mac" ? "Laptop" : "Monitor";
+  return { label: `${os} · ${browser}`, icon };
+}
+
+/**
+ * 실제 접속 기기 목록. 계정+브라우저 조합마다 localStorage 에 세션ID를
+ * 영구 발급해 같은 브라우저로 재접속하면 같은 문서를 이어서 갱신합니다.
+ * 다른 기기(같은 계정)에서 세션을 삭제하면, 그 기기가 앱을 열어둔 상태일
+ * 경우 실시간으로 감지해 스스로 로그아웃합니다(서버 없이 클라이언트만으로
+ * 가능한 강제 로그아웃 — 그 기기가 오프라인이면 다음 접속 시에만 반영).
+ */
+export function useSessions() {
+  const { authUser } = useAuthUser();
+  const uid = authUser?.uid ?? null;
+  const [data, setData] = React.useState<SessionDoc[]>([]);
+  const [loading, setLoading] = React.useState(isFirebaseConfigured);
+  const revokedRef = React.useRef(false);
+
+  const mySessionId = React.useMemo(() => {
+    if (!uid || typeof window === "undefined") return null;
+    return readSessionId(uid);
+  }, [uid]);
+
+  // 하트비트: 내 기기의 세션 문서를 생성/갱신
+  React.useEffect(() => {
+    if (!isFirebaseConfigured || !uid || !mySessionId) return;
+    revokedRef.current = false;
+    const ref = doc(firebaseDb(), COL.sessions, mySessionId);
+
+    const beat = async () => {
+      if (revokedRef.current) return;
+      const { label, icon } = parseDevice(navigator.userAgent);
+      const now = Date.now();
+      try {
+        const snap = await getDoc(ref);
+        if (snap.exists()) {
+          await updateDoc(ref, { lastActive: now, device: label, icon });
+        } else {
+          await setDoc(ref, {
+            uid,
+            device: label,
+            icon,
+            userAgent: navigator.userAgent,
+            createdAt: now,
+            lastActive: now,
+          });
+        }
+      } catch {
+        // 권한 오류(다른 계정이 쓰던 세션ID 충돌 등) — 조용히 무시
+      }
+    };
+
+    beat();
+    const timer = setInterval(beat, HEARTBEAT_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") beat();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [uid, mySessionId]);
+
+  // 내 세션 문서 자체를 구독 — 다른 기기가 삭제하면 즉시 로그아웃
+  React.useEffect(() => {
+    if (!isFirebaseConfigured || !uid || !mySessionId) return;
+    let seen = false;
+    const unsub = onSnapshot(
+      doc(firebaseDb(), COL.sessions, mySessionId),
+      (snap) => {
+        if (snap.exists()) {
+          seen = true;
+          return;
+        }
+        if (seen && !revokedRef.current) {
+          revokedRef.current = true;
+          forgetSessionId(uid);
+          signOut(firebaseAuth()).catch(() => {});
+        }
+      },
+    );
+    return unsub;
+  }, [uid, mySessionId]);
+
+  // 내 계정에 속한 전체 기기 목록
+  React.useEffect(() => {
+    if (!isFirebaseConfigured || !uid) return;
+    const q = query(collection(firebaseDb(), COL.sessions), where("uid", "==", uid));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setData(
+          snap.docs
+            .map((d) => ({ id: d.id, ...d.data() }) as SessionDoc)
+            .sort((a, b) => b.lastActive - a.lastActive),
+        );
+        setLoading(false);
+      },
+      () => setLoading(false),
+    );
+    return unsub;
+  }, [uid]);
+
+  const removeSession = React.useCallback(async (id: string) => {
+    setData((p) => p.filter((s) => s.id !== id));
+    if (isFirebaseConfigured) {
+      await deleteDoc(doc(firebaseDb(), COL.sessions, id));
+    }
+  }, []);
+
+  return { data, loading, mySessionId, removeSession };
 }
 
 /* ------------------------------------------------------------------ */

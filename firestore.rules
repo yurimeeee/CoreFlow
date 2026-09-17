@@ -88,6 +88,18 @@ service cloud.firestore {
         || (isSignedIn() && resource.data.uid == request.auth.uid);
     }
 
+    /* ---------------- sessions/{id} (접속 기기 세션) ----------------
+       doc id = 브라우저별 세션ID(uid 아님) · uid 필드로 소유자 식별.
+       같은 계정의 다른 기기끼리는 서로 update/delete 가능(세션 제거용). */
+    match /sessions/{id} {
+      allow read: if isSignedIn()
+        && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isSignedIn()
+        && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if isSignedIn()
+        && resource.data.uid == request.auth.uid;
+    }
+
     /* ---------------- events/{id} (캘린더 일정) ---------------- */
     match /events/{id} {
       // 워크스페이스 공용 캘린더라 로그인 사용자면 조회 가능

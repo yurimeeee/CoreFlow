@@ -32,6 +32,7 @@ export const COL = {
   attendance: "attendance",
   leaves: "leaves",
   events: "events",
+  sessions: "sessions",
   users: "users",
   workspace: "workspace",
 } as const;
@@ -182,6 +183,24 @@ export const EVENT_CATEGORIES: { key: string; color: string }[] = [
   { key: "마감", color: "#f59e0b" },
   { key: "기타", color: "#64748b" },
 ];
+
+/**
+ * 실제 접속 기기(브라우저) 세션 — sessions/{sessionId}.
+ * sessionId 는 (계정, 브라우저) 조합마다 localStorage 에 영구 발급되어
+ * 같은 브라우저로 재접속하면 같은 문서를 이어서 갱신합니다.
+ * 서버(Admin SDK)가 없어 다른 기기의 Firebase Auth 세션 자체를 강제로
+ * 만료시킬 수는 없지만, 그 기기가 앱을 열어둔 상태라면 이 문서 삭제를
+ * 실시간으로 감지해 스스로 로그아웃합니다.
+ */
+export interface SessionDoc {
+  id: string;
+  uid: string;
+  device: string; // 예: "Mac · Chrome"
+  icon: string; // SESSION_ICONS 키
+  userAgent: string;
+  createdAt: number; // epoch ms
+  lastActive: number; // epoch ms
+}
 
 export interface WorkspaceDoc {
   name: string;

@@ -41,13 +41,13 @@ import {
   RBAC_CELL_LABELS,
   RBAC_ROWS,
   ROLE_COLS,
-  SESSIONS,
 } from "@/lib/groupware/data";
 import { WORKSPACE_FIELD_LABELS } from "@/lib/groupware/firestore";
 import {
   useCurrentUser,
   useGwSettings,
   usePendingUsers,
+  useSessions,
   useWorkspace,
 } from "@/lib/groupware/hooks";
 import { avatarStyle, pill } from "@/lib/groupware/ui";
@@ -135,6 +135,14 @@ const TIMEZONES = [
   "(GMT+00:00) UTC",
   "(GMT-08:00) 로스앤젤레스",
 ];
+
+function relTime(ms: number): string {
+  const diff = Date.now() - ms;
+  if (diff < 60_000) return "방금 전";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}분 전`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}시간 전`;
+  return `${Math.floor(diff / 86_400_000)}일 전`;
+}
 
 export default function SettingsPage() {
   const [tab, setTab] = React.useState<Tab>("profile");
@@ -231,27 +239,7 @@ export default function SettingsPage() {
     }
   };
 
-  const ua = React.useSyncExternalStore(
-    () => () => {},
-    () => navigator.userAgent,
-    () => "",
-  );
-  const sessions = React.useMemo(() => {
-    const current = ua
-      ? [
-          {
-            device: /Mobi|Android|iPhone/.test(ua)
-              ? "모바일 브라우저"
-              : "이 브라우저",
-            meta: ua.length > 64 ? `${ua.slice(0, 64)}…` : ua,
-            time: "현재 접속 중",
-            current: true,
-            icon: "Monitor" as const,
-          },
-        ]
-      : [];
-    return [...current, ...SESSIONS];
-  }, [ua]);
+  const sessions = useSessions();
 
   const lastChanged = (() => {
     const u = profile?.updatedAt as { toDate?: () => Date } | Date | undefined;
@@ -626,7 +614,9 @@ export default function SettingsPage() {
                     최근 접속 기기
                   </h3>
                   <span className="text-[11.5px] text-muted-foreground">
-                    {sessions.length}개 세션
+                    {sessions.loading
+                      ? "불러오는 중…"
+                      : `${sessions.data.length}개 세션`}
                   </span>
                   <button
                     onClick={() => {
@@ -634,15 +624,21 @@ export default function SettingsPage() {
                     }}
                     className="ml-auto h-8 rounded-[9px] border border-[#fecaca] bg-card px-3 text-[12.5px] font-semibold text-[#b91c1c] hover:bg-[#fef2f2]"
                   >
-                    전체 강제 로그아웃
+                    이 기기 로그아웃
                   </button>
                 </div>
-                {sessions.map((d) => {
-                  const Icon = SESSION_ICONS[d.icon];
+                {!sessions.loading && sessions.data.length === 0 && (
+                  <p className="px-5 py-8 text-center text-[12.5px] text-muted-foreground">
+                    등록된 접속 기기가 없습니다
+                  </p>
+                )}
+                {sessions.data.map((d) => {
+                  const isCurrent = d.id === sessions.mySessionId;
+                  const Icon = SESSION_ICONS[d.icon] ?? Monitor;
                   return (
                     <div
-                      key={d.device}
-                      className="flex items-center gap-3 border-b border-[#f1f5f9] px-5 py-3.5"
+                      key={d.id}
+                      className="flex items-center gap-3 border-b border-[#f1f5f9] px-5 py-3.5 last:border-0"
                     >
                       <span className="flex size-[34px] shrink-0 items-center justify-center rounded-[9px] border border-[#eef1f5] bg-secondary">
                         <Icon className="size-4 text-muted-foreground" />
@@ -652,7 +648,7 @@ export default function SettingsPage() {
                           <span className="text-[13px] font-semibold">
                             {d.device}
                           </span>
-                          {d.current && (
+                          {isCurrent && (
                             <span
                               className="rounded-[5px] px-1.5 py-0.5 text-[10px] font-bold text-[#15803d]"
                               style={{ background: "#f0fdf4" }}
@@ -661,28 +657,42 @@ export default function SettingsPage() {
                             </span>
                           )}
                         </div>
-                        <div className="mt-0.5 text-[11.5px] text-muted-foreground">
-                          {d.meta}
+                        <div className="mt-0.5 truncate text-[11.5px] text-muted-foreground">
+                          {d.userAgent}
                         </div>
                       </div>
                       <span className="whitespace-nowrap text-[11.5px] tabular-nums text-muted-foreground">
-                        {d.time}
+                        {isCurrent ? "현재 접속 중" : relTime(d.lastActive)}
                       </span>
                       <button
-                        disabled={d.current}
-                        onClick={() => !d.current && me.logout()}
+                        disabled={isCurrent}
+                        onClick={() => {
+                          if (isCurrent) return;
+                          if (
+                            confirm(
+                              `${d.device} 기기의 접속 기록을 제거할까요?\n그 기기가 CoreFlow를 열어둔 상태라면 즉시 로그아웃됩니다.`,
+                            )
+                          ) {
+                            sessions.removeSession(d.id);
+                          }
+                        }}
                         className={cn(
                           "h-7.5 whitespace-nowrap rounded-lg px-2.5 text-xs font-semibold",
-                          d.current
+                          isCurrent
                             ? "cursor-not-allowed border border-[#eef1f5] bg-secondary text-[#cbd5e1]"
                             : "border border-border bg-card text-secondary-foreground hover:bg-secondary",
                         )}
                       >
-                        {d.current ? "현재 기기" : "로그아웃"}
+                        {isCurrent ? "현재 기기" : "세션 제거"}
                       </button>
                     </div>
                   );
                 })}
+                <p className="border-t border-[#f1f5f9] px-5 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
+                  세션 제거는 해당 기기가 CoreFlow 를 열어둔 상태일 때만 즉시
+                  반영됩니다. 오프라인 상태라면 다음 접속 시 새 세션으로
+                  다시 등록됩니다.
+                </p>
               </GwCard>
             </>
           )}
