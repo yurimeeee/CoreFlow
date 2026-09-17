@@ -9,6 +9,7 @@ import {
   Clock4,
   FileBarChart,
   FileSignature,
+  HardDrive,
   Lock,
   Palmtree,
   Paperclip,
@@ -27,6 +28,7 @@ import {
 } from "firebase/storage";
 import { cn } from "@/lib/utils";
 import { firebaseStorage, isFirebaseConfigured } from "@/lib/firebase";
+import { getGoogleDriveSession, uploadFileToDrive } from "@/lib/googleDrive";
 import {
   EXPENSE_ROWS,
   FORM_TEMPLATES,
@@ -147,7 +149,7 @@ export default function DraftPage() {
   const [saving, setSaving] = React.useState<null | "draft" | "submit">(null);
   const [savedNo, setSavedNo] = React.useState<string | null>(null);
   const [attachments, setAttachments] = React.useState<
-    { name: string; size: string; url: string; kind: string }[]
+    { name: string; size: string; url: string; kind: string; drive?: boolean }[]
   >([]);
   const [uploading, setUploading] = React.useState(false);
 
@@ -289,6 +291,14 @@ export default function DraftPage() {
           ...p,
           { name: file.name, size: fmtSize(file.size), url, kind: extKind(file.name) },
         ]);
+        if (getGoogleDriveSession()) {
+          uploadFileToDrive(file).then((saved) => {
+            if (!saved) return;
+            setAttachments((p) =>
+              p.map((a) => (a.name === file.name && a.url === url ? { ...a, drive: true } : a)),
+            );
+          });
+        }
       }
     } finally {
       setUploading(false);
@@ -877,6 +887,15 @@ export default function DraftPage() {
               >
                 <Paperclip className="size-3.5 shrink-0 text-muted-foreground" />
                 <span className="flex-1 truncate">{f.name}</span>
+                {f.drive && (
+                  <span
+                    title="Google Drive에도 보관됨"
+                    className="flex items-center gap-1 rounded-full bg-[#f0fdf4] px-1.5 py-0.5 text-[10.5px] font-semibold text-[#15803d]"
+                  >
+                    <HardDrive className="size-2.5" />
+                    Drive
+                  </span>
+                )}
                 <span className="tabular-nums text-[11.5px] text-muted-foreground">
                   {f.size}
                 </span>

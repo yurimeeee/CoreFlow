@@ -5,10 +5,8 @@ import Link from "next/link";
 import {
   Bell,
   Building2,
-  CalendarDays,
   Check,
   CircleDot,
-  HardDrive,
   Info,
   Laptop,
   Loader2,
@@ -36,7 +34,6 @@ import { cn } from "@/lib/utils";
 import { firebaseAuth } from "@/lib/firebase";
 import {
   DEFAULT_RBAC,
-  INTEGRATIONS,
   NOTIFY_GROUPS,
   RBAC_CELL_LABELS,
   RBAC_ROWS,
@@ -60,6 +57,7 @@ import {
 } from "@/components/settings/TwoFactorSetup";
 import { WebhookIntegrationCard } from "@/components/settings/WebhookIntegrationCard";
 import { GoogleCalendarConnect } from "@/components/settings/GoogleCalendarConnect";
+import { GoogleDriveConnect } from "@/components/settings/GoogleDriveConnect";
 
 type Tab =
   | "profile"
@@ -87,13 +85,6 @@ const SESSION_ICONS: Record<string, React.ElementType> = {
   Monitor,
   Tablet,
 };
-const INT_ICONS: Record<string, React.ElementType> = {
-  MessageSquare,
-  MessagesSquare,
-  CalendarDays,
-  HardDrive,
-};
-
 function Toggle({
   on,
   onClick,
@@ -121,14 +112,11 @@ function Toggle({
 
 const DEFAULT_TOGGLES: Record<string, boolean> = {};
 NOTIFY_GROUPS.forEach((g) => g.rows.forEach((r) => (DEFAULT_TOGGLES[r.key] = r.on)));
-const DEFAULT_INTS: Record<string, boolean> = {};
-INTEGRATIONS.forEach((i) => (DEFAULT_INTS[i.name] = i.on));
 
 interface Edits {
   name?: string;
   email?: string;
   toggles?: Record<string, boolean>;
-  ints?: Record<string, boolean>;
   lang?: string;
   tz?: string;
   rbac?: Record<string, number[]>;
@@ -181,7 +169,6 @@ export default function SettingsPage() {
   const name = edits.name ?? profile?.name ?? me.name;
   const email = edits.email ?? profile?.email ?? me.email ?? "";
   const toggles = edits.toggles ?? gw?.toggles ?? DEFAULT_TOGGLES;
-  const ints = edits.ints ?? gw?.integrations ?? DEFAULT_INTS;
   const lang = edits.lang ?? gw?.lang ?? LANGS[0];
   const tz = edits.tz ?? gw?.tz ?? TIMEZONES[0];
   const rbac = edits.rbac ?? workspace.rbac ?? DEFAULT_RBAC;
@@ -194,8 +181,6 @@ export default function SettingsPage() {
   const setEmail = (v: string) => setEdits((e) => ({ ...e, email: v }));
   const setToggles = (fn: (p: Record<string, boolean>) => Record<string, boolean>) =>
     setEdits((e) => ({ ...e, toggles: fn(e.toggles ?? toggles) }));
-  const setInts = (fn: (p: Record<string, boolean>) => Record<string, boolean>) =>
-    setEdits((e) => ({ ...e, ints: fn(e.ints ?? ints) }));
   const touch = () => setEdits((e) => ({ ...e, touched: true }));
 
   const cycleRbac = (rowKey: string, colIdx: number) =>
@@ -269,7 +254,6 @@ export default function SettingsPage() {
     await save({
       name,
       "gwSettings.toggles": toggles,
-      "gwSettings.integrations": ints,
       "gwSettings.lang": lang,
       "gwSettings.tz": tz,
     });
@@ -890,56 +874,7 @@ export default function SettingsPage() {
                   helpHref="https://www.jandi.com/connect"
                 />
                 <GoogleCalendarConnect />
-                {INTEGRATIONS.filter((i) => i.name === "Google Drive").map((i) => {
-                  const Icon = INT_ICONS[i.icon];
-                  const on = ints[i.name];
-                  return (
-                    <div
-                      key={i.name}
-                      className="flex items-center gap-3 border-t border-[#f1f5f9] py-3.5"
-                    >
-                      <span
-                        className="flex size-[34px] shrink-0 items-center justify-center rounded-[9px]"
-                        style={{ background: i.bg }}
-                      >
-                        <Icon className="size-4" style={{ color: i.color }} />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[13px] font-semibold">
-                            {i.name}
-                          </span>
-                          <span
-                            style={pill(
-                              on ? "#f0fdf4" : "#f1f5f9",
-                              on ? "#15803d" : "#94a3b8",
-                            )}
-                          >
-                            {on ? "연동됨" : "미연동"}
-                          </span>
-                          <span style={pill("#f1f5f9", "#94a3b8")}>준비 중</span>
-                        </div>
-                        <div className="mt-0.5 text-[11.5px] text-muted-foreground">
-                          {i.desc}
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => {
-                          setInts((p) => ({ ...p, [i.name]: !p[i.name] }));
-                          touch();
-                        }}
-                        className={cn(
-                          "h-8 whitespace-nowrap rounded-lg px-3.5 text-[12.5px] font-semibold",
-                          on
-                            ? "border border-border bg-card text-muted-foreground"
-                            : "bg-primary text-primary-foreground",
-                        )}
-                      >
-                        {on ? "연동 해제" : "연동하기"}
-                      </button>
-                    </div>
-                  );
-                })}
+                <GoogleDriveConnect />
               </div>
             </GwCard>
           )}

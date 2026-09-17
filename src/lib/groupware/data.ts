@@ -281,16 +281,6 @@ export const COMPANY_FIELDS: { label: string; value: string }[] = [
   { label: "회계연도 시작", value: "" },
 ];
 
-/** 연동 가능한 서비스 종류(구조) — on 은 실제 연동 여부이므로 기본 false */
-export const INTEGRATIONS: {
-  name: string; desc: string; icon: string; bg: string; color: string; on: boolean;
-}[] = [
-  { name: "Slack", desc: "결재 · 공지 알림을 채널로 전송", icon: "MessageSquare", bg: "#f5f3ff", color: "#6d28d9", on: false },
-  { name: "Jandi", desc: "팀 토픽으로 근태 알림 전송", icon: "MessagesSquare", bg: "#ecfeff", color: "#0e7490", on: false },
-  { name: "Google Calendar", desc: "사내 일정과 개인 캘린더 동기화", icon: "CalendarDays", bg: "#eef2ff", color: "#4338ca", on: false },
-  { name: "Google Drive", desc: "결재 첨부파일을 드라이브에 보관", icon: "HardDrive", bg: "#f0fdf4", color: "#15803d", on: false },
-];
-
 /** 접속 기기 목록은 실제 데이터(Firestore `sessions` 컬렉션, useSessions())로 대체됨 */
 
 /** 알림 종류(키·라벨)만 유지 — on 기본값과 webhook 연동 상태는 계정별 실데이터 */
