@@ -31,6 +31,8 @@ import {
 import { useAuthUser } from "@/hooks/useAuthUser";
 import { clearTwoFactorVerified } from "@/lib/twoFactorSession";
 import { generateBackupCodes, hashBackupCode } from "@/lib/totp";
+import { notifyJandi, notifySlack } from "@/lib/integrations/notify";
+import { createGoogleCalendarEvent } from "@/lib/googleCalendar";
 import type { UserDoc } from "@/types/user";
 import {
   APPROVAL_ROWS,
@@ -181,6 +183,10 @@ export function useNotices() {
         comments: 0,
         order: -now.getTime(), // 최신 글이 위로 오도록
       });
+      notifySlack(
+        `${input.pinned ? "📌 " : ""}[공지] ${input.title}\n${author} · ${input.body.slice(0, 140)}`,
+        input.title,
+      ).catch(() => {});
     },
     [me.name, me.role],
   );
@@ -427,6 +433,10 @@ export function useApprovals() {
       if (isFirebaseConfigured) {
         await setDoc(doc(firebaseDb(), COL.approvals, input.no), payload);
       }
+      notifySlack(
+        `[결재 상신] ${input.title} (${input.no})\n기안자 ${author} · 결재자 ${input.approver}`,
+        input.title,
+      ).catch(() => {});
       return input.no;
     },
     [me.name, me.role],
@@ -470,12 +480,22 @@ export function useApprovalDoc(no: string) {
 
   const setStatus = React.useCallback(
     async (status: string) => {
-      setRemote((r) => (r ? { ...r, status } : r));
+      let title = "";
+      setRemote((r) => {
+        title = r?.title ?? "";
+        return r ? { ...r, status } : r;
+      });
       if (isFirebaseConfigured) {
         await updateDoc(doc(firebaseDb(), COL.approvals, no), { status });
       }
+      const label =
+        status === "Approved" ? "승인" : status === "Rejected" ? "반려" : status;
+      notifySlack(
+        `[결재 ${label}] ${title || no} (${no}) · ${me.name}`,
+        title || no,
+      ).catch(() => {});
     },
-    [no],
+    [no, me.name],
   );
 
   /** 결재 의견(코멘트) 추가 — comments 배열에 append */
@@ -581,6 +601,8 @@ export function useEvents() {
       if (isFirebaseConfigured && authUser) {
         await setDoc(doc(firebaseDb(), COL.events, id), payload);
       }
+      // 이 브라우저에서 Google Calendar 가 연동돼 있으면 내 캘린더에도 복사합니다.
+      createGoogleCalendarEvent(input).catch(() => {});
       return id;
     },
     [toPayload, authUser],
@@ -865,6 +887,10 @@ export function useLeaves() {
       if (isFirebaseConfigured && uid) {
         await setDoc(doc(firebaseDb(), COL.leaves, id), payload);
       }
+      notifyJandi(
+        `[근태] ${me.name}님이 ${input.kind}를 신청했습니다. (${input.start} ~ ${input.end})\n사유: ${input.reason}`,
+        `${input.kind} 신청`,
+      ).catch(() => {});
       return id;
     },
     [uid, me.name],
@@ -907,9 +933,19 @@ export function usePendingLeaves() {
 
   const decide = React.useCallback(
     async (id: string, status: "승인" | "반려") => {
-      setData((p) => p.filter((l) => l.id !== id));
+      let target: LeaveDoc | undefined;
+      setData((p) => {
+        target = p.find((l) => l.id === id);
+        return p.filter((l) => l.id !== id);
+      });
       if (isFirebaseConfigured) {
         await updateDoc(doc(firebaseDb(), COL.leaves, id), { status });
+      }
+      if (target) {
+        notifyJandi(
+          `[근태] ${target.who}님의 ${target.kind} 신청이 ${status}되었습니다. (${target.start} ~ ${target.end})`,
+          `${target.kind} ${status}`,
+        ).catch(() => {});
       }
     },
     [],
@@ -1291,14 +1327,19 @@ export function useWorkspace() {
     return unsub;
   }, []);
 
-  const save = React.useCallback(async (patch: Partial<WorkspaceDoc>) => {
-    if (!isFirebaseConfigured) return;
-    await setDoc(
-      doc(firebaseDb(), COL.workspace, "main"),
-      { ...patch, updatedAt: new Date() },
-      { merge: true },
-    );
-  }, []);
+  /** `Partial<WorkspaceDoc>` 전체 교체 패치 또는 "integrations.slack.on" 같은
+   *  점(dot) 경로 부분 패치를 모두 받습니다. */
+  const save = React.useCallback(
+    async (patch: Partial<WorkspaceDoc> | Record<string, unknown>) => {
+      if (!isFirebaseConfigured) return;
+      await setDoc(
+        doc(firebaseDb(), COL.workspace, "main"),
+        { ...patch, updatedAt: new Date() },
+        { merge: true },
+      );
+    },
+    [],
+  );
 
   return { data, loading, save };
 }

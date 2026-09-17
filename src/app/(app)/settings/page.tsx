@@ -58,6 +58,8 @@ import {
   TwoFactorDisableModal,
   TwoFactorSetupModal,
 } from "@/components/settings/TwoFactorSetup";
+import { WebhookIntegrationCard } from "@/components/settings/WebhookIntegrationCard";
+import { GoogleCalendarConnect } from "@/components/settings/GoogleCalendarConnect";
 
 type Tab =
   | "profile"
@@ -860,11 +862,35 @@ export default function SettingsPage() {
                   연동 서비스
                 </h3>
                 <p className="mt-1 text-[12.5px] text-muted-foreground">
-                  외부 서비스와 알림 · 일정 · 파일을 연동합니다.
+                  외부 서비스와 알림 · 일정 · 파일을 연동합니다. Slack · Jandi ·
+                  Google Calendar는 실제로 메시지를 보내거나 일정을 주고받습니다.
                 </p>
               </div>
               <div className="mt-3.5 flex flex-col">
-                {INTEGRATIONS.map((i) => {
+                <WebhookIntegrationCard
+                  service="slack"
+                  name="Slack"
+                  desc="결재 · 공지 알림을 채널로 전송"
+                  icon={MessageSquare}
+                  bg="#f5f3ff"
+                  color="#6d28d9"
+                  value={workspace.integrations?.slack}
+                  onSave={(patch) => saveWorkspace({ "integrations.slack": patch })}
+                  helpHref="https://api.slack.com/messaging/webhooks"
+                />
+                <WebhookIntegrationCard
+                  service="jandi"
+                  name="Jandi"
+                  desc="팀 토픽으로 근태 알림 전송"
+                  icon={MessagesSquare}
+                  bg="#ecfeff"
+                  color="#0e7490"
+                  value={workspace.integrations?.jandi}
+                  onSave={(patch) => saveWorkspace({ "integrations.jandi": patch })}
+                  helpHref="https://www.jandi.com/connect"
+                />
+                <GoogleCalendarConnect />
+                {INTEGRATIONS.filter((i) => i.name === "Google Drive").map((i) => {
                   const Icon = INT_ICONS[i.icon];
                   const on = ints[i.name];
                   return (
@@ -891,6 +917,7 @@ export default function SettingsPage() {
                           >
                             {on ? "연동됨" : "미연동"}
                           </span>
+                          <span style={pill("#f1f5f9", "#94a3b8")}>준비 중</span>
                         </div>
                         <div className="mt-0.5 text-[11.5px] text-muted-foreground">
                           {i.desc}

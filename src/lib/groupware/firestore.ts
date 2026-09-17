@@ -202,6 +202,12 @@ export interface SessionDoc {
   lastActive: number; // epoch ms
 }
 
+/** Slack/Jandi 등 Incoming Webhook 기반 연동의 공통 설정 */
+export interface WorkspaceWebhookIntegration {
+  on: boolean;
+  webhookUrl?: string;
+}
+
 export interface WorkspaceDoc {
   name: string;
   bizNo: string;
@@ -211,10 +217,18 @@ export interface WorkspaceDoc {
   fiscalYearStart: string;
   /** 역할 기반 접근 제어 오버라이드 — { 기능키: [SuperAdmin, Admin, Manager, Member] } (0/1/2) */
   rbac?: Record<string, number[]>;
+  /** 워크스페이스(전사) 단위 외부 서비스 연동 — 관리자만 설정 가능 */
+  integrations?: {
+    slack?: WorkspaceWebhookIntegration;
+    jandi?: WorkspaceWebhookIntegration;
+  };
 }
 
-/** 텍스트로 편집 가능한 워크스페이스 필드 (rbac 등 구조 필드 제외) */
-export type WorkspaceTextField = Exclude<keyof WorkspaceDoc, "rbac">;
+/** 텍스트로 편집 가능한 워크스페이스 필드 (rbac·integrations 등 구조 필드 제외) */
+export type WorkspaceTextField = Exclude<
+  keyof WorkspaceDoc,
+  "rbac" | "integrations"
+>;
 
 export const WORKSPACE_FIELD_LABELS: { key: WorkspaceTextField; label: string; placeholder: string }[] = [
   { key: "name", label: "회사명", placeholder: "주식회사 ○○" },
