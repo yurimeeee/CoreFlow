@@ -51,7 +51,8 @@ export default function AttendancePage() {
   const now = useNow();
   const { working, inAt, outAt, weekWorked, history, checkIn, checkOut } =
     useAttendance();
-  const { data: leaves, balance, addLeave } = useLeaves();
+  const { data: leaves, balance, addLeave, cancelLeave } = useLeaves();
+  const [cancellingId, setCancellingId] = React.useState<string | null>(null);
   const pending = usePendingLeaves();
   const [view, setView] = React.useState<"calendar" | "list">("calendar");
   const [remoteToday, setRemoteToday] = React.useState(false);
@@ -430,6 +431,23 @@ export default function AttendancePage() {
                 >
                   {l.status}
                 </span>
+                {l.status === "대기" && (
+                  <button
+                    onClick={async () => {
+                      if (cancellingId) return;
+                      setCancellingId(l.id);
+                      try {
+                        await cancelLeave(l.id);
+                      } finally {
+                        setCancellingId(null);
+                      }
+                    }}
+                    disabled={cancellingId === l.id}
+                    className="shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground hover:bg-[#fef2f2] hover:text-[#b91c1c] disabled:opacity-50"
+                  >
+                    {cancellingId === l.id ? "취소 중…" : "신청 취소"}
+                  </button>
+                )}
               </div>
             ))}
           </div>

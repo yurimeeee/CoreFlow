@@ -903,7 +903,14 @@ export function useLeaves() {
     [uid, me.name],
   );
 
-  return { data, loading, balance, addLeave };
+  const cancelLeave = React.useCallback(async (id: string) => {
+    setAdded((p) => p.filter((l) => l.id !== id));
+    if (isFirebaseConfigured) {
+      await deleteDoc(doc(firebaseDb(), COL.leaves, id));
+    }
+  }, []);
+
+  return { data, loading, balance, addLeave, cancelLeave };
 }
 
 /**
