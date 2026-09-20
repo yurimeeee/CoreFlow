@@ -16,14 +16,17 @@ import {
   X,
 } from "lucide-react";
 import { NOTICE_CAT_COLORS } from "@/lib/groupware/data";
-import { useNoticeComments, useNoticeDoc } from "@/lib/groupware/hooks";
+import { useCurrentUser, useNoticeComments, useNoticeDoc, useNotices } from "@/lib/groupware/hooks";
 import { avatarStyle, pill } from "@/lib/groupware/ui";
 import { GwCard } from "@/components/app/primitives";
+import { ComposeModal } from "../ComposeModal";
 
 export default function NoticeDetailPage() {
   const params = useParams<{ id: string }>();
   const id = decodeURIComponent(params.id ?? "");
+  const me = useCurrentUser();
   const { notice, loading } = useNoticeDoc(id);
+  const { updateNotice } = useNotices();
   const {
     comments,
     addComment,
@@ -36,6 +39,7 @@ export default function NoticeDetailPage() {
   const [busy, setBusy] = React.useState(false);
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [editText, setEditText] = React.useState("");
+  const [editingNotice, setEditingNotice] = React.useState(false);
 
   const submit = async () => {
     if (!draft.trim()) return;
@@ -104,6 +108,9 @@ export default function NoticeDetailPage() {
   }
 
   const c = NOTICE_CAT_COLORS[notice.cat] ?? ["#f1f5f9", "#475569"];
+  // 공지 본문 수정은 작성자 본인만(관리자도 예외 없음) — authorUid가 없는
+  // 옛 문서(레거시)는 작성자를 특정할 수 없어 아무도 수정할 수 없음.
+  const canEdit = !!notice.authorUid && notice.authorUid === me.uid;
 
   return (
     <div className="mx-auto flex max-w-[900px] flex-col gap-4">
@@ -123,6 +130,15 @@ export default function NoticeDetailPage() {
                 <Pin className="size-3" />
                 필독
               </span>
+            )}
+            {canEdit && (
+              <button
+                onClick={() => setEditingNotice(true)}
+                className="ml-auto flex h-7.5 items-center gap-1 rounded-md border border-border bg-card px-2.5 text-[11.5px] font-semibold text-secondary-foreground hover:bg-secondary"
+              >
+                <Pencil className="size-3" />
+                수정
+              </button>
             )}
           </div>
           <h1 className="text-[22px] font-bold leading-snug tracking-[-0.025em]">
@@ -271,6 +287,24 @@ export default function NoticeDetailPage() {
           </button>
         </div>
       </GwCard>
+
+      {editingNotice && (
+        <ComposeModal
+          variant="edit-published"
+          initial={{
+            id: notice.id,
+            cat: notice.cat,
+            title: notice.title,
+            body: notice.body ?? "",
+            pinned: notice.pinned,
+          }}
+          onClose={() => setEditingNotice(false)}
+          onSubmit={async (input) => {
+            await updateNotice(notice.id, input, false, false);
+            setEditingNotice(false);
+          }}
+        />
+      )}
     </div>
   );
 }

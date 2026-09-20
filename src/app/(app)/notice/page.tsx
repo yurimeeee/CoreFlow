@@ -12,12 +12,9 @@ import {
   Paperclip,
   Pin,
   PenSquare,
-  Save,
   Search,
   SearchX,
-  Send,
   ShieldAlert,
-  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NOTICE_CATEGORIES, NOTICE_CAT_COLORS } from "@/lib/groupware/data";
@@ -26,16 +23,12 @@ import { useCurrentUser, useNotices } from "@/lib/groupware/hooks";
 import type { NoticeDoc } from "@/lib/groupware/firestore";
 import { GwCard, PageHeader } from "@/components/app/primitives";
 import { EmptyState } from "@/components/app/EmptyState";
+import { COMPOSE_CATEGORIES, ComposeModal, type ComposeState } from "./ComposeModal";
 
 const PIN_ICONS: Record<string, React.ElementType> = {
   ShieldAlert,
   CalendarClock,
 };
-
-const COMPOSE_CATEGORIES = Object.keys(NOTICE_CAT_COLORS);
-
-type ComposeInput = { cat: string; title: string; body: string; pinned: boolean };
-type ComposeState = ComposeInput & { id?: string };
 
 export default function NoticePage() {
   const me = useCurrentUser();
@@ -381,162 +374,3 @@ export default function NoticePage() {
   );
 }
 
-function ComposeModal({
-  initial,
-  onClose,
-  onSubmit,
-}: {
-  initial: ComposeState;
-  onClose: () => void;
-  onSubmit: (input: ComposeInput, draft: boolean) => Promise<void>;
-}) {
-  const isEdit = !!initial.id;
-  const [cat, setCat] = React.useState(initial.cat || COMPOSE_CATEGORIES[0] || "경영");
-  const [title, setTitle] = React.useState(initial.title);
-  const [body, setBody] = React.useState(initial.body);
-  const [pinned, setPinned] = React.useState(initial.pinned);
-  const [saving, setSaving] = React.useState<null | "draft" | "publish">(null);
-
-  const valid = title.trim().length > 0;
-
-  const submit = async (draft: boolean) => {
-    if (!valid || saving) return;
-    setSaving(draft ? "draft" : "publish");
-    try {
-      await onSubmit({ cat, title: title.trim(), body: body.trim(), pinned }, draft);
-    } finally {
-      setSaving(null);
-    }
-  };
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[#0f172a]/45 p-6 backdrop-blur-[2px]"
-      onClick={onClose}
-    >
-      <div
-        className="flex max-h-[88vh] w-full max-w-[560px] flex-col overflow-hidden rounded-2xl bg-card shadow-[0_24px_64px_rgba(15,23,42,0.28)]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center gap-2.5 border-b border-[#eef1f5] px-5 pb-3.5 pt-4.5">
-          <span className="flex size-[34px] items-center justify-center rounded-[10px] bg-[#eef2ff] text-primary">
-            <PenSquare className="size-4" />
-          </span>
-          <div className="flex-1">
-            <div className="text-[15px] font-semibold tracking-[-0.015em]">
-              {isEdit ? "임시저장 공지 편집" : "공지 작성"}
-            </div>
-            <div className="mt-0.5 text-xs text-muted-foreground">
-              {isEdit
-                ? "게시하기 전까지는 나에게만 보입니다"
-                : "임시저장하면 나에게만 보이고, 게시하면 전사에 바로 알림이 갑니다"}
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="flex size-[30px] items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-
-        <form
-          onSubmit={(e) => e.preventDefault()}
-          className="flex flex-1 flex-col gap-3.5 overflow-y-auto px-5 py-4"
-        >
-          <div className="grid grid-cols-[140px_1fr] gap-3">
-            <div>
-              <div className="mb-1.5 text-[11.5px] font-semibold text-muted-foreground">
-                카테고리
-              </div>
-              <select
-                value={cat}
-                onChange={(e) => setCat(e.target.value)}
-                className={composeInput}
-              >
-                {COMPOSE_CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <div className="mb-1.5 text-[11.5px] font-semibold text-muted-foreground">
-                제목<span className="ml-0.5 text-[#e11d48]">*</span>
-              </div>
-              <input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="예: 2분기 경영실적 공유 안내"
-                className={composeInput}
-                required
-              />
-            </div>
-          </div>
-
-          <div>
-            <div className="mb-1.5 text-[11.5px] font-semibold text-muted-foreground">
-              본문
-            </div>
-            <textarea
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              rows={6}
-              placeholder="공지 내용을 입력하세요"
-              className={cn(composeInput, "h-auto resize-none py-2")}
-            />
-          </div>
-
-          <label className="flex cursor-pointer items-center gap-2.5 rounded-[10px] border border-border p-3 text-[12.5px]">
-            <input
-              type="checkbox"
-              checked={pinned}
-              onChange={(e) => setPinned(e.target.checked)}
-              className="size-4 accent-primary"
-            />
-            <span className="flex-1">
-              <span className="font-semibold">필독 공지로 상단 고정</span>
-              <span className="ml-1.5 text-muted-foreground">
-                목록 상단의 필독 공지 카드로 표시됩니다
-              </span>
-            </span>
-          </label>
-        </form>
-
-        <div className="flex gap-2 border-t border-[#eef1f5] bg-secondary px-5 py-3.5">
-          <button
-            onClick={onClose}
-            className="h-10 flex-1 rounded-[10px] border border-border bg-card text-[13px] font-semibold text-secondary-foreground hover:bg-[#f1f5f9]"
-          >
-            취소
-          </button>
-          <button
-            onClick={() => submit(true)}
-            disabled={!valid || !!saving}
-            className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-[10px] border border-border bg-card text-[13px] font-semibold text-secondary-foreground hover:bg-[#f1f5f9] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Save className="size-3.5" />
-            {saving === "draft" ? "저장 중…" : "임시저장"}
-          </button>
-          <button
-            onClick={() => submit(false)}
-            disabled={!valid || !!saving}
-            className={cn(
-              "flex h-10 flex-[2] items-center justify-center gap-1.5 rounded-[10px] text-[13px] font-semibold transition-colors",
-              !valid || saving
-                ? "cursor-not-allowed bg-[#f1f5f9] text-muted-foreground"
-                : "bg-primary text-primary-foreground shadow-[0_1px_2px_rgba(79,70,229,0.35)] hover:bg-primary-hover",
-            )}
-          >
-            <Send className="size-3.5" />
-            {saving === "publish" ? "게시하는 중…" : "공지 등록"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-const composeInput =
-  "h-9.5 w-full rounded-[9px] border border-border bg-card px-3 text-[13px] focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25";

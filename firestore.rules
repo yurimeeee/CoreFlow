@@ -78,7 +78,21 @@ service cloud.firestore {
        운영에서는 notices 쓰기를 isAdmin() 으로 좁히세요. */
     match /notices/{id} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow create: if isSignedIn();
+      // 조회수 증가(views/unread) 처럼 본문 필드가 그대로인 갱신은 열람한
+      // 아무나 보낼 수 있어야 하므로 허용하고, cat/title/body/pinned 같은
+      // 실제 내용 수정·삭제는 예외 없이 작성자 본인만 가능(관리자도 불가).
+      allow update: if isSignedIn()
+        && (
+          (request.resource.data.title == resource.data.title
+            && request.resource.data.body == resource.data.body
+            && request.resource.data.cat == resource.data.cat
+            && request.resource.data.pinned == resource.data.pinned
+            && request.resource.data.status == resource.data.status)
+          || resource.data.authorUid == request.auth.uid
+        );
+      allow delete: if isSignedIn()
+        && resource.data.authorUid == request.auth.uid;
 
       /* 공지 댓글 — notices/{id}/comments/{cid} */
       match /comments/{cid} {

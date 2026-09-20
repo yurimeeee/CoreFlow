@@ -205,12 +205,17 @@ export function useNotices() {
     [me.name, me.role, me.uid],
   );
 
-  /** 임시저장한 글을 계속 수정하거나(draft=true), 최종 게시(draft=false)합니다. */
+  /**
+   * 임시저장한 글을 계속 수정하거나(draft=true), 최종 게시(draft=false)합니다.
+   * 이미 게시된 공지를 다시 수정할 때는 announce=false로 넘겨 Slack 재알림 없이
+   * 내용만 갱신합니다(announce 기본값은 !draft — 임시저장→최초 게시 전환 시엔 알림).
+   */
   const updateNotice = React.useCallback(
     async (
       id: string,
       input: { cat: string; title: string; body: string; pinned: boolean },
       draft: boolean,
+      announce: boolean = !draft,
     ) => {
       if (!isFirebaseConfigured) return;
       const patch: Partial<NoticeDoc> = {
@@ -222,7 +227,7 @@ export function useNotices() {
         ...(draft ? {} : { unread: true }),
       };
       await updateDoc(doc(firebaseDb(), COL.notices, id), patch);
-      if (!draft) {
+      if (announce) {
         const author = me.role ? `${me.name} ${me.role}` : me.name;
         notifySlack(
           `${input.pinned ? "📌 " : ""}[공지] ${input.title}\n${author} · ${input.body.slice(0, 140)}`,
