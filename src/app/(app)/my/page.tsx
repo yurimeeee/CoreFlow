@@ -42,7 +42,12 @@ export default function MyWorkPage() {
 
   const myApprovals = approvals.filter((a) => a.bucket === "pending");
   const myTasks = tasks
-    .filter((t) => t.who === me.name && t.colKey !== "done")
+    .filter(
+      (t) =>
+        // assigneeId 가 있으면 uid 기준(신뢰도 높음), 없는 과거 Task는 이름으로 폴백
+        (t.assigneeId ? t.assigneeId === me.uid : t.who === me.name) &&
+        t.colKey !== "done",
+    )
     .sort((a, b) => a.order - b.order);
   const unreadNotices = notices.filter((n) => n.unread);
 

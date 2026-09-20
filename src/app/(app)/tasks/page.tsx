@@ -17,10 +17,17 @@ import {
 import { cn } from "@/lib/utils";
 import { TAG_COLORS } from "@/lib/groupware/data";
 import { TASK_COLUMNS, TASK_TAGS, type TaskDoc } from "@/lib/groupware/firestore";
-import { useOrgPeople, useTasks, type TaskInput } from "@/lib/groupware/hooks";
+import {
+  useCurrentUser,
+  useOrgPeople,
+  useTasks,
+  useTeams,
+  type TaskInput,
+} from "@/lib/groupware/hooks";
 import { avatarStyle, ddayStyle } from "@/lib/groupware/ui";
 import { GwCard, PageHeader, Segmented, Tag } from "@/components/app/primitives";
 import { EmptyState } from "@/components/app/EmptyState";
+import { ROOT_FILTER } from "@/lib/groupware/org-tree";
 
 type View = "kanban" | "list" | "gantt";
 
@@ -40,6 +47,8 @@ const emptyInput = (colKey: string): TaskInput => ({
   title: "",
   desc: "",
   who: "",
+  assigneeId: null,
+  teamId: null,
   startDate: "",
   dueDate: "",
   time: "",
@@ -51,6 +60,8 @@ const taskToInput = (t: TaskDoc): TaskInput => ({
   title: t.title,
   desc: t.desc ?? "",
   who: t.who,
+  assigneeId: t.assigneeId ?? null,
+  teamId: t.teamId ?? null,
   startDate: t.startDate ?? "",
   dueDate: t.dueDate ?? "",
   time: t.time ?? "",
@@ -59,6 +70,8 @@ const taskToInput = (t: TaskDoc): TaskInput => ({
 export default function TasksPage() {
   const [view, setView] = React.useState<View>("kanban");
   const [query, setQuery] = React.useState("");
+  // null = 아직 직접 고르지 않음 → 내 팀을 기본값으로 사용
+  const [teamFilter, setTeamFilter] = React.useState<string | null>(null);
   const [modal, setModal] = React.useState<
     { mode: "new"; colKey: string } | { mode: "edit"; task: TaskDoc } | null
   >(null);
@@ -66,22 +79,26 @@ export default function TasksPage() {
   const [dragOverCol, setDragOverCol] = React.useState<string | null>(null);
   const { data: tasks, addTask, saveTask, removeTask, moveTask, moveTaskTo, source } =
     useTasks();
+  const { teams } = useTeams();
+  const me = useCurrentUser();
+  const activeTeamFilter = teamFilter ?? me.teamId ?? ROOT_FILTER;
 
   const q = query.trim().toLowerCase();
   const match = (t: TaskDoc) =>
-    !q ||
-    t.title.toLowerCase().includes(q) ||
-    t.who.toLowerCase().includes(q);
+    (!q ||
+      t.title.toLowerCase().includes(q) ||
+      t.who.toLowerCase().includes(q)) &&
+    (activeTeamFilter === ROOT_FILTER || t.teamId === activeTeamFilter);
 
   const columns = TASK_COLUMNS.map((c) => ({
     ...c,
     items: tasks
-      .filter((t) => t.colKey === c.key)
+      .filter((t) => t.colKey === c.key && match(t))
       .sort((a, b) => a.order - b.order),
   }));
 
   const flat = columns.flatMap((c) =>
-    c.items.filter(match).map((t) => ({ ...t, col: c.name, color: c.color })),
+    c.items.map((t) => ({ ...t, col: c.name, color: c.color })),
   );
   const members = Array.from(new Set(tasks.map((t) => t.who).filter(Boolean))).slice(
     0,
@@ -136,6 +153,33 @@ export default function TasksPage() {
             className="min-w-0 flex-1 bg-transparent text-[12.5px] focus-visible:outline-none"
           />
         </div>
+        <div className="flex flex-wrap gap-1.5">
+          <button
+            onClick={() => setTeamFilter(ROOT_FILTER)}
+            className={cn(
+              "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
+              activeTeamFilter === ROOT_FILTER
+                ? "border-primary bg-primary text-white"
+                : "border-border bg-card text-secondary-foreground hover:bg-secondary",
+            )}
+          >
+            전체
+          </button>
+          {teams.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTeamFilter(t.id)}
+              className={cn(
+                "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
+                activeTeamFilter === t.id
+                  ? "border-primary bg-primary text-white"
+                  : "border-border bg-card text-secondary-foreground hover:bg-secondary",
+              )}
+            >
+              {t.name}
+            </button>
+          ))}
+        </div>
         {members.length > 0 && (
           <div className="ml-auto flex items-center">
             {members.map((m, i) => (
@@ -187,7 +231,7 @@ export default function TasksPage() {
                 </span>
               </div>
 
-              {col.items.filter(match).map((t) => (
+              {col.items.map((t) => (
                 <div
                   key={t.id}
                   draggable
@@ -472,10 +516,32 @@ function TaskModal({
   const [tag, setTag] = React.useState(initial.tag);
   const [desc, setDesc] = React.useState(initial.desc);
   const [who, setWho] = React.useState(initial.who);
+  const [assigneeId, setAssigneeId] = React.useState(initial.assigneeId);
+  const [assigneeTeamId, setAssigneeTeamId] = React.useState(initial.teamId);
+  const [assigneeOpen, setAssigneeOpen] = React.useState(false);
   const [startDate, setStartDate] = React.useState(initial.startDate);
   const [dueDate, setDueDate] = React.useState(initial.dueDate);
   const [time, setTime] = React.useState(initial.time);
   const [busy, setBusy] = React.useState(false);
+
+  const assigneeQ = who.trim().toLowerCase();
+  const assigneeMatches = assigneeQ
+    ? people
+        .filter(
+          (p) =>
+            p.name.toLowerCase().includes(assigneeQ) ||
+            p.role.toLowerCase().includes(assigneeQ) ||
+            p.dept.toLowerCase().includes(assigneeQ),
+        )
+        .slice(0, 6)
+    : [];
+
+  const pickAssignee = (p: (typeof people)[number]) => {
+    setWho(p.name);
+    setAssigneeId(p.id);
+    setAssigneeTeamId(p.teamId);
+    setAssigneeOpen(false);
+  };
 
   const submit = async () => {
     if (!title.trim() || busy) return;
@@ -487,6 +553,8 @@ function TaskModal({
         tag,
         desc,
         who,
+        assigneeId,
+        teamId: assigneeTeamId,
         startDate,
         dueDate: dueDate && startDate && dueDate < startDate ? startDate : dueDate,
         time,
@@ -551,21 +619,53 @@ function TaskModal({
         </div>
 
         <div className="grid grid-cols-2 gap-2">
-          <label className="flex flex-col gap-1 text-[11.5px] font-semibold text-muted-foreground">
+          <div className="relative flex flex-col gap-1 text-[11.5px] font-semibold text-muted-foreground">
             담당자
             <input
-              list="task-assignees"
               value={who}
-              onChange={(e) => setWho(e.target.value)}
-              placeholder="담당자 이름"
+              onChange={(e) => {
+                setWho(e.target.value);
+                setAssigneeId(null);
+                setAssigneeTeamId(null);
+                setAssigneeOpen(true);
+              }}
+              onFocus={() => setAssigneeOpen(true)}
+              onBlur={() => setTimeout(() => setAssigneeOpen(false), 120)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && assigneeMatches[0]) {
+                  e.preventDefault();
+                  pickAssignee(assigneeMatches[0]);
+                }
+              }}
+              placeholder="담당자 이름으로 검색"
               className={field}
             />
-            <datalist id="task-assignees">
-              {people.map((p) => (
-                <option key={p.id} value={p.name} />
-              ))}
-            </datalist>
-          </label>
+            {assigneeOpen && assigneeQ && assigneeMatches.length > 0 && (
+              <div className="absolute top-full z-10 mt-1 w-full overflow-hidden rounded-[8px] border border-border bg-card shadow-[var(--shadow-pop)]">
+                {assigneeMatches.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => pickAssignee(p)}
+                    className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left font-normal hover:bg-secondary"
+                  >
+                    <span style={avatarStyle(p.name.charAt(0), 22)}>
+                      {p.name.charAt(0)}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[12.5px] font-medium text-foreground">
+                        {p.name} {p.role}
+                      </span>
+                      <span className="block truncate text-[10.5px] text-muted-foreground">
+                        {p.dept}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <label className="flex flex-col gap-1 text-[11.5px] font-semibold text-muted-foreground">
             마감 시각
             <input

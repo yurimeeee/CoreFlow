@@ -70,6 +70,10 @@ export interface TaskDoc {
   dueDate?: string;
   /** 마감 시각 HH:MM (선택) */
   time?: string;
+  /** 담당자 uid — 실존 인물을 선택했을 때만 채워짐(자유 입력 시 null) */
+  assigneeId?: string | null;
+  /** 담당자 선택 시점의 소속 팀 id 스냅샷 — 팀 필터에 사용 */
+  teamId?: string | null;
 }
 
 /** Task 뱃지/카테고리로 고를 수 있는 프리셋 (자유 입력도 허용) */
@@ -203,6 +207,8 @@ export interface EventDoc {
   ownerName: string;
   color: string;
   order: number;
+  /** 작성자(owner)의 작성 시점 소속 팀 id 스냅샷 — 팀 필터에 사용 */
+  teamId?: string | null;
 }
 
 export const EVENT_CATEGORIES: { key: string; color: string }[] = [

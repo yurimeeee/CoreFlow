@@ -79,6 +79,8 @@ export function useCurrentUser() {
     (email ? email.split("@")[0] : "게스트");
   const team = teams.find((t) => t.id === profile?.teamId)?.name ?? "";
   return {
+    uid: authUser?.uid ?? null,
+    teamId: profile?.teamId ?? null,
     name,
     role: profile?.position ?? "",
     team,
@@ -303,6 +305,8 @@ export interface TaskInput {
   title: string;
   desc: string;
   who: string;
+  assigneeId: string | null;
+  teamId: string | null;
   startDate: string; // yyyy-mm-dd ("" = 미설정)
   dueDate: string; // yyyy-mm-dd ("" = 미설정)
   time: string; // HH:MM ("" = 미설정)
@@ -358,6 +362,8 @@ export function useTasks() {
         title: input.title.trim(),
         desc: input.desc.trim(),
         who: input.who.trim() || me.name,
+        assigneeId: input.assigneeId,
+        teamId: input.teamId,
         startDate: input.startDate,
         dueDate: input.dueDate,
         time: input.time,
@@ -380,6 +386,8 @@ export function useTasks() {
       title: input.title.trim(),
       desc: input.desc.trim(),
       who: input.who.trim(),
+      assigneeId: input.assigneeId,
+      teamId: input.teamId,
       startDate: input.startDate,
       dueDate: input.dueDate,
       time: input.time,
@@ -723,10 +731,11 @@ export function useEvents() {
       memo: input.memo.trim(),
       owner: uid,
       ownerName: me.name,
+      teamId: me.teamId,
       color: eventColor(input.category),
       order: eventOrder(input.date, input.allDay ? "" : input.start),
     }),
-    [uid, me.name],
+    [uid, me.name, me.teamId],
   );
 
   const addEvent = React.useCallback(

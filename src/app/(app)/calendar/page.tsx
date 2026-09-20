@@ -18,9 +18,11 @@ import {
   useCurrentUser,
   useEvents,
   useLeaves,
+  useTeams,
   type EventInput,
 } from "@/lib/groupware/hooks";
 import { GwCard, PageHeader } from "@/components/app/primitives";
+import { ROOT_FILTER } from "@/lib/groupware/org-tree";
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 const two = (n: number) => String(n).padStart(2, "0");
@@ -39,9 +41,10 @@ type DayItem = {
 
 export default function CalendarPage() {
   const me = useCurrentUser();
-  const { data: events, myUid, addEvent, saveEvent, removeEvent } = useEvents();
+  const { data: allEvents, myUid, addEvent, saveEvent, removeEvent } = useEvents();
   const { data: bookings } = useBookings();
   const { data: leaves } = useLeaves();
+  const { teams } = useTeams();
 
   const [cursor, setCursor] = React.useState(() => {
     const d = new Date();
@@ -50,6 +53,17 @@ export default function CalendarPage() {
   const [modal, setModal] = React.useState<
     { mode: "new"; date: string } | { mode: "edit"; event: EventDoc } | null
   >(null);
+  // null = 아직 직접 고르지 않음 → 내 팀을 기본값으로 사용
+  const [teamFilter, setTeamFilter] = React.useState<string | null>(null);
+  const activeTeamFilter = teamFilter ?? me.teamId ?? ROOT_FILTER;
+
+  // 내가 만든 일정은 팀 필터와 무관하게 항상 보임
+  const events =
+    activeTeamFilter === ROOT_FILTER
+      ? allEvents
+      : allEvents.filter(
+          (e) => e.teamId === activeTeamFilter || e.owner === myUid,
+        );
 
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
@@ -131,6 +145,34 @@ export default function CalendarPage() {
           </button>
         }
       />
+
+      <div className="flex flex-wrap gap-1.5">
+        <button
+          onClick={() => setTeamFilter(ROOT_FILTER)}
+          className={cn(
+            "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
+            activeTeamFilter === ROOT_FILTER
+              ? "border-primary bg-primary text-white"
+              : "border-border bg-card text-secondary-foreground hover:bg-secondary",
+          )}
+        >
+          전체
+        </button>
+        {teams.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTeamFilter(t.id)}
+            className={cn(
+              "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
+              activeTeamFilter === t.id
+                ? "border-primary bg-primary text-white"
+                : "border-border bg-card text-secondary-foreground hover:bg-secondary",
+            )}
+          >
+            {t.name}
+          </button>
+        ))}
+      </div>
 
       <GwCard className="flex flex-col p-3 sm:p-4">
         <div className="flex items-center gap-2 px-1 pb-3">
