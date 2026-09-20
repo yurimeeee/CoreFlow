@@ -7,6 +7,7 @@ import {
   Inbox,
   LayoutDashboard,
   Megaphone,
+  MessageCircle,
   Settings,
   SquareKanban,
   Users,
@@ -29,6 +30,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/booking", label: "자원 예약", icon: CalendarClock },
   { href: "/notice", label: "공지사항", icon: Megaphone },
   { href: "/org", label: "조직도", icon: Users },
+  { href: "/chat", label: "채팅", icon: MessageCircle },
   { href: "/settings", label: "설정", icon: Settings },
 ];
 
@@ -43,12 +45,14 @@ export const SCREEN_TITLES: Record<string, string> = {
   "/booking": "회의실 · 자원 예약",
   "/notice": "공지사항",
   "/org": "조직도",
+  "/chat": "채팅",
   "/settings": "설정",
 };
 
 export function screenTitle(pathname: string): string {
   if (SCREEN_TITLES[pathname]) return SCREEN_TITLES[pathname];
   if (pathname.startsWith("/approval/")) return "결재 문서";
+  if (pathname.startsWith("/chat/")) return "채팅";
   const hit = NAV_ITEMS.find(
     (n) => pathname === n.href || pathname.startsWith(n.href + "/"),
   );

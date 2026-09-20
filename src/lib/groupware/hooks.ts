@@ -49,10 +49,14 @@ import {
   EVENT_CATEGORIES,
   TASK_COLUMNS,
   buildSeed,
+  chatMessagesPath,
+  dmChatId,
   noticeCommentsPath,
   type ApprovalDoc,
   type AttendanceDoc,
   type BookingDoc,
+  type ChatDoc,
+  type ChatMessageDoc,
   type EventDoc,
   type LeaveDoc,
   type NoticeCommentDoc,
@@ -1831,6 +1835,253 @@ export function useWorkspace() {
   );
 
   return { data, loading, save };
+}
+
+/* ------------------------------------------------------------------ */
+/*  사내 메신저 (채팅)                                                  */
+/* ------------------------------------------------------------------ */
+
+export interface ChatSummary {
+  id: string;
+  type: "dm" | "group";
+  name: string;
+  memberIds: string[];
+  memberNames: Record<string, string>;
+  readAt: Record<string, number>;
+  /** dm 전용 — 상대방 uid */
+  otherUid: string | null;
+  lastMessage: string;
+  lastMessageAt: number;
+  lastMessageSenderId: string | null;
+  unread: boolean;
+}
+
+function chatDisplayName(c: ChatDoc, meUid: string): { name: string; otherUid: string | null } {
+  if (c.type === "group") {
+    if (c.name?.trim()) return { name: c.name.trim(), otherUid: null };
+    const others = c.memberIds.filter((id) => id !== meUid).map((id) => c.memberNames?.[id] ?? "");
+    return { name: others.filter(Boolean).join(", ") || "그룹 채팅", otherUid: null };
+  }
+  const otherUid = c.memberIds.find((id) => id !== meUid) ?? null;
+  return { name: (otherUid && c.memberNames?.[otherUid]) || "알 수 없음", otherUid };
+}
+
+/** 내가 속한 모든 대화방 — 실시간, 최근 메시지순 정렬 */
+export function useChats() {
+  const { uid } = useCurrentUser();
+  const [raw, setRaw] = React.useState<ChatDoc[]>([]);
+  const [loading, setLoading] = React.useState(isFirebaseConfigured);
+
+  React.useEffect(() => {
+    if (!isFirebaseConfigured || !uid) return;
+    const q = query(
+      collection(firebaseDb(), COL.chats),
+      where("memberIds", "array-contains", uid),
+    );
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setRaw(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as ChatDoc));
+        setLoading(false);
+      },
+      () => setLoading(false),
+    );
+    return unsub;
+  }, [uid]);
+
+  const chats: ChatSummary[] = React.useMemo(() => {
+    if (!uid) return [];
+    return raw
+      .map((c) => {
+        const { name, otherUid } = chatDisplayName(c, uid);
+        const myReadAt = c.readAt?.[uid] ?? 0;
+        const lastMessageAt = c.lastMessageAt ?? 0;
+        return {
+          id: c.id,
+          type: c.type,
+          name,
+          memberIds: c.memberIds,
+          memberNames: c.memberNames ?? {},
+          readAt: c.readAt ?? {},
+          otherUid,
+          lastMessage: c.lastMessage ?? "",
+          lastMessageAt,
+          lastMessageSenderId: c.lastMessageSenderId ?? null,
+          unread: lastMessageAt > myReadAt && c.lastMessageSenderId !== uid,
+        };
+      })
+      .sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+  }, [raw, uid]);
+
+  const totalUnread = chats.filter((c) => c.unread).length;
+
+  return { chats, loading, totalUnread, myUid: uid };
+}
+
+/** 조직도 "메시지" 버튼 — 상대와의 1:1 방을 찾거나 없으면 만들고 id를 반환 */
+export async function ensureDirectChat(
+  me: { uid: string; name: string },
+  other: { uid: string; name: string },
+): Promise<string> {
+  const id = dmChatId(me.uid, other.uid);
+  if (!isFirebaseConfigured) return id;
+  const ref = doc(firebaseDb(), COL.chats, id);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) {
+    const payload: Omit<ChatDoc, "id"> = {
+      type: "dm",
+      memberIds: [me.uid, other.uid],
+      memberNames: { [me.uid]: me.name, [other.uid]: other.name },
+      lastMessage: "",
+      lastMessageAt: 0,
+      lastMessageSenderId: null,
+      readAt: { [me.uid]: Date.now() },
+      createdAt: Date.now(),
+      createdBy: me.uid,
+    };
+    await setDoc(ref, payload);
+  }
+  return id;
+}
+
+/** 그룹 채팅 생성 — 참여자 2인 이상(본인 제외) */
+export async function createGroupChat(
+  me: { uid: string; name: string },
+  members: { uid: string; name: string }[],
+  groupName: string,
+): Promise<string> {
+  if (!isFirebaseConfigured) throw new Error("Firebase 미설정");
+  const ref = doc(collection(firebaseDb(), COL.chats));
+  const memberIds = Array.from(new Set([me.uid, ...members.map((m) => m.uid)]));
+  const memberNames: Record<string, string> = { [me.uid]: me.name };
+  members.forEach((m) => {
+    memberNames[m.uid] = m.name;
+  });
+  const payload: Omit<ChatDoc, "id"> = {
+    type: "group",
+    memberIds,
+    memberNames,
+    name: groupName.trim(),
+    lastMessage: "",
+    lastMessageAt: 0,
+    lastMessageSenderId: null,
+    readAt: { [me.uid]: Date.now() },
+    createdAt: Date.now(),
+    createdBy: me.uid,
+  };
+  await setDoc(ref, payload);
+  return ref.id;
+}
+
+/** 대화방 하나의 메시지 — 실시간 구독 + 낙관적 전송(텍스트/파일) */
+export function useChatMessages(chatId: string | null) {
+  const { uid, name } = useCurrentUser();
+  const [data, setData] = React.useState<ChatMessageDoc[]>([]);
+  const [loading, setLoading] = React.useState(isFirebaseConfigured);
+  const [added, setAdded] = React.useState<ChatMessageDoc[]>([]);
+
+  // 대화방을 옮길 때 이전 방의 낙관적(optimistic) 메시지가 새 방에 섞여
+  // 보이지 않도록 렌더 중에 초기화합니다(리액트가 권장하는 "prop 변화에
+  // 따라 state 조정" 패턴 — effect 안에서 동기 setState 하지 않습니다).
+  const [seenChatId, setSeenChatId] = React.useState(chatId);
+  if (chatId !== seenChatId) {
+    setSeenChatId(chatId);
+    setAdded([]);
+  }
+
+  React.useEffect(() => {
+    if (!isFirebaseConfigured || !chatId) return;
+    const q = query(
+      collection(firebaseDb(), chatMessagesPath(chatId)),
+      orderBy("createdAt"),
+    );
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setData(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as ChatMessageDoc));
+        setLoading(false);
+      },
+      () => setLoading(false),
+    );
+    return unsub;
+  }, [chatId]);
+
+  const messages = React.useMemo(() => {
+    const extra = added.filter((a) => !data.some((d) => d.id === a.id));
+    return [...data, ...extra].sort((a, b) => a.createdAt - b.createdAt);
+  }, [data, added]);
+
+  const bumpChat = React.useCallback(
+    async (preview: string, at: number) => {
+      if (!chatId || !uid) return;
+      await updateDoc(doc(firebaseDb(), COL.chats, chatId), {
+        lastMessage: preview,
+        lastMessageAt: at,
+        lastMessageSenderId: uid,
+        [`readAt.${uid}`]: at,
+      }).catch(() => {});
+    },
+    [chatId, uid],
+  );
+
+  const sendText = React.useCallback(
+    async (text: string) => {
+      const body = text.trim();
+      if (!body || !chatId || !uid) return;
+      const id = String(Date.now());
+      const now = Date.now();
+      const payload: Omit<ChatMessageDoc, "id"> = {
+        chatId,
+        senderId: uid,
+        senderName: name,
+        type: "text",
+        text: body,
+        createdAt: now,
+      };
+      setAdded((p) => [...p, { id, ...payload }]);
+      if (!isFirebaseConfigured) return;
+      await setDoc(doc(firebaseDb(), chatMessagesPath(chatId), id), payload);
+      await bumpChat(body.length > 80 ? `${body.slice(0, 80)}…` : body, now);
+    },
+    [chatId, uid, name, bumpChat],
+  );
+
+  const sendFile = React.useCallback(
+    async (file: File) => {
+      if (!chatId || !uid || !isFirebaseConfigured) return;
+      const id = String(Date.now());
+      const path = `chats/${chatId}/${id}-${file.name}`;
+      const ref = storageRef(firebaseStorage(), path);
+      const snap = await uploadBytes(ref, file);
+      const url = await getDownloadURL(snap.ref);
+      const isImage = file.type.startsWith("image/");
+      const now = Date.now();
+      const payload: Omit<ChatMessageDoc, "id"> = {
+        chatId,
+        senderId: uid,
+        senderName: name,
+        type: isImage ? "image" : "file",
+        fileUrl: url,
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type,
+        createdAt: now,
+      };
+      setAdded((p) => [...p, { id, ...payload }]);
+      await setDoc(doc(firebaseDb(), chatMessagesPath(chatId), id), payload);
+      await bumpChat(isImage ? "사진을 보냈습니다" : `파일 · ${file.name}`, now);
+    },
+    [chatId, uid, name, bumpChat],
+  );
+
+  const markRead = React.useCallback(() => {
+    if (!chatId || !uid || !isFirebaseConfigured) return;
+    updateDoc(doc(firebaseDb(), COL.chats, chatId), {
+      [`readAt.${uid}`]: Date.now(),
+    }).catch(() => {});
+  }, [chatId, uid]);
+
+  return { messages, loading, sendText, sendFile, markRead, myUid: uid };
 }
 
 /* ------------------------------------------------------------------ */

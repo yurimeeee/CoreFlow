@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ChevronDown,
   ChevronRight,
@@ -33,6 +34,8 @@ import {
 } from "@/lib/groupware/org-tree";
 import { useAuthUser } from "@/hooks/useAuthUser";
 import {
+  ensureDirectChat,
+  useCurrentUser,
   useOrgPeople,
   useTeams,
   useWorkspace,
@@ -918,8 +921,11 @@ function ProfileDrawer({
   onSave: (patch: Partial<PersonInput>) => Promise<void>;
   onDelete: () => Promise<void>;
 }) {
+  const router = useRouter();
+  const me = useCurrentUser();
   const [editing, setEditing] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
+  const [messaging, setMessaging] = React.useState(false);
   const [form, setForm] = React.useState(() => ({
     name: p.name,
     role: p.role,
@@ -1207,13 +1213,27 @@ function ProfileDrawer({
               <Mail className="size-4" />
               이메일
             </a>
-            <a
-              href={`sms:${p.mobile}`}
-              className="flex h-9.5 flex-1 items-center justify-center gap-1.5 rounded-[10px] border border-border bg-card text-[13px] font-semibold text-secondary-foreground hover:bg-secondary"
+            <button
+              type="button"
+              disabled={!me.uid || p.placeholder || messaging}
+              onClick={async () => {
+                if (!me.uid) return;
+                setMessaging(true);
+                try {
+                  const chatId = await ensureDirectChat(
+                    { uid: me.uid, name: me.name },
+                    { uid: p.id, name: p.name },
+                  );
+                  router.push(`/chat/${chatId}`);
+                } finally {
+                  setMessaging(false);
+                }
+              }}
+              className="flex h-9.5 flex-1 items-center justify-center gap-1.5 rounded-[10px] border border-border bg-card text-[13px] font-semibold text-secondary-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
             >
               <MessageSquare className="size-4" />
               메시지
-            </a>
+            </button>
           </div>
 
           <div className="flex flex-col gap-2">

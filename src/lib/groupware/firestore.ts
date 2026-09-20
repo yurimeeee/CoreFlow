@@ -35,11 +35,20 @@ export const COL = {
   sessions: "sessions",
   users: "users",
   workspace: "workspace",
+  chats: "chats",
 } as const;
 
 /** notices/{id}/comments 서브컬렉션 경로 */
 export const noticeCommentsPath = (noticeId: string) =>
   `${COL.notices}/${noticeId}/comments`;
+
+/** chats/{id}/messages 서브컬렉션 경로 */
+export const chatMessagesPath = (chatId: string) =>
+  `${COL.chats}/${chatId}/messages`;
+
+/** 1:1 대화방 id — 두 uid를 정렬해 합치므로 항상 같은 두 사람이 같은 방을 씁니다. */
+export const dmChatId = (uidA: string, uidB: string) =>
+  [uidA, uidB].sort().join("_");
 
 export const TASK_COLUMNS: { key: string; name: string; color: string }[] = [
   { key: "todo", name: "To Do", color: "#94a3b8" },
@@ -254,6 +263,44 @@ export interface SessionDoc {
   userAgent: string;
   createdAt: number; // epoch ms
   lastActive: number; // epoch ms
+}
+
+/**
+ * 사내 메신저 — chats/{id}. 1:1(dm)은 id가 두 uid를 정렬해 합친 값(dmChatId)
+ * 이라 같은 두 사람이 다시 "메시지"를 눌러도 항상 같은 방으로 이어집니다.
+ * 그룹은 id를 자동 생성. readAt은 멤버별 "마지막으로 읽은 시각"만 들고 있어
+ * (메시지마다 읽음 상태를 쓰지 않음) 안 읽은 메시지 수는
+ * lastMessageAt > readAt[uid] 비교로 계산합니다.
+ */
+export interface ChatDoc {
+  id: string;
+  type: "dm" | "group";
+  memberIds: string[];
+  /** uid → 이름 스냅샷(생성 시점) — 목록 렌더링에 매 멤버 조회를 안 하려고 저장 */
+  memberNames: Record<string, string>;
+  /** 그룹만 사용(직접 입력 또는 멤버 이름 자동 조합). dm은 상대 이름을 그때그때 표시 */
+  name?: string;
+  lastMessage: string;
+  lastMessageAt: number; // epoch ms, 아직 메시지 없으면 0
+  lastMessageSenderId: string | null;
+  /** uid → 마지막으로 읽은 시각(epoch ms) */
+  readAt: Record<string, number>;
+  createdAt: number;
+  createdBy: string;
+}
+
+export interface ChatMessageDoc {
+  id: string;
+  chatId: string;
+  senderId: string;
+  senderName: string;
+  type: "text" | "image" | "file";
+  text?: string;
+  fileUrl?: string;
+  fileName?: string;
+  fileSize?: number;
+  fileType?: string;
+  createdAt: number; // epoch ms
 }
 
 /** Slack/Jandi 등 Incoming Webhook 기반 연동의 공통 설정 */

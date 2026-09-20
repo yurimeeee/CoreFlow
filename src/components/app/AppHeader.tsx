@@ -15,6 +15,7 @@ import {
   FilePlus2,
   FileCheck2,
   Megaphone,
+  MessageCircle,
   Menu,
   Palmtree,
   Plus,
@@ -24,7 +25,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NOTIF_CAT_COLORS } from "@/lib/groupware/data";
-import { useNotifications } from "@/lib/groupware/hooks";
+import { useChats, useNotifications } from "@/lib/groupware/hooks";
 import { pill } from "@/lib/groupware/ui";
 import { CommandPalette } from "./CommandPalette";
 import { screenTitle } from "./nav";
@@ -51,6 +52,7 @@ export function AppHeader({ onMenu }: { onMenu: () => void }) {
   const [read, setRead] = React.useState<Record<string, boolean>>({});
 
   const notifs = useNotifications();
+  const { totalUnread: chatUnread } = useChats();
 
   const quickActions = React.useMemo(
     () => [
@@ -129,6 +131,24 @@ export function AppHeader({ onMenu }: { onMenu: () => void }) {
       </div>
 
       <div className="ml-auto flex items-center gap-2">
+        <Link
+          href="/chat"
+          className={cn(
+            "relative flex size-9 items-center justify-center rounded-[9px] transition-colors",
+            pathname === "/chat" || pathname.startsWith("/chat/")
+              ? "bg-accent text-accent-foreground"
+              : "text-secondary-foreground hover:bg-secondary",
+          )}
+          aria-label="채팅"
+        >
+          <MessageCircle className="size-[18px]" />
+          {chatUnread > 0 && (
+            <span className="absolute right-1.5 top-1.5 flex h-[15px] min-w-[15px] items-center justify-center rounded-full border-2 border-card bg-destructive px-1 text-[9.5px] font-bold text-white">
+              {chatUnread}
+            </span>
+          )}
+        </Link>
+
         <div className="relative">
           <button
             onClick={() => {

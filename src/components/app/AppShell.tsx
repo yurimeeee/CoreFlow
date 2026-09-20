@@ -3,6 +3,7 @@
 import * as React from "react";
 import { AppSidebar } from "./AppSidebar";
 import { AppHeader } from "./AppHeader";
+import { ChatNotifier } from "./ChatNotifier";
 import { cn } from "@/lib/utils";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -43,6 +44,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <AppHeader onMenu={() => setOpen(true)} />
         <main className="flex-1 overflow-y-auto p-4 sm:p-5.5">{children}</main>
       </div>
+      <ChatNotifier />
     </div>
   );
 }
