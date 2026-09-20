@@ -48,11 +48,8 @@ export function StepProfile({ values, errors, set }: StepProps) {
       </Field>
 
       <p className="rounded-[var(--radius-md)] bg-secondary px-3.5 py-3 text-xs leading-relaxed text-muted-foreground">
-        업로드한 파일은 Firebase Storage의{" "}
-        <code className="rounded bg-card px-1 py-0.5 font-mono text-[11px]">
-          users/&#123;uid&#125;/
-        </code>{" "}
-        경로에 안전하게 저장되며, 전자결재 서명은 결재 문서에만 사용됩니다.
+        업로드한 파일은 안전하게 저장되며, 전자결재 서명은 결재 문서에만
+        사용됩니다.
       </p>
     </div>
   );

@@ -117,7 +117,7 @@ export default function TasksPage() {
         title="프로젝트 / Task"
         desc={
           tasks.length
-            ? `${source === "firestore" ? "Firestore 연동" : "로컬"} · Task ${tasks.length}건`
+            ? `Task ${tasks.length}건`
             : "아직 등록된 Task가 없습니다"
         }
       />

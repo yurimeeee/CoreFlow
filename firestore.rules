@@ -81,8 +81,25 @@ service cloud.firestore {
     match /tasks/{id} {
       allow read, write: if isSignedIn();
     }
+    /* ---------------- approvals/{no} (전자결재) ----------------
+       승인/반려로 status·line 이 바뀌는 요청은 반드시 "현재 결재 차례"인
+       사람(currentApproverUid)만 보낼 수 있습니다 — 기안자 본인이거나
+       자기 차례가 아닌 사용자가 임의로 승인/반려하는 것을 서버에서 차단.
+       의견 등록 등 상태에 영향 없는 갱신은 그대로 로그인 사용자면 허용. */
     match /approvals/{no} {
-      allow read, write: if isSignedIn();
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.authorUid == request.auth.uid;
+      allow update: if isAdmin()
+        || (isSignedIn()
+            && (
+              (request.resource.data.status == resource.data.status
+                && request.resource.data.line == resource.data.line)
+              || (resource.data.currentApproverUid != null
+                  && resource.data.currentApproverUid == request.auth.uid)
+            ));
+      allow delete: if isAdmin()
+        || (isSignedIn() && resource.data.authorUid == request.auth.uid);
     }
     match /bookings/{id} {
       allow read, write: if isSignedIn();

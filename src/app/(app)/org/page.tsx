@@ -109,7 +109,7 @@ export default function OrgPage() {
         title="조직도 · 임직원 디렉토리"
         desc={
           directory.length
-            ? `${source === "firestore" ? "Firestore 연동" : "로컬"} · 재직 인원 ${directory.length}명`
+            ? `재직 인원 ${directory.length}명`
             : "아직 등록된 구성원이 없습니다"
         }
         actions={

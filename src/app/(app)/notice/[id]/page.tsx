@@ -54,7 +54,6 @@ export default function NoticeDetailPage() {
           className="mt-4 inline-flex items-center gap-1.5 text-[13px] font-semibold text-primary hover:underline"
         >
           <ArrowLeft className="size-3.5" />
-          공지 목록으로
         </Link>
       </div>
     );
@@ -66,10 +65,9 @@ export default function NoticeDetailPage() {
     <div className="mx-auto flex max-w-[900px] flex-col gap-4">
       <Link
         href="/notice"
-        className="flex h-8.5 w-fit items-center gap-1.5 rounded-[9px] border border-border bg-card pl-2.5 pr-3 text-[12.5px] font-semibold text-secondary-foreground hover:bg-secondary"
+        className="flex h-8.5 w-fit items-center gap-1.5 rounded-[9px] border border-border bg-card pl-2.5 pr-2.5 text-[12.5px] font-semibold text-secondary-foreground hover:bg-secondary"
       >
         <ArrowLeft className="size-3.5" />
-        공지 목록
       </Link>
 
       <GwCard className="flex flex-col gap-5 p-6 sm:p-8">

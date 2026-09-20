@@ -117,13 +117,21 @@ export interface ApprovalDoc {
   type: string;
   title: string;
   author: string;
+  /** 기안자 uid — 결재 권한 검증(본인 문서 여부 판단)에 사용 */
+  authorUid?: string;
   date: string;
   approver: string;
   status: string; // Waiting | In Progress | Approved | Rejected
   bucket: "pending" | "drafted" | "referenced";
   order: number;
+  /**
+   * 현재 결재 차례인 사람의 uid. line 의 다음 미완료 결재 단계와 동기화되며,
+   * 승인/반려는 이 uid 를 가진 사용자만 수행할 수 있습니다(완결/반려 시 null).
+   * Firestore 보안 규칙이 이 필드로 승인/반려 요청자를 검증합니다.
+   */
+  currentApproverUid?: string | null;
   /* 상세(선택) */
-  line?: { kind: string; name: string; role: string; state: string; at: string; done: boolean }[];
+  line?: { kind: string; name: string; role: string; state: string; at: string; done: boolean; uid?: string }[];
   meta?: { label: string; value: string }[];
   rows?: { date: string; desc: string; amount: number; receipt: string }[];
   comments?: { name: string; role: string; at: string; body: string }[];

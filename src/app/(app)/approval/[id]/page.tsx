@@ -13,7 +13,7 @@ import {
   Loader2,
   Printer,
 } from "lucide-react";
-import { useApprovalDoc, useWorkspace } from "@/lib/groupware/hooks";
+import { useApprovalDoc, useCurrentUser, useWorkspace } from "@/lib/groupware/hooks";
 import { avatarStyle, pill } from "@/lib/groupware/ui";
 import { GwCard } from "@/components/app/primitives";
 
@@ -31,16 +31,21 @@ export default function ApprovalDetailPage() {
   const no = decodeURIComponent(params.id ?? "EX-2026-0912");
   const { doc, loading, setStatus, addComment } = useApprovalDoc(no);
   const { data: workspace } = useWorkspace();
+  const me = useCurrentUser();
   const orgName = (workspace.name || "NEXTCORE").toUpperCase();
   const [opinion, setOpinion] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  const [decideError, setDecideError] = React.useState<string | null>(null);
 
   const decide = async (status: "Approved" | "Rejected") => {
     setBusy(true);
+    setDecideError(null);
     try {
       if (opinion.trim()) await addComment(opinion.trim());
       await setStatus(status);
       setOpinion("");
+    } catch (e) {
+      setDecideError(e instanceof Error ? e.message : "처리할 수 없습니다.");
     } finally {
       setBusy(false);
     }
@@ -76,7 +81,6 @@ export default function ApprovalDetailPage() {
           className="mt-4 inline-flex items-center gap-1.5 text-[13px] font-semibold text-primary hover:underline"
         >
           <ArrowLeft className="size-3.5" />
-          문서 목록으로
         </Link>
       </div>
     );
@@ -84,6 +88,15 @@ export default function ApprovalDetailPage() {
 
   const approved = doc.status === "Approved";
   const resolved = approved || doc.status === "Rejected";
+  const pendingStep =
+    (doc.line ?? []).find((l) => l.kind !== "기안" && !l.done) ?? null;
+  const isMyTurn = !!pendingStep && (
+    doc.currentApproverUid != null
+      ? doc.currentApproverUid === me.uid
+      : pendingStep.uid
+        ? pendingStep.uid === me.uid
+        : pendingStep.name === me.name
+  );
   const line = (doc.line ?? []).map((l, i) =>
     i === (doc.line?.length ?? 0) - 1
       ? { ...l, state: approved ? "승인" : l.state, done: approved || l.done }
@@ -99,10 +112,9 @@ export default function ApprovalDetailPage() {
       <div className="flex flex-wrap items-center gap-3 rounded-[13px] border border-border bg-card p-3.5 shadow-[var(--shadow-card)]">
         <Link
           href="/approval"
-          className="flex h-8.5 items-center gap-1.5 rounded-[9px] border border-border bg-card pl-2.5 pr-3 text-[12.5px] font-semibold text-secondary-foreground hover:bg-secondary"
+          className="flex h-8.5 items-center gap-1.5 rounded-[9px] border border-border bg-card pl-2.5 pr-2.5 text-[12.5px] font-semibold text-secondary-foreground hover:bg-secondary"
         >
           <ArrowLeft className="size-3.5" />
-          문서 목록
         </Link>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -147,7 +159,7 @@ export default function ApprovalDetailPage() {
             >
               {approved ? "승인 완료된 문서입니다" : "반려된 문서입니다"}
             </span>
-          ) : (
+          ) : isMyTurn ? (
             <>
               <button
                 onClick={() => decide("Rejected")}
@@ -166,9 +178,20 @@ export default function ApprovalDetailPage() {
                 승인
               </button>
             </>
+          ) : (
+            <span className="flex h-9 items-center rounded-[9px] bg-secondary px-3.5 text-[12.5px] font-semibold text-muted-foreground">
+              {pendingStep
+                ? `${pendingStep.name}님의 결재를 기다리는 중입니다`
+                : "결재선이 지정되지 않았습니다"}
+            </span>
           )}
         </div>
       </div>
+      {decideError && (
+        <p className="rounded-[10px] border border-[#fecaca] bg-[#fef2f2] px-3.5 py-2.5 text-[12.5px] font-semibold text-[#b91c1c]">
+          {decideError}
+        </p>
+      )}
 
       {line.length > 0 && (
         <GwCard className="p-4.5">

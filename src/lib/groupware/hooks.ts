@@ -555,15 +555,21 @@ export function useApprovals() {
       const now = new Date();
       const date = `${two(now.getMonth() + 1)}.${two(now.getDate())}`;
       const author = me.role ? `${me.name} ${me.role}` : me.name;
+      // 결재선의 첫 결재(기안 다음) 단계 uid = 현재 결재 차례. 이 값으로
+      // "본인 차례가 아니면 승인/반려 불가"를 판단합니다.
+      const firstApproverUid =
+        (input.line ?? []).find((l) => l.kind !== "기안")?.uid ?? null;
       const payload: ApprovalDoc = {
         no: input.no,
         type: input.type,
         title: input.title,
         author,
+        authorUid: me.uid ?? undefined,
         date,
         approver: input.approver,
         status: input.status,
         bucket: input.bucket,
+        currentApproverUid: firstApproverUid,
         order: -now.getTime(), // 최신 문서가 위로
         ...(input.line ? { line: input.line } : {}),
         ...(input.meta ? { meta: input.meta } : {}),
@@ -583,7 +589,7 @@ export function useApprovals() {
       ).catch(() => {});
       return input.no;
     },
-    [me.name, me.role],
+    [me.name, me.role, me.uid],
   );
 
   return { ...state, data, createApproval };
@@ -622,24 +628,66 @@ export function useApprovalDoc(no: string) {
     remote === undefined ? (isFirebaseConfigured ? null : fallback) : (remote ?? fallback);
   const loading = isFirebaseConfigured && remote === undefined;
 
+  /**
+   * 승인/반려는 결재선의 "현재 대기 중인 단계"에 해당하는 본인만 수행할 수
+   * 있습니다 — 기안자 본인이거나 자기 차례가 아닌 사용자가 임의로 문서를
+   * 승인/반려하지 못하도록 클라이언트에서 먼저 막고(서버는 firestore.rules
+   * 의 currentApproverUid 검사가 최종 방어선입니다).
+   */
   const setStatus = React.useCallback(
-    async (status: string) => {
-      let title = "";
-      setRemote((r) => {
-        title = r?.title ?? "";
-        return r ? { ...r, status } : r;
-      });
+    async (status: "Approved" | "Rejected") => {
+      if (!document || document.status === "Approved" || document.status === "Rejected") {
+        throw new Error("이미 완결되었거나 존재하지 않는 문서입니다.");
+      }
+      const line = document.line ?? [];
+      const stepIndex = line.findIndex((l) => l.kind !== "기안" && !l.done);
+      const pendingStep = stepIndex >= 0 ? line[stepIndex] : null;
+      const isMyTurn = pendingStep
+        ? document.currentApproverUid != null
+          ? document.currentApproverUid === me.uid
+          : pendingStep.uid
+            ? pendingStep.uid === me.uid
+            : pendingStep.name === me.name
+        : false;
+      if (!isMyTurn) {
+        throw new Error("본인의 결재 순서가 아니므로 승인/반려할 수 없습니다.");
+      }
+
+      const title = document.title ?? "";
+      const now = new Date();
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const at = `${now.getFullYear()}.${pad(now.getMonth() + 1)}.${pad(
+        now.getDate(),
+      )} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+      const nextLine = line.map((l, i) =>
+        i === stepIndex
+          ? { ...l, state: status === "Approved" ? "승인" : "반려", done: status === "Approved", at }
+          : l,
+      );
+      const isLastStep = stepIndex === line.length - 1;
+      const nextStatus: string =
+        status === "Rejected" ? "Rejected" : isLastStep ? "Approved" : "In Progress";
+      const nextApproverUid =
+        status === "Rejected" || isLastStep ? null : (nextLine[stepIndex + 1]?.uid ?? null);
+
+      setRemote((r) =>
+        r ? { ...r, status: nextStatus, line: nextLine, currentApproverUid: nextApproverUid } : r,
+      );
       if (isFirebaseConfigured) {
-        await updateDoc(doc(firebaseDb(), COL.approvals, no), { status });
+        await updateDoc(doc(firebaseDb(), COL.approvals, no), {
+          status: nextStatus,
+          line: nextLine,
+          currentApproverUid: nextApproverUid,
+        });
       }
       const label =
-        status === "Approved" ? "승인" : status === "Rejected" ? "반려" : status;
+        nextStatus === "Approved" ? "승인" : nextStatus === "Rejected" ? "반려" : "결재 진행";
       notifySlack(
         `[결재 ${label}] ${title || no} (${no}) · ${me.name}`,
         title || no,
       ).catch(() => {});
     },
-    [no, me.name],
+    [no, me.name, me.uid, document],
   );
 
   /** 결재 의견(코멘트) 추가 — comments 배열에 append */

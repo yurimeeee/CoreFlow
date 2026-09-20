@@ -151,7 +151,7 @@ export default function DraftPage() {
   const [text, setText] = React.useState<Record<string, string>>({});
   const [expense, setExpense] = React.useState(EXPENSE_ROWS);
   const [purchase, setPurchase] = React.useState(PURCHASE_ROWS);
-  const [approvers, setApprovers] = React.useState<string[]>([]);
+  const [approvers, setApprovers] = React.useState<{ uid: string; label: string }[]>([]);
   const [approverQuery, setApproverQuery] = React.useState("");
   const [approverOpen, setApproverOpen] = React.useState(false);
   const [saving, setSaving] = React.useState<null | "draft" | "submit">(null);
@@ -181,13 +181,15 @@ export default function DraftPage() {
             p.role.toLowerCase().includes(approverQ) ||
             p.dept.toLowerCase().includes(approverQ),
         )
-        .filter((p) => !approvers.includes(`${p.name} ${p.role}`))
+        .filter((p) => !approvers.some((a) => a.uid === p.id))
         .slice(0, 6)
     : [];
 
   const addApprover = (p: (typeof people)[number]) => {
-    const v = `${p.name} ${p.role}`;
-    setApprovers((prev) => (prev.includes(v) ? prev : [...prev, v]));
+    const label = `${p.name} ${p.role}`;
+    setApprovers((prev) =>
+      prev.some((a) => a.uid === p.id) ? prev : [...prev, { uid: p.id, label }],
+    );
     setApproverQuery("");
     setApproverOpen(false);
   };
@@ -260,19 +262,21 @@ export default function DraftPage() {
   ];
 
   const buildLine = () => {
-    const steps = approvers.length ? approvers : ["미지정"];
+    const steps = approvers.length ? approvers : [{ uid: "", label: "미지정" }];
     return [
       {
         kind: "기안",
         name: me.name,
+        uid: me.uid ?? undefined,
         role: me.role || "기안자",
         state: "기안 완료",
         at: "",
         done: true,
       },
-      ...steps.map((name) => ({
+      ...steps.map((a) => ({
         kind: "결재",
-        name,
+        name: a.label,
+        uid: a.uid || undefined,
         role: "결재자",
         state: "대기",
         at: "",
@@ -336,7 +340,7 @@ export default function DraftPage() {
         no,
         type: docType,
         title: title.trim(),
-        approver: approvers[approvers.length - 1] ?? "미지정",
+        approver: approvers[approvers.length - 1]?.label ?? "미지정",
         status: "Waiting",
         bucket: mode === "submit" ? "pending" : "drafted",
         line: buildLine(),
@@ -359,10 +363,9 @@ export default function DraftPage() {
       <div className="flex flex-wrap items-center gap-3.5 rounded-[13px] border border-border bg-card p-3.5 shadow-[var(--shadow-card)]">
         <Link
           href="/approval"
-          className="flex h-8.5 items-center gap-1.5 rounded-[9px] border border-border bg-card pl-2.5 pr-3 text-[12.5px] font-semibold text-secondary-foreground hover:bg-secondary"
+          className="flex h-8.5 items-center gap-1.5 rounded-[9px] border border-border bg-card pl-2.5 pr-2.5 text-[12.5px] font-semibold text-secondary-foreground hover:bg-secondary"
         >
           <ArrowLeft className="size-3.5" />
-          결재 목록
         </Link>
         <div className="min-w-0 flex-1">
           <div className="truncate text-[14.5px] font-bold tracking-[-0.02em]">
@@ -457,17 +460,17 @@ export default function DraftPage() {
               <span style={pill("#e0e7ff", "#4338ca")}>기안</span>
               {me.name || "나"}
             </span>
-            {approvers.map((name, i) => (
+            {approvers.map((a, i) => (
               <span
-                key={name}
+                key={a.uid}
                 className="flex items-center gap-1.5 rounded-[9px] border border-border bg-card px-2.5 py-1.5 text-[11.5px] font-medium text-secondary-foreground"
               >
                 <span style={pill("#eef2ff", "#4338ca")}>결재 {i + 1}</span>
-                {name}
+                {a.label}
                 <button
                   type="button"
                   onClick={() =>
-                    setApprovers((p) => p.filter((x) => x !== name))
+                    setApprovers((p) => p.filter((x) => x.uid !== a.uid))
                   }
                   className="flex size-4 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary hover:text-secondary-foreground"
                 >
