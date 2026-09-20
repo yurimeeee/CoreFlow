@@ -14,6 +14,7 @@ import {
 import { cn } from "@/lib/utils";
 import { RESOURCES } from "@/lib/groupware/data";
 import {
+  isPendingApprover,
   useApprovals,
   useBookings,
   useCurrentUser,
@@ -40,7 +41,11 @@ export default function MyWorkPage() {
   const { data: leaves, balance } = useLeaves();
   const { data: notices } = useNotices();
 
-  const myApprovals = approvals.filter((a) => a.bucket === "pending");
+  // bucket === "pending" 은 상신된 문서 전체(회사 전체)를 뜻하므로, "나에게
+  // 실제로 넘어온" 결재만 골라내려면 결재선의 현재 차례가 나인지도 봐야 함.
+  const myApprovals = approvals.filter(
+    (a) => a.bucket === "pending" && isPendingApprover(a, me),
+  );
   const myTasks = tasks
     .filter(
       (t) =>

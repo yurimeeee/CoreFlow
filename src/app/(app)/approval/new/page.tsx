@@ -156,6 +156,7 @@ export default function DraftPage() {
   const [approverOpen, setApproverOpen] = React.useState(false);
   const [saving, setSaving] = React.useState<null | "draft" | "submit">(null);
   const [savedNo, setSavedNo] = React.useState<string | null>(null);
+  const [saveError, setSaveError] = React.useState<string | null>(null);
   const [attachments, setAttachments] = React.useState<
     { id: string; name: string; size: string; url: string; kind: string; drive?: boolean }[]
   >([]);
@@ -267,20 +268,23 @@ export default function DraftPage() {
       {
         kind: "기안",
         name: me.name,
-        uid: me.uid ?? undefined,
         role: me.role || "기안자",
         state: "기안 완료",
         at: "",
         done: true,
+        // Firestore는 값이 literal undefined인 필드를 거부합니다 — 로그인
+        // 정보가 아직 없거나 결재자를 안 골랐을 때 uid: undefined가 그대로
+        // 들어가면 setDoc이 에러 메시지 없이 기안 생성을 통째로 실패시킵니다.
+        ...(me.uid ? { uid: me.uid } : {}),
       },
       ...steps.map((a) => ({
         kind: "결재",
         name: a.label,
-        uid: a.uid || undefined,
         role: "결재자",
         state: "대기",
         at: "",
         done: false,
+        ...(a.uid ? { uid: a.uid } : {}),
       })),
     ];
   };
@@ -333,6 +337,11 @@ export default function DraftPage() {
 
   const persist = async (mode: "draft" | "submit") => {
     if (!canSave) return;
+    setSaveError(null);
+    if (mode === "submit" && approvers.length === 0) {
+      setSaveError("결재자를 1명 이상 지정해주세요.");
+      return;
+    }
     setSaving(mode);
     try {
       const no = savedNo ?? genNo();
@@ -362,6 +371,8 @@ export default function DraftPage() {
       if (mode === "submit") {
         router.push(`/approval/${encodeURIComponent(no)}`);
       }
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : "저장하지 못했습니다. 다시 시도해주세요.");
     } finally {
       setSaving(null);
     }
@@ -408,6 +419,12 @@ export default function DraftPage() {
           </button>
         </div>
       </div>
+
+      {saveError && (
+        <p className="rounded-[10px] border border-[#fecaca] bg-[#fef2f2] px-3.5 py-2.5 text-[12.5px] font-semibold text-[#b91c1c]">
+          {saveError}
+        </p>
+      )}
 
       <div className="flex flex-wrap gap-1.5">
         {FORM_TEMPLATES.map((f) => {

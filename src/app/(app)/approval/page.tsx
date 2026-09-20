@@ -19,7 +19,7 @@ import {
   APPROVAL_TYPE_COLORS,
 } from "@/lib/groupware/data";
 import { pill } from "@/lib/groupware/ui";
-import { useApprovals } from "@/lib/groupware/hooks";
+import { isPendingApprover, useApprovals, useCurrentUser } from "@/lib/groupware/hooks";
 import { useNow } from "@/lib/groupware/use-now";
 import { GwCard, PageHeader, StatCard } from "@/components/app/primitives";
 import { EmptyState } from "@/components/app/EmptyState";
@@ -50,6 +50,7 @@ function parseDocDate(mmdd: string, now: Date): number {
 
 export default function ApprovalPage() {
   const router = useRouter();
+  const me = useCurrentUser();
   const [tab, setTab] = React.useState(0);
   const [periodIdx, setPeriodIdx] = React.useState(0);
   const { data } = useApprovals();
@@ -58,21 +59,26 @@ export default function ApprovalPage() {
   const counts = React.useMemo(() => {
     const by = (s: string) => data.filter((r) => r.status === s).length;
     return {
-      // 임시저장(drafted)은 아직 상신 전이라 "결재 대기" 집계에서 제외
+      // bucket === "pending"만으로는 회사 전체 상신 문서가 다 잡히므로,
+      // 결재선의 현재 차례가 나인 문서만 "결재 대기"로 집계합니다.
       "결재 대기": data.filter(
-        (r) => r.status === "Waiting" && r.bucket === "pending",
+        (r) => r.bucket === "pending" && isPendingApprover(r, me),
       ).length,
       "진행 중": by("In Progress"),
       완료: by("Approved"),
       반려: by("Rejected"),
     } as Record<string, number>;
-  }, [data]);
+  }, [data, me]);
 
   const period = PERIODS[periodIdx];
   const cutoff =
     period.days > 0 && now ? now.getTime() - period.days * 86_400_000 : 0;
   const rows = data
-    .filter((r) => r.bucket === BUCKETS[tab])
+    .filter((r) =>
+      BUCKETS[tab] === "pending"
+        ? r.bucket === "pending" && isPendingApprover(r, me)
+        : r.bucket === BUCKETS[tab],
+    )
     .filter((r) => !cutoff || (now ? parseDocDate(r.date, now) : 0) >= cutoff)
     .sort((a, b) => a.order - b.order);
 
@@ -171,9 +177,9 @@ export default function ApprovalPage() {
           />
         ) : (
         <div className="overflow-x-auto">
-          <div className="flex min-w-[880px] border-b border-[#eef1f5] bg-secondary px-4.5 py-2.5 text-[11.5px] font-semibold text-muted-foreground">
+          <div className="flex w-full min-w-[880px] border-b border-[#eef1f5] bg-secondary px-4.5 py-2.5 text-[11.5px] font-semibold text-muted-foreground">
             <div className="w-[116px] shrink-0">문서번호</div>
-            <div className="min-w-[200px] flex-1">문서 제목</div>
+            <div className="min-w-0 flex-1">문서 제목</div>
             <div className="w-[100px] shrink-0">기안자</div>
             <div className="w-[84px] shrink-0">기안일</div>
             <div className="w-[104px] shrink-0">최종 결재자</div>
@@ -185,15 +191,16 @@ export default function ApprovalPage() {
             return (
               <button
                 key={r.no}
+                type="button"
                 onClick={() => router.push(`/approval/${r.no}`)}
-                className="flex min-w-[880px] items-center border-b border-[#f1f5f9] px-4.5 py-3 text-left text-[12.5px] transition-colors hover:bg-secondary"
+                className="flex w-full min-w-[880px] items-center border-b border-[#f1f5f9] px-4.5 py-3 text-left text-[12.5px] transition-colors hover:bg-secondary"
               >
                 <div className="w-[116px] shrink-0 font-mono text-[11.5px] text-muted-foreground">
                   {r.no}
                 </div>
-                <div className="flex min-w-[200px] flex-1 items-center gap-2 pr-3.5">
+                <div className="flex min-w-0 flex-1 items-center gap-2 pr-3.5">
                   <span style={pill(tp[0], tp[1])}>{r.type}</span>
-                  <span className="flex-1 truncate font-medium text-foreground">
+                  <span className="min-w-0 flex-1 truncate font-medium text-foreground">
                     {r.title}
                   </span>
                 </div>

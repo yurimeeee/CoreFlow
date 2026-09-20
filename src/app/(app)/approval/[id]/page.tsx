@@ -13,7 +13,12 @@ import {
   Loader2,
   Printer,
 } from "lucide-react";
-import { useApprovalDoc, useCurrentUser, useWorkspace } from "@/lib/groupware/hooks";
+import {
+  isPendingApprover,
+  useApprovalDoc,
+  useCurrentUser,
+  useWorkspace,
+} from "@/lib/groupware/hooks";
 import { avatarStyle, pill } from "@/lib/groupware/ui";
 import { GwCard } from "@/components/app/primitives";
 
@@ -90,13 +95,7 @@ export default function ApprovalDetailPage() {
   const resolved = approved || doc.status === "Rejected";
   const pendingStep =
     (doc.line ?? []).find((l) => l.kind !== "기안" && !l.done) ?? null;
-  const isMyTurn = !!pendingStep && (
-    doc.currentApproverUid != null
-      ? doc.currentApproverUid === me.uid
-      : pendingStep.uid
-        ? pendingStep.uid === me.uid
-        : pendingStep.name === me.name
-  );
+  const isMyTurn = isPendingApprover(doc, me);
   const line = (doc.line ?? []).map((l, i) =>
     i === (doc.line?.length ?? 0) - 1
       ? { ...l, state: approved ? "승인" : l.state, done: approved || l.done }

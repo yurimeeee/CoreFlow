@@ -565,13 +565,17 @@ export function useApprovals() {
         type: input.type,
         title: input.title,
         author,
-        authorUid: me.uid ?? undefined,
         date,
         approver: input.approver,
         status: input.status,
         bucket: input.bucket,
         currentApproverUid: firstApproverUid,
         order: -now.getTime(), // 최신 문서가 위로
+        // Firestore setDoc은 값이 literal undefined인 필드가 있으면 그 자리에서
+        // 예외를 던지므로(ignoreUndefinedProperties 미설정), me.uid가 없을 때
+        // authorUid 키 자체를 아예 넣지 않습니다 — 이 값이 undefined로 새면
+        // 기안 저장이 에러 메시지 하나 없이 그냥 실패합니다.
+        ...(me.uid ? { authorUid: me.uid } : {}),
         ...(input.line ? { line: input.line } : {}),
         ...(input.meta ? { meta: input.meta } : {}),
         ...(input.rows ? { rows: input.rows } : {}),
@@ -595,6 +599,24 @@ export function useApprovals() {
   );
 
   return { ...state, data, createApproval };
+}
+
+/**
+ * 문서가 "지금 이 사람 결재 차례"인지 판정 — 결재 목록/집계(내 업무, 전자결재
+ * 대기함)와 상세 페이지 버튼 노출이 모두 이 기준을 공유해야 건수가 어긋나지
+ * 않습니다. currentApproverUid 가 있으면 그것으로, 없는 레거시 문서는
+ * line[].uid → 이름 순으로 폴백합니다.
+ */
+export function isPendingApprover(
+  a: Pick<ApprovalDoc, "status" | "line" | "currentApproverUid">,
+  me: { uid: string | null; name: string },
+): boolean {
+  if (a.status === "Approved" || a.status === "Rejected") return false;
+  const pendingStep = (a.line ?? []).find((l) => l.kind !== "기안" && !l.done);
+  if (!pendingStep) return false;
+  if (a.currentApproverUid != null) return a.currentApproverUid === me.uid;
+  if (pendingStep.uid) return pendingStep.uid === me.uid;
+  return pendingStep.name === me.name;
 }
 
 export function useApprovalDoc(no: string) {
@@ -643,15 +665,7 @@ export function useApprovalDoc(no: string) {
       }
       const line = document.line ?? [];
       const stepIndex = line.findIndex((l) => l.kind !== "기안" && !l.done);
-      const pendingStep = stepIndex >= 0 ? line[stepIndex] : null;
-      const isMyTurn = pendingStep
-        ? document.currentApproverUid != null
-          ? document.currentApproverUid === me.uid
-          : pendingStep.uid
-            ? pendingStep.uid === me.uid
-            : pendingStep.name === me.name
-        : false;
-      if (!isMyTurn) {
+      if (!isPendingApprover(document, me)) {
         throw new Error("본인의 결재 순서가 아니므로 승인/반려할 수 없습니다.");
       }
 
@@ -709,7 +723,7 @@ export function useApprovalDoc(no: string) {
         title || no,
       ).catch(() => {});
     },
-    [no, me.name, me.uid, document],
+    [no, me, document],
   );
 
   /** 결재 의견(코멘트) 추가 — comments 배열에 append */
