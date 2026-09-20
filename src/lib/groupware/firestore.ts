@@ -62,7 +62,28 @@ export interface TaskDoc {
   done: number;
   total: number;
   order: number;
+  /** 상세 내용 (선택) */
+  desc?: string;
+  /** 시작일 yyyy-mm-dd (선택) */
+  startDate?: string;
+  /** 마감일 yyyy-mm-dd (선택) — dday 자동 계산에 사용 */
+  dueDate?: string;
+  /** 마감 시각 HH:MM (선택) */
+  time?: string;
 }
+
+/** Task 뱃지/카테고리로 고를 수 있는 프리셋 (자유 입력도 허용) */
+export const TASK_TAGS = [
+  "기획",
+  "개발",
+  "HR",
+  "보고",
+  "필수",
+  "UI/UX",
+  "Backend",
+  "Frontend",
+  "QA",
+] as const;
 
 export interface NoticeDoc {
   id: string;

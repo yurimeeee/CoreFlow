@@ -294,55 +294,106 @@ const TASK_FALLBACK: TaskDoc[] = BOARD.flatMap((col) =>
   })),
 );
 
+export interface TaskInput {
+  colKey: string;
+  tag: string;
+  title: string;
+  desc: string;
+  who: string;
+  startDate: string; // yyyy-mm-dd ("" = 미설정)
+  dueDate: string; // yyyy-mm-dd ("" = 미설정)
+  time: string; // HH:MM ("" = 미설정)
+}
+
+const TASK_DONE_COL = TASK_COLUMNS[TASK_COLUMNS.length - 1].key;
+
+/** dueDate 기준 D-day 라벨 계산 (완료 컬럼이면 항상 "완료") */
+function computeDday(colKey: string, dueDate?: string, fallback = "D-7"): string {
+  if (colKey === TASK_DONE_COL) return "완료";
+  if (!dueDate) return fallback;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(`${dueDate}T00:00:00`);
+  const diff = Math.round((due.getTime() - today.getTime()) / 86_400_000);
+  if (diff === 0) return "D-Day";
+  return diff > 0 ? `D-${diff}` : `D+${Math.abs(diff)}`;
+}
+
 export function useTasks() {
   const state = useGwCollection<TaskDoc>(COL.tasks, TASK_FALLBACK);
   const me = useCurrentUser();
   // 낙관적 오버레이 (Firebase 미설정 시엔 이게 유일한 저장소)
-  const [overlay, setOverlay] = React.useState<Record<string, Partial<TaskDoc>>>(
+  const [overlay, setOverlay] = React.useState<Record<string, Partial<TaskDoc> | null>>(
     {},
   );
   const [added, setAdded] = React.useState<TaskDoc[]>([]);
 
   const data = React.useMemo(() => {
-    const base = state.data.map((t) =>
-      overlay[t.id] ? { ...t, ...overlay[t.id] } : t,
-    );
+    const base = state.data
+      .map((t) => (overlay[t.id] ? { ...t, ...overlay[t.id] } : t))
+      .filter((t): t is TaskDoc => overlay[t.id] !== null);
     const extra = added
-      .filter((a) => !state.data.some((t) => t.id === a.id))
+      .filter((a) => !state.data.some((t) => t.id === a.id) && overlay[a.id] !== null)
       .map((a) => (overlay[a.id] ? { ...a, ...overlay[a.id] } : a));
-    return [...base, ...extra];
+    return [...base, ...extra].map((t) => ({
+      ...t,
+      dday: t.dueDate ? computeDday(t.colKey, t.dueDate) : computeDday(t.colKey, undefined, t.dday),
+    }));
   }, [state.data, overlay, added]);
 
   const addTask = React.useCallback(
-    async (colKey: string, title: string) => {
+    async (input: TaskInput) => {
       const id = String(Date.now());
-      const task: TaskDoc = {
-        id,
-        colKey,
-        tag: "기획",
-        title,
-        who: me.name,
-        dday: "D-7",
+      const order =
+        Math.max(
+          -1,
+          ...data.filter((t) => t.colKey === input.colKey).map((t) => t.order),
+        ) + 1;
+      const payload: Omit<TaskDoc, "id"> = {
+        colKey: input.colKey,
+        tag: input.tag.trim() || "기획",
+        title: input.title.trim(),
+        desc: input.desc.trim(),
+        who: input.who.trim() || me.name,
+        startDate: input.startDate,
+        dueDate: input.dueDate,
+        time: input.time,
+        dday: computeDday(input.colKey, input.dueDate),
         done: 0,
         total: 3,
-        order: 999,
+        order,
       };
-      setAdded((p) => [...p, task]);
+      setAdded((p) => [...p, { id, ...payload }]);
       if (isFirebaseConfigured) {
-        await setDoc(doc(firebaseDb(), COL.tasks, id), {
-          colKey: task.colKey,
-          tag: task.tag,
-          title: task.title,
-          who: task.who,
-          dday: task.dday,
-          done: task.done,
-          total: task.total,
-          order: task.order,
-        });
+        await setDoc(doc(firebaseDb(), COL.tasks, id), payload);
       }
     },
-    [me.name],
+    [me.name, data],
   );
+
+  const saveTask = React.useCallback(async (id: string, input: TaskInput) => {
+    const patch: Partial<TaskDoc> = {
+      tag: input.tag.trim() || "기획",
+      title: input.title.trim(),
+      desc: input.desc.trim(),
+      who: input.who.trim(),
+      startDate: input.startDate,
+      dueDate: input.dueDate,
+      time: input.time,
+    };
+    setOverlay((p) => ({ ...p, [id]: { ...p[id], ...patch } }));
+    if (isFirebaseConfigured) {
+      await updateDoc(doc(firebaseDb(), COL.tasks, id), patch);
+    }
+  }, []);
+
+  const removeTask = React.useCallback(async (id: string) => {
+    setOverlay((p) => ({ ...p, [id]: null }));
+    setAdded((p) => p.filter((t) => t.id !== id));
+    if (isFirebaseConfigured) {
+      await deleteDoc(doc(firebaseDb(), COL.tasks, id));
+    }
+  }, []);
 
   const toggleDone = React.useCallback(async (t: TaskDoc) => {
     const nextDone = t.done === t.total ? 0 : t.total;
@@ -367,7 +418,84 @@ export function useTasks() {
     }
   }, []);
 
-  return { ...state, data, addTask, toggleDone, moveTask };
+  /**
+   * 드래그 앤 드롭으로 카드를 컬럼(진행 상태) 사이 · 컬럼 내부에서 이동.
+   * beforeId 가 있으면 그 카드 앞에 삽입, 없으면 컬럼 맨 끝에 삽입.
+   * 영향받은 컬럼(들)의 order 를 0..n 으로 다시 매깁니다.
+   */
+  const moveTaskTo = React.useCallback(
+    async (taskId: string, targetCol: string, beforeId: string | null) => {
+      const moved = data.find((t) => t.id === taskId);
+      if (!moved) return;
+      const sourceCol = moved.colKey;
+
+      const targetItems = data
+        .filter((t) => t.colKey === targetCol && t.id !== taskId)
+        .sort((a, b) => a.order - b.order);
+      const insertAt = beforeId
+        ? targetItems.findIndex((t) => t.id === beforeId)
+        : -1;
+      targetItems.splice(
+        insertAt === -1 ? targetItems.length : insertAt,
+        0,
+        { ...moved, colKey: targetCol },
+      );
+
+      const patchMap: Record<string, Partial<TaskDoc>> = {};
+      targetItems.forEach((t, i) => {
+        if (t.id === taskId) {
+          // 이동한 카드는 컬럼이 그대로여도 순서가 바뀌었을 수 있어 항상 반영
+          patchMap[t.id] = {
+            order: i,
+            colKey: targetCol,
+            ...(targetCol === TASK_DONE_COL ? { done: moved.total } : {}),
+          };
+        } else if (t.order !== i) {
+          patchMap[t.id] = { order: i };
+        }
+      });
+
+      if (sourceCol !== targetCol) {
+        const sourceItems = data
+          .filter((t) => t.colKey === sourceCol && t.id !== taskId)
+          .sort((a, b) => a.order - b.order);
+        sourceItems.forEach((t, i) => {
+          if (t.order !== i) {
+            patchMap[t.id] = { ...patchMap[t.id], order: i };
+          }
+        });
+      }
+
+      if (Object.keys(patchMap).length === 0) return;
+
+      setOverlay((p) => {
+        const next = { ...p };
+        for (const [id, patch] of Object.entries(patchMap)) {
+          next[id] = { ...next[id], ...patch };
+        }
+        return next;
+      });
+      if (isFirebaseConfigured) {
+        await Promise.all(
+          Object.entries(patchMap).map(([id, patch]) =>
+            updateDoc(doc(firebaseDb(), COL.tasks, id), patch),
+          ),
+        );
+      }
+    },
+    [data],
+  );
+
+  return {
+    ...state,
+    data,
+    addTask,
+    saveTask,
+    removeTask,
+    toggleDone,
+    moveTask,
+    moveTaskTo,
+  };
 }
 
 /* ------------------------------------------------------------------ */

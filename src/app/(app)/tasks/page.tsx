@@ -5,14 +5,19 @@ import {
   CheckSquare,
   Clock,
   GanttChart,
+  GripVertical,
   List,
   ListChecks,
   Plus,
   Search,
   SquareKanban,
+  Trash2,
+  X,
 } from "lucide-react";
-import { TASK_COLUMNS, type TaskDoc } from "@/lib/groupware/firestore";
-import { useTasks } from "@/lib/groupware/hooks";
+import { cn } from "@/lib/utils";
+import { TAG_COLORS } from "@/lib/groupware/data";
+import { TASK_COLUMNS, TASK_TAGS, type TaskDoc } from "@/lib/groupware/firestore";
+import { useOrgPeople, useTasks, type TaskInput } from "@/lib/groupware/hooks";
 import { avatarStyle, ddayStyle } from "@/lib/groupware/ui";
 import { GwCard, PageHeader, Segmented, Tag } from "@/components/app/primitives";
 import { EmptyState } from "@/components/app/EmptyState";
@@ -29,12 +34,38 @@ function ganttBar(dday: string, total: number) {
   return { start, len: Math.min(len, GANTT_DAYS - start) };
 }
 
+const emptyInput = (colKey: string): TaskInput => ({
+  colKey,
+  tag: TASK_TAGS[0],
+  title: "",
+  desc: "",
+  who: "",
+  startDate: "",
+  dueDate: "",
+  time: "",
+});
+
+const taskToInput = (t: TaskDoc): TaskInput => ({
+  colKey: t.colKey,
+  tag: t.tag,
+  title: t.title,
+  desc: t.desc ?? "",
+  who: t.who,
+  startDate: t.startDate ?? "",
+  dueDate: t.dueDate ?? "",
+  time: t.time ?? "",
+});
+
 export default function TasksPage() {
   const [view, setView] = React.useState<View>("kanban");
   const [query, setQuery] = React.useState("");
-  const [adding, setAdding] = React.useState<string | null>(null);
-  const [draft, setDraft] = React.useState("");
-  const { data: tasks, addTask, moveTask, source } = useTasks();
+  const [modal, setModal] = React.useState<
+    { mode: "new"; colKey: string } | { mode: "edit"; task: TaskDoc } | null
+  >(null);
+  const [dragId, setDragId] = React.useState<string | null>(null);
+  const [dragOverCol, setDragOverCol] = React.useState<string | null>(null);
+  const { data: tasks, addTask, saveTask, removeTask, moveTask, moveTaskTo, source } =
+    useTasks();
 
   const q = query.trim().toLowerCase();
   const match = (t: TaskDoc) =>
@@ -49,13 +80,6 @@ export default function TasksPage() {
       .sort((a, b) => a.order - b.order),
   }));
 
-  const submit = async (colKey: string) => {
-    const title = draft.trim();
-    setAdding(null);
-    setDraft("");
-    if (title) await addTask(colKey, title);
-  };
-
   const flat = columns.flatMap((c) =>
     c.items.filter(match).map((t) => ({ ...t, col: c.name, color: c.color })),
   );
@@ -63,6 +87,12 @@ export default function TasksPage() {
     0,
     6,
   );
+
+  const handleDrop = (colKey: string, beforeId: string | null) => {
+    if (dragId) moveTaskTo(dragId, colKey, beforeId);
+    setDragId(null);
+    setDragOverCol(null);
+  };
 
   return (
     <div className="mx-auto flex max-w-[1440px] flex-col gap-4">
@@ -130,7 +160,19 @@ export default function TasksPage() {
           {columns.map((col) => (
             <div
               key={col.key}
-              className="flex min-w-[250px] flex-1 flex-col gap-2.5 rounded-[13px] bg-[#f1f5f9] p-2.5"
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOverCol(col.key);
+              }}
+              onDragLeave={() => setDragOverCol((c) => (c === col.key ? null : c))}
+              onDrop={(e) => {
+                e.preventDefault();
+                handleDrop(col.key, null);
+              }}
+              className={cn(
+                "flex min-w-[250px] flex-1 flex-col gap-2.5 rounded-[13px] bg-[#f1f5f9] p-2.5 transition-colors",
+                dragOverCol === col.key && dragId && "bg-[#e0e7ff]",
+              )}
             >
               <div className="flex items-center gap-1.5 px-1 py-0.5">
                 <span
@@ -146,14 +188,40 @@ export default function TasksPage() {
               </div>
 
               {col.items.filter(match).map((t) => (
-                <button
+                <div
                   key={t.id}
-                  type="button"
-                  onClick={() => moveTask(t)}
-                  title="클릭하면 다음 단계로 이동합니다"
-                  className="flex cursor-pointer flex-col gap-2.5 rounded-[11px] border border-border bg-card p-3 text-left transition-all hover:-translate-y-px hover:border-[#cbd5e1] hover:shadow-[0_8px_18px_rgba(15,23,42,0.08)]"
+                  draggable
+                  onDragStart={(e) => {
+                    setDragId(t.id);
+                    e.dataTransfer.effectAllowed = "move";
+                  }}
+                  onDragEnd={() => {
+                    setDragId(null);
+                    setDragOverCol(null);
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setDragOverCol(col.key);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (dragId && dragId !== t.id) handleDrop(col.key, t.id);
+                    else {
+                      setDragId(null);
+                      setDragOverCol(null);
+                    }
+                  }}
+                  onClick={() => setModal({ mode: "edit", task: t })}
+                  title="클릭하면 상세/수정, 드래그하면 이동합니다"
+                  className={cn(
+                    "group flex cursor-grab flex-col gap-2.5 rounded-[11px] border border-border bg-card p-3 text-left transition-all hover:-translate-y-px hover:border-[#cbd5e1] hover:shadow-[0_8px_18px_rgba(15,23,42,0.08)] active:cursor-grabbing",
+                    dragId === t.id && "opacity-40",
+                  )}
                 >
                   <div className="flex items-center gap-1.5">
+                    <GripVertical className="size-3.5 shrink-0 text-[#cbd5e1] opacity-0 transition-opacity group-hover:opacity-100" />
                     <Tag label={t.tag} />
                     <Clock className="ml-auto size-[11px] text-muted-foreground" />
                     <span style={ddayStyle(t.dday)}>{t.dday}</span>
@@ -161,6 +229,11 @@ export default function TasksPage() {
                   <div className="text-[13px] font-medium leading-snug tracking-[-0.01em]">
                     {t.title}
                   </div>
+                  {t.desc && (
+                    <p className="line-clamp-2 text-[11.5px] leading-snug text-muted-foreground">
+                      {t.desc}
+                    </p>
+                  )}
                   <div className="flex items-center gap-2">
                     <span style={avatarStyle(t.who.charAt(0), 22)}>
                       {t.who.charAt(0)}
@@ -180,54 +253,15 @@ export default function TasksPage() {
                       {t.done}/{t.total}
                     </span>
                   </div>
-                </button>
+                </div>
               ))}
 
-              {adding === col.key ? (
-                <div className="rounded-[11px] border border-primary bg-card p-2.5 shadow-[0_0_0_3px_rgba(79,70,229,0.12)]">
-                  <input
-                    autoFocus
-                    value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") submit(col.key);
-                      if (e.key === "Escape") {
-                        setAdding(null);
-                        setDraft("");
-                      }
-                    }}
-                    placeholder="Task 제목 입력 후 Enter"
-                    className="w-full bg-transparent text-[12.5px] focus-visible:outline-none"
-                  />
-                  <div className="mt-2 flex gap-1.5">
-                    <button
-                      onClick={() => submit(col.key)}
-                      className="h-7 rounded-[7px] bg-primary px-2.5 text-xs font-semibold text-white"
-                    >
-                      추가
-                    </button>
-                    <button
-                      onClick={() => {
-                        setAdding(null);
-                        setDraft("");
-                      }}
-                      className="h-7 rounded-[7px] border border-border bg-card px-2.5 text-xs text-muted-foreground"
-                    >
-                      취소
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button
-                  onClick={() => {
-                    setAdding(col.key);
-                    setDraft("");
-                  }}
-                  className="flex w-full items-center gap-1.5 rounded-[9px] px-2.5 py-2 text-left text-[12.5px] font-medium text-muted-foreground transition-colors hover:bg-[#e2e8f0] hover:text-foreground"
-                >
-                  <Plus className="size-3.5" />새 Task 추가
-                </button>
-              )}
+              <button
+                onClick={() => setModal({ mode: "new", colKey: col.key })}
+                className="flex w-full items-center gap-1.5 rounded-[9px] px-2.5 py-2 text-left text-[12.5px] font-medium text-muted-foreground transition-colors hover:bg-[#e2e8f0] hover:text-foreground"
+              >
+                <Plus className="size-3.5" />새 Task 추가
+              </button>
             </div>
           ))}
         </div>
@@ -246,7 +280,8 @@ export default function TasksPage() {
           {flat.map((t) => (
             <div
               key={t.id}
-              className="flex min-w-[800px] items-center border-b border-[#f1f5f9] px-4.5 py-3 text-[12.5px] transition-colors hover:bg-secondary"
+              onClick={() => setModal({ mode: "edit", task: t })}
+              className="flex min-w-[800px] cursor-pointer items-center border-b border-[#f1f5f9] px-4.5 py-3 text-[12.5px] transition-colors hover:bg-secondary"
             >
               <div className="flex w-24 shrink-0 items-center gap-1.5">
                 <span
@@ -383,6 +418,227 @@ export default function TasksPage() {
           </div>
         </GwCard>
       )}
+
+      {modal && (
+        <TaskModal
+          key={modal.mode === "edit" ? modal.task.id : `new-${modal.colKey}`}
+          initial={modal.mode === "edit" ? taskToInput(modal.task) : emptyInput(modal.colKey)}
+          isNew={modal.mode === "new"}
+          onClose={() => setModal(null)}
+          onSave={async (input) => {
+            if (modal.mode === "edit") await saveTask(modal.task.id, input);
+            else await addTask(input);
+            setModal(null);
+          }}
+          onDelete={
+            modal.mode === "edit"
+              ? async () => {
+                  await removeTask(modal.task.id);
+                  setModal(null);
+                }
+              : undefined
+          }
+          onAdvance={
+            modal.mode === "edit"
+              ? async () => {
+                  await moveTask(modal.task);
+                  setModal(null);
+                }
+              : undefined
+          }
+        />
+      )}
+    </div>
+  );
+}
+
+function TaskModal({
+  initial,
+  isNew,
+  onClose,
+  onSave,
+  onDelete,
+  onAdvance,
+}: {
+  initial: TaskInput;
+  isNew: boolean;
+  onClose: () => void;
+  onSave: (input: TaskInput) => Promise<void>;
+  onDelete?: () => Promise<void>;
+  onAdvance?: () => Promise<void>;
+}) {
+  const { people } = useOrgPeople();
+  const [title, setTitle] = React.useState(initial.title);
+  const [tag, setTag] = React.useState(initial.tag);
+  const [desc, setDesc] = React.useState(initial.desc);
+  const [who, setWho] = React.useState(initial.who);
+  const [startDate, setStartDate] = React.useState(initial.startDate);
+  const [dueDate, setDueDate] = React.useState(initial.dueDate);
+  const [time, setTime] = React.useState(initial.time);
+  const [busy, setBusy] = React.useState(false);
+
+  const submit = async () => {
+    if (!title.trim() || busy) return;
+    setBusy(true);
+    try {
+      await onSave({
+        colKey: initial.colKey,
+        title,
+        tag,
+        desc,
+        who,
+        startDate,
+        dueDate: dueDate && startDate && dueDate < startDate ? startDate : dueDate,
+        time,
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const field =
+    "h-9 w-full rounded-[8px] border border-border bg-card px-2.5 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#0f172a]/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="animate-step flex w-full max-w-[460px] flex-col gap-4 rounded-[14px] border border-border bg-card p-5 shadow-[var(--shadow-pop)]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-[14px] font-bold tracking-[-0.02em]">
+            {isNew ? "새 Task 추가" : "Task 수정"}
+          </span>
+          <button
+            onClick={onClose}
+            className="ml-auto flex size-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        <input
+          autoFocus
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Task 제목"
+          className={cn(field, "font-medium")}
+        />
+
+        <div className="flex flex-wrap gap-1.5">
+          {TASK_TAGS.map((key) => {
+            const c = TAG_COLORS[key] ?? ["#f1f5f9", "#475569"];
+            const active = tag === key;
+            return (
+              <button
+                key={key}
+                onClick={() => setTag(key)}
+                className={cn(
+                  "h-7 rounded-[7px] border px-2.5 text-[12px] font-semibold transition-colors",
+                  active
+                    ? ""
+                    : "border-border bg-card text-secondary-foreground hover:bg-secondary",
+                )}
+                style={active ? { background: c[0], borderColor: c[1], color: c[1] } : undefined}
+              >
+                {key}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <label className="flex flex-col gap-1 text-[11.5px] font-semibold text-muted-foreground">
+            담당자
+            <input
+              list="task-assignees"
+              value={who}
+              onChange={(e) => setWho(e.target.value)}
+              placeholder="담당자 이름"
+              className={field}
+            />
+            <datalist id="task-assignees">
+              {people.map((p) => (
+                <option key={p.id} value={p.name} />
+              ))}
+            </datalist>
+          </label>
+          <label className="flex flex-col gap-1 text-[11.5px] font-semibold text-muted-foreground">
+            마감 시각
+            <input
+              type="time"
+              value={time}
+              onChange={(e) => setTime(e.target.value)}
+              className={field}
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-[11.5px] font-semibold text-muted-foreground">
+            시작일
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className={field}
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-[11.5px] font-semibold text-muted-foreground">
+            종료일(마감)
+            <input
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+              className={field}
+            />
+          </label>
+        </div>
+
+        <label className="flex flex-col gap-1 text-[11.5px] font-semibold text-muted-foreground">
+          상세 내용
+          <textarea
+            value={desc}
+            onChange={(e) => setDesc(e.target.value)}
+            rows={3}
+            placeholder="Task에 대한 상세 설명 (선택)"
+            className="w-full resize-none rounded-[8px] border border-border bg-card px-2.5 py-2 text-[13px] font-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+        </label>
+
+        <div className="flex items-center gap-2">
+          {onDelete && (
+            <button
+              onClick={onDelete}
+              className="flex h-9 items-center gap-1.5 rounded-[9px] border border-[#fecaca] bg-card px-3 text-[12.5px] font-semibold text-[#b91c1c] hover:bg-[#fef2f2]"
+            >
+              <Trash2 className="size-3.5" />
+              삭제
+            </button>
+          )}
+          {onAdvance && (
+            <button
+              onClick={onAdvance}
+              className="h-9 rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-secondary-foreground hover:bg-secondary"
+            >
+              다음 단계로
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="ml-auto h-9 rounded-[9px] border border-border bg-card px-3.5 text-[12.5px] font-semibold text-secondary-foreground hover:bg-secondary"
+          >
+            취소
+          </button>
+          <button
+            onClick={submit}
+            disabled={busy || !title.trim()}
+            className="h-9 rounded-[9px] bg-primary px-4 text-[13px] font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
+          >
+            저장
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
