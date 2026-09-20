@@ -40,6 +40,7 @@ import {
 } from "@/lib/groupware/hooks";
 import { avatarStyle, pill, statusDot, statusPill } from "@/lib/groupware/ui";
 import { GwCard, PageHeader, Segmented } from "@/components/app/primitives";
+import { PositionSelect } from "@/components/app/PositionSelect";
 import { EmptyState } from "@/components/app/EmptyState";
 
 const STATUS_OPTIONS: { value: PersonStatus; label: string }[] = [
@@ -721,12 +722,11 @@ function AddPersonModal({
               />
             </ModalField>
             <ModalField label="직급 / 직책" required>
-              <input
+              <PositionSelect
                 value={role}
-                onChange={(e) => setRole(e.target.value)}
-                placeholder="사원"
-                className={modalInput}
+                onChange={setRole}
                 required
+                className={modalInput}
               />
             </ModalField>
             <ModalField label="팀">
@@ -1034,11 +1034,9 @@ function ProfileDrawer({
                 />
               </ModalField>
               <ModalField label="직급 / 직책">
-                <input
+                <PositionSelect
                   value={form.role}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, role: e.target.value }))
-                  }
+                  onChange={(v) => setForm((f) => ({ ...f, role: v }))}
                   className={modalInput}
                 />
               </ModalField>

@@ -14,6 +14,7 @@ import { Copy, Link2, Loader2, Send, Sparkles } from "lucide-react";
 import { firebaseAuth, firebaseDb, isFirebaseConfigured } from "@/lib/firebase";
 import { useAuthUser } from "@/hooks/useAuthUser";
 import { useOrgPeople, useTeams } from "@/lib/groupware/hooks";
+import { PositionSelect } from "@/components/app/PositionSelect";
 import { AuthShell } from "@/components/layout/AuthShell";
 import { Forbidden } from "@/components/app/Forbidden";
 import { Card, CardContent } from "@/components/ui/card";
@@ -212,12 +213,12 @@ function AdminInviteClient() {
                 </select>
               </Field>
               <Field id="i-pos" label="직급 / 직책" required>
-                <Input
+                <PositionSelect
                   id="i-pos"
                   value={positionValue}
-                  onChange={(e) => upd("position", e.target.value)}
-                  placeholder="선임 / 파트장"
+                  onChange={(v) => upd("position", v)}
                   required
+                  className="h-11 w-full rounded-[var(--radius-md)] border border-input bg-card px-3 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
                 />
               </Field>
               <Field id="i-role" label="권한">
