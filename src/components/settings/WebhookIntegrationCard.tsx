@@ -5,7 +5,7 @@ import { Check, Loader2, Send, X } from "lucide-react";
 import { sendTestNotification } from "@/lib/integrations/notify";
 import type { WorkspaceWebhookIntegration } from "@/lib/groupware/firestore";
 import { cn } from "@/lib/utils";
-import { pill } from "@/lib/groupware/ui";
+import { IntegrationCard, IntegrationConnectButton } from "./IntegrationCard";
 
 const fieldInput =
   "h-9 w-full rounded-[9px] border border-border bg-card px-3 text-[13px] focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25";
@@ -18,7 +18,7 @@ export function WebhookIntegrationCard({
   service,
   name,
   desc,
-  icon: Icon,
+  icon,
   bg,
   color,
   value,
@@ -86,37 +86,21 @@ export function WebhookIntegrationCard({
   };
 
   return (
-    <div className="flex flex-col gap-3 border-t border-[#f1f5f9] py-3.5 first:border-t-0 first:pt-0">
-      <div className="flex items-center gap-3">
-        <span
-          className="flex size-[34px] shrink-0 items-center justify-center rounded-[9px]"
-          style={{ background: bg }}
-        >
-          <Icon className="size-4" style={{ color }} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[13px] font-semibold">{name}</span>
-            <span style={pill(on ? "#f0fdf4" : "#f1f5f9", on ? "#15803d" : "#94a3b8")}>
-              {on ? "연동됨" : "미연동"}
-            </span>
-          </div>
-          <div className="mt-0.5 text-[11.5px] text-muted-foreground">{desc}</div>
-        </div>
-        <button
-          onClick={toggle}
+    <IntegrationCard
+      icon={icon}
+      iconBg={bg}
+      iconColor={color}
+      name={name}
+      connected={on}
+      statusLabel={desc}
+      action={
+        <IntegrationConnectButton
+          connected={on}
           disabled={!savedUrl || saving}
-          className={cn(
-            "h-8 shrink-0 whitespace-nowrap rounded-lg px-3.5 text-[12.5px] font-semibold disabled:cursor-not-allowed disabled:opacity-50",
-            on
-              ? "border border-border bg-card text-muted-foreground hover:bg-secondary"
-              : "bg-primary text-primary-foreground hover:bg-primary-hover",
-          )}
-        >
-          {on ? "연동 해제" : "연동하기"}
-        </button>
-      </div>
-
+          onClick={toggle}
+        />
+      }
+    >
       <div className="flex flex-wrap items-center gap-2 pl-[46px]">
         <input
           value={url}
@@ -166,6 +150,6 @@ export function WebhookIntegrationCard({
           발급 방법 보기
         </a>
       </p>
-    </div>
+    </IntegrationCard>
   );
 }

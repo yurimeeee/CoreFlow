@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, ExternalLink, HardDrive, Loader2, RefreshCw, X } from "lucide-react";
+import { Check, ExternalLink, HardDrive, Loader2, RefreshCw } from "lucide-react";
 import {
   connectGoogleDrive,
   disconnectGoogleDrive,
@@ -10,7 +10,7 @@ import {
   listAppDriveFiles,
   type GoogleDriveFileSummary,
 } from "@/lib/googleDrive";
-import { pill } from "@/lib/groupware/ui";
+import { IntegrationCard, IntegrationConnectButton } from "./IntegrationCard";
 
 function formatModified(iso?: string): string {
   if (!iso) return "";
@@ -76,47 +76,29 @@ export function GoogleDriveConnect() {
   const on = !!email;
 
   return (
-    <div className="flex flex-col gap-3 border-t border-[#f1f5f9] py-3.5">
-      <div className="flex items-center gap-3">
-        <span
-          className="flex size-[34px] shrink-0 items-center justify-center rounded-[9px]"
-          style={{ background: "#f0fdf4" }}
-        >
-          <HardDrive className="size-4" style={{ color: "#15803d" }} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[13px] font-semibold">Google Drive</span>
-            <span style={pill(on ? "#f0fdf4" : "#f1f5f9", on ? "#15803d" : "#94a3b8")}>
-              {on ? "연동됨" : "미연동"}
-            </span>
-          </div>
-          <div className="mt-0.5 text-[11.5px] text-muted-foreground">
-            {on ? email : "결재 첨부파일을 업로드할 때 내 Drive에도 함께 보관합니다"}
-          </div>
-        </div>
-        {!isGoogleDriveConfigured ? (
+    <IntegrationCard
+      icon={HardDrive}
+      iconBg="#f0fdf4"
+      iconColor="#15803d"
+      name="Google Drive"
+      connected={on}
+      statusLabel={on ? email : "결재 첨부파일을 업로드할 때 내 Drive에도 함께 보관합니다"}
+      error={error}
+      action={
+        !isGoogleDriveConfigured ? (
           <span className="text-[11.5px] font-medium text-muted-foreground">
             관리자 설정 필요
           </span>
-        ) : on ? (
-          <button
-            onClick={disconnect}
-            className="h-8 shrink-0 rounded-lg border border-border bg-card px-3.5 text-[12.5px] font-semibold text-muted-foreground hover:bg-secondary"
-          >
-            연동 해제
-          </button>
         ) : (
-          <button
-            onClick={connect}
-            disabled={busy}
-            className="h-8 shrink-0 rounded-lg bg-primary px-3.5 text-[12.5px] font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
-          >
-            {busy ? <Loader2 className="size-3.5 animate-spin" /> : "연동하기"}
-          </button>
-        )}
-      </div>
-
+          <IntegrationConnectButton
+            connected={on}
+            busy={busy}
+            onClick={on ? disconnect : connect}
+            busyIcon={<Loader2 className="size-3.5 animate-spin" />}
+          />
+        )
+      }
+    >
       {!isGoogleDriveConfigured && (
         <p className="pl-[46px] text-[11px] text-muted-foreground">
           <code className="rounded bg-secondary px-1 py-0.5">
@@ -179,13 +161,6 @@ export function GoogleDriveConnect() {
           </p>
         </div>
       )}
-
-      {error && (
-        <p role="alert" className="flex items-center gap-1.5 pl-[46px] text-[12px] font-medium text-destructive">
-          <X className="size-3.5" />
-          {error}
-        </p>
-      )}
-    </div>
+    </IntegrationCard>
   );
 }
