@@ -83,6 +83,7 @@ export default function ApprovalDetailPage() {
   }
 
   const approved = doc.status === "Approved";
+  const resolved = approved || doc.status === "Rejected";
   const line = (doc.line ?? []).map((l, i) =>
     i === (doc.line?.length ?? 0) - 1
       ? { ...l, state: approved ? "승인" : l.state, done: approved || l.done }
@@ -136,22 +137,36 @@ export default function ApprovalDetailPage() {
             <Printer className="size-3.5" />
             인쇄
           </button>
-          <button
-            onClick={() => decide("Rejected")}
-            disabled={busy}
-            className="flex h-9 items-center gap-1.5 rounded-[9px] border border-[#fecaca] bg-card px-3.5 text-[12.5px] font-semibold text-[#b91c1c] hover:bg-[#fef2f2] disabled:opacity-50"
-          >
-            <CircleX className="size-3.5" />
-            반려
-          </button>
-          <button
-            onClick={() => decide("Approved")}
-            disabled={busy}
-            className="flex h-9 items-center gap-1.5 rounded-[9px] bg-primary px-4 text-[13px] font-semibold text-primary-foreground shadow-[0_1px_2px_rgba(79,70,229,0.35)] hover:bg-primary-hover disabled:opacity-50"
-          >
-            <Check className="size-3.5" strokeWidth={2.4} />
-            승인
-          </button>
+          {resolved ? (
+            <span
+              style={pill(
+                approved ? "#f0fdf4" : "#fef2f2",
+                approved ? "#15803d" : "#b91c1c",
+              )}
+              className="flex h-9 items-center px-3.5 text-[12.5px] font-semibold"
+            >
+              {approved ? "승인 완료된 문서입니다" : "반려된 문서입니다"}
+            </span>
+          ) : (
+            <>
+              <button
+                onClick={() => decide("Rejected")}
+                disabled={busy}
+                className="flex h-9 items-center gap-1.5 rounded-[9px] border border-[#fecaca] bg-card px-3.5 text-[12.5px] font-semibold text-[#b91c1c] hover:bg-[#fef2f2] disabled:opacity-50"
+              >
+                <CircleX className="size-3.5" />
+                반려
+              </button>
+              <button
+                onClick={() => decide("Approved")}
+                disabled={busy}
+                className="flex h-9 items-center gap-1.5 rounded-[9px] bg-primary px-4 text-[13px] font-semibold text-primary-foreground shadow-[0_1px_2px_rgba(79,70,229,0.35)] hover:bg-primary-hover disabled:opacity-50"
+              >
+                <Check className="size-3.5" strokeWidth={2.4} />
+                승인
+              </button>
+            </>
+          )}
         </div>
       </div>
 
