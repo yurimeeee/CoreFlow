@@ -44,7 +44,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     const out: Hit[] = [];
 
     for (const p of people) {
-      if (p.id === 0) continue;
+      if (p.boss === null) continue; // 대표이사(최상위)는 전역 검색에서 제외
       if (has(p.name + p.role + p.dept + (p.tags ?? []).join(" ")))
         out.push({
           icon: Users,

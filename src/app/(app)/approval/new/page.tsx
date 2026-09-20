@@ -16,6 +16,7 @@ import {
   Plus,
   Receipt,
   Save,
+  Search,
   Send,
   ShoppingCart,
   Upload,
@@ -34,8 +35,13 @@ import {
   FORM_TEMPLATES,
   PURCHASE_ROWS,
 } from "@/lib/groupware/data";
-import { pill } from "@/lib/groupware/ui";
-import { useApprovals, useCurrentUser, useLeaves } from "@/lib/groupware/hooks";
+import { avatarStyle, pill } from "@/lib/groupware/ui";
+import {
+  useApprovals,
+  useCurrentUser,
+  useLeaves,
+  useOrgPeople,
+} from "@/lib/groupware/hooks";
 import { GwCard } from "@/components/app/primitives";
 
 /** 서식 → 결재 문서 유형 (APPROVAL_TYPE_COLORS 키) */
@@ -120,6 +126,7 @@ export default function DraftPage() {
   const me = useCurrentUser();
   const { createApproval } = useApprovals();
   const { balance: leaveBalance } = useLeaves();
+  const { people } = useOrgPeople();
 
   const [form, setForm] = React.useState("지출결의서");
   const [title, setTitle] = React.useState("");
@@ -145,7 +152,8 @@ export default function DraftPage() {
   const [expense, setExpense] = React.useState(EXPENSE_ROWS);
   const [purchase, setPurchase] = React.useState(PURCHASE_ROWS);
   const [approvers, setApprovers] = React.useState<string[]>([]);
-  const [approverDraft, setApproverDraft] = React.useState("");
+  const [approverQuery, setApproverQuery] = React.useState("");
+  const [approverOpen, setApproverOpen] = React.useState(false);
   const [saving, setSaving] = React.useState<null | "draft" | "submit">(null);
   const [savedNo, setSavedNo] = React.useState<string | null>(null);
   const [attachments, setAttachments] = React.useState<
@@ -164,11 +172,24 @@ export default function DraftPage() {
   const authorName = me.role ? `${me.name} ${me.role}` : me.name;
   const docType = FORM_TYPE[form] ?? "보고";
 
-  const addApprover = () => {
-    const v = approverDraft.trim();
-    if (!v || approvers.includes(v)) return setApproverDraft("");
-    setApprovers((p) => [...p, v]);
-    setApproverDraft("");
+  const approverQ = approverQuery.trim().toLowerCase();
+  const approverMatches = approverQ
+    ? people
+        .filter(
+          (p) =>
+            p.name.toLowerCase().includes(approverQ) ||
+            p.role.toLowerCase().includes(approverQ) ||
+            p.dept.toLowerCase().includes(approverQ),
+        )
+        .filter((p) => !approvers.includes(`${p.name} ${p.role}`))
+        .slice(0, 6)
+    : [];
+
+  const addApprover = (p: (typeof people)[number]) => {
+    const v = `${p.name} ${p.role}`;
+    setApprovers((prev) => (prev.includes(v) ? prev : [...prev, v]));
+    setApproverQuery("");
+    setApproverOpen(false);
   };
 
   const buildReason = () => {
@@ -456,27 +477,59 @@ export default function DraftPage() {
             ))}
           </div>
 
-          <div className="mt-2.5 flex gap-1.5">
-            <input
-              value={approverDraft}
-              onChange={(e) => setApproverDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  addApprover();
-                }
-              }}
-              placeholder="결재자 이름 입력 후 Enter (예: 김세진 팀장)"
-              className={cn(inputCls, "h-8.5 flex-1")}
-            />
-            <button
-              type="button"
-              onClick={addApprover}
-              className="flex h-8.5 items-center gap-1 rounded-[9px] border border-border bg-card px-2.5 text-[11.5px] font-semibold text-primary hover:bg-[#f5f6ff]"
-            >
-              <Plus className="size-3" strokeWidth={2.2} />
-              추가
-            </button>
+          <div className="relative mt-2.5">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <input
+                value={approverQuery}
+                onChange={(e) => {
+                  setApproverQuery(e.target.value);
+                  setApproverOpen(true);
+                }}
+                onFocus={() => setApproverOpen(true)}
+                onBlur={() => setTimeout(() => setApproverOpen(false), 120)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    if (approverMatches[0]) addApprover(approverMatches[0]);
+                  }
+                }}
+                placeholder="구성원 이름·직급·부서로 검색"
+                className={cn(inputCls, "h-8.5 pl-8")}
+              />
+            </div>
+            {approverOpen && approverQ && (
+              <div className="absolute z-10 mt-1.5 w-full overflow-hidden rounded-[10px] border border-border bg-card shadow-[var(--shadow-pop)]">
+                {approverMatches.length === 0 ? (
+                  <div className="px-3 py-3 text-center text-[12px] text-muted-foreground">
+                    일치하는 구성원이 없습니다
+                  </div>
+                ) : (
+                  approverMatches.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => addApprover(p)}
+                      className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[12.5px] hover:bg-secondary"
+                    >
+                      <span style={avatarStyle(p.name.charAt(0), 26)}>
+                        {p.name.charAt(0)}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">
+                          {p.name} {p.role}
+                        </span>
+                        <span className="block truncate text-[11px] text-muted-foreground">
+                          {p.dept}
+                        </span>
+                      </span>
+                      <Plus className="size-3.5 shrink-0 text-primary" strokeWidth={2.2} />
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
           </div>
         </GwCard>
       </div>

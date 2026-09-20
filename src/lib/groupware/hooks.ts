@@ -12,6 +12,7 @@ import {
   onSnapshot,
   orderBy,
   query,
+  serverTimestamp,
   setDoc,
   updateDoc,
   where,
@@ -40,7 +41,6 @@ import {
   BOARD,
   NOTICE_ALL,
   NOTICE_PINNED,
-  PEOPLE,
   type Person,
 } from "./data";
 import {
@@ -59,6 +59,7 @@ import {
   type NoticeDoc,
   type SessionDoc,
   type TaskDoc,
+  type TeamDoc,
   type WorkspaceDoc,
 } from "./firestore";
 
@@ -70,15 +71,17 @@ const two = (n: number) => String(n).padStart(2, "0");
 
 export function useCurrentUser() {
   const { authUser, profile, loading, logout } = useAuthUser();
+  const { teams } = useTeams();
   const email = profile?.email ?? authUser?.email ?? null;
   const name =
     profile?.name ||
     authUser?.displayName ||
     (email ? email.split("@")[0] : "게스트");
+  const team = teams.find((t) => t.id === profile?.teamId)?.name ?? "";
   return {
     name,
     role: profile?.position ?? "",
-    team: profile?.departmentId ?? "",
+    team,
     email,
     initial: name.charAt(0).toUpperCase(),
     isAuthed: !!authUser,
@@ -531,8 +534,12 @@ export function useApprovals() {
   const [added, setAdded] = React.useState<ApprovalDoc[]>([]);
 
   const data = React.useMemo(() => {
-    const extra = added.filter((a) => !state.data.some((d) => d.no === a.no));
-    return [...state.data, ...extra];
+    // Firestore 문서 데이터엔 "no" 필드가 없을 수 있어(id만 있음) 문서 id로 보정
+    const base = state.data.map((r) =>
+      r.no ? r : { ...r, no: (r as unknown as { id: string }).id },
+    );
+    const extra = added.filter((a) => !base.some((d) => d.no === a.no));
+    return [...base, ...extra];
   }, [state.data, added]);
 
   const createApproval = React.useCallback(
@@ -540,7 +547,8 @@ export function useApprovals() {
       const now = new Date();
       const date = `${two(now.getMonth() + 1)}.${two(now.getDate())}`;
       const author = me.role ? `${me.name} ${me.role}` : me.name;
-      const payload: Omit<ApprovalDoc, "no"> = {
+      const payload: ApprovalDoc = {
+        no: input.no,
         type: input.type,
         title: input.title,
         author,
@@ -557,7 +565,7 @@ export function useApprovals() {
           : {}),
         ...(input.reason ? { reason: input.reason } : {}),
       };
-      setAdded((p) => [...p, { no: input.no, ...payload }]);
+      setAdded((p) => [...p, payload]);
       if (isFirebaseConfigured) {
         await setDoc(doc(firebaseDb(), COL.approvals, input.no), payload);
       }
@@ -785,7 +793,7 @@ export function useBookings() {
       to: number;
       title: string;
       purpose?: string;
-      attendees?: number[];
+      attendees?: string[];
       video?: boolean;
       provider?: string;
     }) => {
@@ -827,47 +835,172 @@ export function useBookings() {
 /*  조직도                                                              */
 /* ------------------------------------------------------------------ */
 
-export function useOrgPeople() {
-  const { data, loading, source } = useGwCollection<Person & { id: number }>(
-    COL.people,
-    PEOPLE,
-    "id",
-  );
-  // Firestore 에서 온 경우 id 가 문자열일 수 있어 정규화
-  const people = React.useMemo(
-    () => data.map((p) => ({ ...p, id: Number(p.id), tags: p.tags ?? [] })),
-    [data],
-  );
+export interface TeamInput {
+  name: string;
+  parentId: string | null;
+}
 
-  const addPerson = React.useCallback(
-    async (input: Omit<Person, "id">) => {
+/** 부서/팀 편제 — teams/{id} (parentId 로 본부-팀 계층) */
+export function useTeams() {
+  const state = useGwCollection<TeamDoc>(COL.teams, [], "order");
+
+  const addTeam = React.useCallback(
+    async (input: TeamInput) => {
       if (!isFirebaseConfigured) return;
-      const nextId = people.length
-        ? Math.max(...people.map((p) => p.id)) + 1
-        : 1;
-      await setDoc(doc(firebaseDb(), COL.people, String(nextId)), {
-        id: nextId,
-        ...input,
+      const id = String(Date.now());
+      const order =
+        Math.max(-1, ...state.data.map((t) => t.order)) + 1;
+      await setDoc(doc(firebaseDb(), COL.teams, id), {
+        name: input.name,
+        parentId: input.parentId,
+        order,
       });
-      return nextId;
+      return id;
     },
-    [people],
+    [state.data],
   );
 
-  const updatePerson = React.useCallback(
-    async (id: number, patch: Partial<Omit<Person, "id">>) => {
+  const updateTeam = React.useCallback(
+    async (id: string, patch: Partial<TeamInput>) => {
       if (!isFirebaseConfigured) return;
-      await updateDoc(doc(firebaseDb(), COL.people, String(id)), patch);
+      await updateDoc(doc(firebaseDb(), COL.teams, id), patch);
     },
     [],
   );
 
-  const removePerson = React.useCallback(async (id: number) => {
+  const removeTeam = React.useCallback(async (id: string) => {
     if (!isFirebaseConfigured) return;
-    await deleteDoc(doc(firebaseDb(), COL.people, String(id)));
+    await deleteDoc(doc(firebaseDb(), COL.teams, id));
   }, []);
 
-  return { people, loading, source, addPerson, updatePerson, removePerson };
+  return {
+    teams: state.data,
+    loading: state.loading,
+    source: state.source,
+    addTeam,
+    updateTeam,
+    removeTeam,
+  };
+}
+
+export interface PersonInput {
+  name: string;
+  role: string;
+  teamId: string | null;
+  email: string;
+  ext: string;
+  mobile: string;
+  status: Person["status"];
+  boss: string | null;
+  tags: string[];
+}
+
+/**
+ * 임직원 디렉토리 — Firestore `users` 컬렉션이 단일 소스입니다(가계정은
+ * `users/{placeholder-…}`, status: "PLACEHOLDER"). `teams` 와 합쳐서 조직도
+ * 화면이 쓰는 `Person` 모양으로 변환해 돌려줍니다.
+ *
+ * useGwCollection 의 orderField 는 반드시 모든 문서에 항상 있는 필드여야
+ * 합니다 — UserDoc 에는 "id"/"order" 필드가 없어 그걸 넘기면 Firestore 가
+ * 문서를 전부 결과에서 제외해 목록이 조용히 비어버립니다("name" 사용).
+ */
+export function useOrgPeople() {
+  const state = useGwCollection<UserDoc>(COL.users, [], "name");
+  const { teams } = useTeams();
+
+  const deptOf = React.useCallback(
+    (teamId: string | null): string => {
+      if (!teamId) return "미배정";
+      const team = teams.find((t) => t.id === teamId);
+      if (!team) return "미배정";
+      if (team.parentId) {
+        const parent = teams.find((t) => t.id === team.parentId);
+        return parent ? `${parent.name} · ${team.name}` : team.name;
+      }
+      return team.name;
+    },
+    [teams],
+  );
+
+  const people: Person[] = React.useMemo(
+    () =>
+      state.data.map((u) => {
+        const team = teams.find((t) => t.id === u.teamId);
+        return {
+          id: u.uid,
+          name: u.name,
+          role: u.position,
+          teamId: u.teamId,
+          dept: deptOf(u.teamId),
+          team: team?.name ?? deptOf(u.teamId),
+          email: u.email,
+          ext: u.extensionNumber ?? "",
+          mobile: u.phone,
+          status: u.presence ?? "online",
+          boss: u.managerId,
+          tags: u.tasks ?? [],
+          placeholder: u.status === "PLACEHOLDER",
+        };
+      }),
+    [state.data, teams, deptOf],
+  );
+
+  const addPerson = React.useCallback(async (input: PersonInput) => {
+    if (!isFirebaseConfigured) return;
+    const id = `placeholder-${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
+    const payload: UserDoc = {
+      uid: id,
+      email: input.email,
+      name: input.name,
+      teamId: input.teamId,
+      managerId: input.boss,
+      position: input.role,
+      employeeId: "",
+      joinedAt: new Date(),
+      phone: input.mobile,
+      extensionNumber: input.ext || null,
+      tasks: input.tags,
+      presence: input.status,
+      role: "MEMBER",
+      status: "PLACEHOLDER",
+      createdAt: serverTimestamp() as unknown as UserDoc["createdAt"],
+      updatedAt: serverTimestamp() as unknown as UserDoc["updatedAt"],
+    };
+    await setDoc(doc(firebaseDb(), COL.users, id), payload);
+    return id;
+  }, []);
+
+  const updatePerson = React.useCallback(
+    async (id: string, patch: Partial<PersonInput>) => {
+      if (!isFirebaseConfigured) return;
+      const data: Record<string, unknown> = { updatedAt: serverTimestamp() };
+      if (patch.name !== undefined) data.name = patch.name;
+      if (patch.role !== undefined) data.position = patch.role;
+      if (patch.teamId !== undefined) data.teamId = patch.teamId;
+      if (patch.email !== undefined) data.email = patch.email;
+      if (patch.ext !== undefined) data.extensionNumber = patch.ext || null;
+      if (patch.mobile !== undefined) data.phone = patch.mobile;
+      if (patch.status !== undefined) data.presence = patch.status;
+      if (patch.boss !== undefined) data.managerId = patch.boss;
+      if (patch.tags !== undefined) data.tasks = patch.tags;
+      await updateDoc(doc(firebaseDb(), COL.users, id), data);
+    },
+    [],
+  );
+
+  const removePerson = React.useCallback(async (id: string) => {
+    if (!isFirebaseConfigured) return;
+    await deleteDoc(doc(firebaseDb(), COL.users, id));
+  }, []);
+
+  return {
+    people,
+    loading: state.loading,
+    source: state.source,
+    addPerson,
+    updatePerson,
+    removePerson,
+  };
 }
 
 /* ------------------------------------------------------------------ */

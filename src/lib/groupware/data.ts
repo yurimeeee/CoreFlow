@@ -5,23 +5,34 @@
  * 각 화면은 빈 상태(empty state)를 그립니다.
  * 아래 값들은 "데이터"가 아니라 화면이 동작하는 데 필요한 구조(타입), 색상
  * 매핑, 필터·탭 옵션 라벨입니다. 조직 편제(부서 트리·본부/팀 branches)는
- * `org-tree.ts`가 실제 `orgPeople` 목록에서 계산합니다.
+ * `org-tree.ts`가 `users` + `teams` 컬렉션에서 계산합니다.
  */
 
 export type PersonStatus = "online" | "remote" | "away" | "leave";
 
+/**
+ * 조직도 화면이 쓰는 인물 모양 — `useOrgPeople()`이 `users`(+`teams`) 문서를
+ * 이 모양으로 변환해 돌려줍니다(id = uid, boss = managerId). Firestore 원본
+ * 문서 타입이 아니라 UI 어댑터 타입입니다.
+ */
 export interface Person {
-  id: number;
+  id: string;
   name: string;
   role: string;
+  /** 소속 팀 id (teams/{id}), 미배정이면 null */
+  teamId: string | null;
+  /** "본부 · 팀" 형태의 표시용 문자열 (teamId 를 teams 트리에서 해석) */
   dept: string;
+  /** 리프 팀 이름만 (필터/트리 표시용) */
   team: string;
   email: string;
   ext: string;
   mobile: string;
   status: PersonStatus;
-  boss: number | null;
+  boss: string | null;
   tags: string[];
+  /** 가계정(아직 미입사) 여부 */
+  placeholder?: boolean;
 }
 
 export const STATUS_META: Record<
@@ -33,11 +44,6 @@ export const STATUS_META: Record<
   away: { label: "회의 중", color: "#f59e0b", pillBg: "#fff7ed", pillFg: "#c2410c" },
   leave: { label: "연차", color: "#94a3b8", pillBg: "#f1f5f9", pillFg: "#475569" },
 };
-
-/** 조직도 인물 목록 — Firestore `orgPeople` 컬렉션이 실제 데이터 소스입니다. */
-export const PEOPLE: Person[] = [];
-
-export const personById = (id: number) => PEOPLE.find((p) => p.id === id);
 
 /* ---------------- 대시보드 ---------------- */
 

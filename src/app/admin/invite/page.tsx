@@ -1,7 +1,9 @@
 "use client";
 
 import * as React from "react";
+import { Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   addDoc,
   collection,
@@ -11,6 +13,7 @@ import {
 import { Copy, Link2, Loader2, Send, Sparkles } from "lucide-react";
 import { firebaseAuth, firebaseDb, isFirebaseConfigured } from "@/lib/firebase";
 import { useAuthUser } from "@/hooks/useAuthUser";
+import { useOrgPeople, useTeams } from "@/lib/groupware/hooks";
 import { AuthShell } from "@/components/layout/AuthShell";
 import { Forbidden } from "@/components/app/Forbidden";
 import { Card, CardContent } from "@/components/ui/card";
@@ -24,12 +27,31 @@ import type { UserRole } from "@/types/user";
  * 실제 운영에서는 관리자 인증 + 서버(Admin SDK) 또는 Firestore 보안 규칙으로 보호하세요.
  */
 export default function AdminInvitePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-dvh items-center justify-center">
+          <Loader2 className="size-6 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <AdminInviteClient />
+    </Suspense>
+  );
+}
+
+function AdminInviteClient() {
   const { profile } = useAuthUser();
+  const { teams } = useTeams();
+  const { people } = useOrgPeople();
+  const searchParams = useSearchParams();
+  const fromPlaceholder = searchParams.get("fromPlaceholder");
+
   const [form, setForm] = React.useState({
     email: "",
     employeeId: "",
-    departmentId: "",
-    departmentName: "",
+    teamId: "",
+    managerId: "",
     position: "",
     role: "MEMBER" as UserRole,
     requireApproval: true,
@@ -42,6 +64,16 @@ export default function AdminInvitePage() {
 
   const upd = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) =>
     setForm((p) => ({ ...p, [k]: v }));
+
+  // 가계정 프로필에서 "초대 링크 만들기"로 들어온 경우 이름·팀·상사를 기본값으로 미리 보여줌
+  // (아직 직접 입력을 안 건드린 필드에 한해 — people 은 비동기로 로드되므로 폼 상태에
+  // 동기화하는 대신 읽을 때 폴백으로 사용)
+  const placeholder = fromPlaceholder
+    ? people.find((p) => p.id === fromPlaceholder)
+    : undefined;
+  const teamIdValue = form.teamId || placeholder?.teamId || "";
+  const managerIdValue = form.managerId || placeholder?.boss || "";
+  const positionValue = form.position || placeholder?.role || "";
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,13 +97,15 @@ export default function AdminInvitePage() {
       const expiresAt = Timestamp.fromDate(
         new Date(Date.now() + form.expiresInDays * 86_400_000),
       );
+      const teamName = teams.find((t) => t.id === teamIdValue)?.name ?? "";
       await addDoc(collection(firebaseDb(), "invites"), {
         token,
         email: form.email.trim().toLowerCase(),
         employeeId: form.employeeId.trim(),
-        departmentId: form.departmentId.trim(),
-        departmentName: form.departmentName.trim(),
-        position: form.position.trim(),
+        teamId: teamIdValue || null,
+        teamName,
+        managerId: managerIdValue || null,
+        position: positionValue.trim(),
         role: form.role,
         status: "INVITED",
         requireApproval: form.requireApproval,
@@ -145,27 +179,42 @@ export default function AdminInvitePage() {
                   required
                 />
               </Field>
-              <Field id="i-deptid" label="부서 ID" required>
-                <Input
-                  id="i-deptid"
-                  value={form.departmentId}
-                  onChange={(e) => upd("departmentId", e.target.value)}
-                  placeholder="dept-frontend"
-                  required
-                />
+              <Field id="i-team" label="소속 팀">
+                <select
+                  id="i-team"
+                  value={teamIdValue}
+                  onChange={(e) => upd("teamId", e.target.value)}
+                  className="h-11 w-full rounded-[var(--radius-md)] border border-input bg-card px-3 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                >
+                  <option value="">미배정</option>
+                  {teams.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
               </Field>
-              <Field id="i-deptname" label="부서명">
-                <Input
-                  id="i-deptname"
-                  value={form.departmentName}
-                  onChange={(e) => upd("departmentName", e.target.value)}
-                  placeholder="프론트엔드팀"
-                />
+              <Field id="i-manager" label="직속 상사">
+                <select
+                  id="i-manager"
+                  value={managerIdValue}
+                  onChange={(e) => upd("managerId", e.target.value)}
+                  className="h-11 w-full rounded-[var(--radius-md)] border border-input bg-card px-3 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                >
+                  <option value="">없음 (최상위)</option>
+                  {people
+                    .filter((p) => !p.placeholder)
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} · {p.role}
+                      </option>
+                    ))}
+                </select>
               </Field>
               <Field id="i-pos" label="직급 / 직책" required>
                 <Input
                   id="i-pos"
-                  value={form.position}
+                  value={positionValue}
                   onChange={(e) => upd("position", e.target.value)}
                   placeholder="선임 / 파트장"
                   required

@@ -75,8 +75,7 @@ export default function SeedPage() {
 
           <div className="rounded-[var(--radius-md)] bg-secondary px-3.5 py-3 text-[13px] text-muted-foreground">
             총 <b className="text-secondary-foreground">{total}개</b> 문서 ·
-            컬렉션 <code className="font-mono text-xs">orgPeople</code>{" "}
-            <code className="font-mono text-xs">notices</code>{" "}
+            컬렉션 <code className="font-mono text-xs">notices</code>{" "}
             <code className="font-mono text-xs">tasks</code>{" "}
             <code className="font-mono text-xs">approvals</code>{" "}
             <code className="font-mono text-xs">bookings</code>{" "}

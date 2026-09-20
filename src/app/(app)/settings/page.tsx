@@ -45,6 +45,7 @@ import {
   useGwSettings,
   usePendingUsers,
   useSessions,
+  useTeams,
   useTwoFactor,
   useWorkspace,
 } from "@/lib/groupware/hooks";
@@ -144,6 +145,8 @@ export default function SettingsPage() {
   const { profile, canSave, save, uploadImage, clearImage } = useGwSettings();
   const { data: workspace, save: saveWorkspace } = useWorkspace();
   const me = useCurrentUser();
+  const { teams } = useTeams();
+  const myTeamName = teams.find((t) => t.id === profile?.teamId)?.name;
   const twoFactor = useTwoFactor();
   const [twoFAModal, setTwoFAModal] = React.useState<"setup" | "disable" | null>(
     null,
@@ -372,7 +375,7 @@ export default function SettingsPage() {
                   />
                 </Field>
                 <Field label="부서" readOnly>
-                  <ReadOnly>{profile?.departmentId || "미배정"}</ReadOnly>
+                  <ReadOnly>{myTeamName || "미배정"}</ReadOnly>
                 </Field>
                 <Field label="직급" readOnly>
                   <ReadOnly>{profile?.position || "미배정"}</ReadOnly>
@@ -429,7 +432,7 @@ export default function SettingsPage() {
                           {name.split("").join(" ")}
                         </div>
                         <div className="text-[11px] text-muted-foreground">
-                          {profile?.departmentId || "부서 미배정"}
+                          {myTeamName || "부서 미배정"}
                           {profile?.position ? ` · ${profile.position}` : ""}
                         </div>
                       </>
@@ -1001,6 +1004,7 @@ function CompanyInfoCard() {
 
 function PendingMembersCard() {
   const { data, loading, approve, reject } = usePendingUsers();
+  const { teams } = useTeams();
   const [busy, setBusy] = React.useState<string | null>(null);
 
   const act = async (uid: string, fn: (uid: string) => Promise<void>) => {
@@ -1043,7 +1047,7 @@ function PendingMembersCard() {
               </span>
             </div>
             <div className="mt-0.5 truncate text-[11.5px] text-muted-foreground">
-              {m.email} · {m.departmentId || "부서 미배정"}
+              {m.email} · {teams.find((t) => t.id === m.teamId)?.name || "부서 미배정"}
             </div>
           </div>
           <div className="flex gap-1.5">

@@ -2,13 +2,14 @@
  * CoreFlow 그룹웨어 — Firestore 컬렉션 정의 · 시드 페이로드
  *
  * 컬렉션
- *   orgPeople/{id}      임직원 디렉토리 (id = "0".."13")
+ *   teams/{id}          부서/팀 편제 (parentId 로 본부-팀 계층 구성)
  *   notices/{id}        공지사항
  *   tasks/{id}          프로젝트 Task (칸반 카드, colKey 로 컬럼 구분)
  *   approvals/{no}      전자결재 문서 (id = 문서번호)
  *   bookings/{id}       회의실 · 자원 예약
  *   attendance/{uid}    사용자별 출퇴근 상태 (본인만 읽기/쓰기)
- *   users/{uid}         로그인 사용자 프로필 + gwSettings (기존)
+ *   users/{uid}         로그인 사용자 프로필 + gwSettings — 조직도(임직원 디렉토리)의 단일 소스.
+ *                        가계정(아직 미입사)은 users/{placeholder-<random>} 로 존재(status: "PLACEHOLDER")
  *   workspace/main      회사(워크스페이스) 기본 정보 — 관리자만 쓰기
  */
 import {
@@ -19,12 +20,11 @@ import {
   SEED_BOOKINGS,
   SEED_NOTICE_ALL,
   SEED_NOTICE_PINNED,
-  SEED_PEOPLE,
   SEED_WORKSPACE,
 } from "./seed-data";
 
 export const COL = {
-  people: "orgPeople",
+  teams: "teams",
   notices: "notices",
   tasks: "tasks",
   approvals: "approvals",
@@ -136,10 +136,18 @@ export interface BookingDoc {
   who: string; // 예약자 이름
   date: string; // yyyy-mm-dd
   purpose?: string;
-  attendees?: number[]; // orgPeople id 목록
+  attendees?: string[]; // 참석자 uid 목록 (users/{uid})
   video?: boolean;
   provider?: string; // Google Meet | Zoom
   order: number; // 정렬용 = from
+}
+
+/** 부서/팀 편제 — parentId 로 본부(최상위) - 팀 2단 계층을 구성 */
+export interface TeamDoc {
+  id: string;
+  name: string;
+  parentId: string | null; // null = 본부(최상위)
+  order: number;
 }
 
 export interface AttendanceDoc {
@@ -273,11 +281,6 @@ export interface SeedDoc {
 export function buildSeed(): SeedDoc[] {
   const out: SeedDoc[] = [];
 
-  /* 임직원 디렉토리 — orgPeople/{id} */
-  SEED_PEOPLE.forEach((p) => {
-    out.push({ collection: COL.people, id: String(p.id), data: { ...p } });
-  });
-
   /* 공지 — 필독 고정 (pinned-*) + 일반 (n-*) */
   SEED_NOTICE_PINNED.forEach((p, i) => {
     out.push({
@@ -366,6 +369,7 @@ export function buildSeed(): SeedDoc[] {
         collection: COL.approvals,
         id: r.no,
         data: {
+          no: r.no,
           type: r.type,
           title: r.title,
           author: r.author,
@@ -393,7 +397,6 @@ export function buildSeed(): SeedDoc[] {
         who: bk.who,
         date: SEED_BOOKING_DATE,
         purpose: bk.purpose,
-        attendees: bk.attendees,
         video: bk.video,
         provider: bk.provider,
         order: bk.from,

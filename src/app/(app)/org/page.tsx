@@ -26,8 +26,18 @@ import {
   type Person,
   type PersonStatus,
 } from "@/lib/groupware/data";
-import { buildOrgStructure } from "@/lib/groupware/org-tree";
-import { useOrgPeople, useWorkspace } from "@/lib/groupware/hooks";
+import {
+  buildOrgStructure,
+  personMatchesDeptFilter,
+  ROOT_FILTER,
+} from "@/lib/groupware/org-tree";
+import { useAuthUser } from "@/hooks/useAuthUser";
+import {
+  useOrgPeople,
+  useTeams,
+  useWorkspace,
+  type PersonInput,
+} from "@/lib/groupware/hooks";
 import { avatarStyle, pill, statusDot, statusPill } from "@/lib/groupware/ui";
 import { GwCard, PageHeader, Segmented } from "@/components/app/primitives";
 import { EmptyState } from "@/components/app/EmptyState";
@@ -42,9 +52,10 @@ const STATUS_OPTIONS: { value: PersonStatus; label: string }[] = [
 export default function OrgPage() {
   const [view, setView] = React.useState<"grid" | "tree">("grid");
   const [query, setQuery] = React.useState("");
-  const [dept, setDept] = React.useState("전체");
-  const [profileId, setProfileId] = React.useState<number | null>(null);
+  const [dept, setDept] = React.useState(ROOT_FILTER);
+  const [profileId, setProfileId] = React.useState<string | null>(null);
   const [addOpen, setAddOpen] = React.useState(false);
+  const [assignTeamId, setAssignTeamId] = React.useState<string | null>(null);
   const {
     people: directory,
     source,
@@ -52,37 +63,44 @@ export default function OrgPage() {
     updatePerson,
     removePerson,
   } = useOrgPeople();
+  const { teams, addTeam, updateTeam, removeTeam } = useTeams();
   const { data: workspace } = useWorkspace();
+  const { profile } = useAuthUser();
+  const isAdmin = profile?.role === "ADMIN" || profile?.role === "SUPER_ADMIN";
 
   const { deptTree, branches, filters } = React.useMemo(
     () =>
       buildOrgStructure(
         directory,
+        teams,
         `${workspace.name || "전체 조직"} (대표이사)`,
       ),
-    [directory, workspace.name],
+    [directory, teams, workspace.name],
   );
 
   const byId = React.useCallback(
-    (id: number) => directory.find((p) => p.id === id),
+    (id: string) => directory.find((p) => p.id === id),
     [directory],
   );
 
+  // 대표이사(최상위)는 boss===null 인 "그 한 사람"으로 판정. 가계정은 직속상사를
+  // 아직 안 정했을 뿐이라 boss===null 이어도 CEO 후보에서 제외.
+  const ceo = directory.find((p) => p.boss === null && !p.placeholder) ?? null;
+
   const q = query.trim().toLowerCase();
   const people = directory
-    .filter((p) => p.id !== 0)
+    .filter((p) => p.id !== ceo?.id)
     .filter(
       (p) =>
-        (dept === "전체" || p.team === dept || p.dept.includes(dept)) &&
+        personMatchesDeptFilter(p, dept, teams) &&
         (!q ||
           (p.name + p.role + p.dept + (p.tags ?? []).join(" "))
             .toLowerCase()
             .includes(q)),
     );
-
-  const ceo = byId(0);
   const ceoInitial = (ceo?.name || workspace.ceo || "대").charAt(0);
   const selected = profileId === null ? null : byId(profileId);
+  const assignTeam = assignTeamId ? teams.find((t) => t.id === assignTeamId) : null;
 
   return (
     <div className="mx-auto flex max-w-[1440px] flex-col gap-4">
@@ -140,18 +158,18 @@ export default function OrgPage() {
           />
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {filters.map((d) => (
+          {filters.map((f) => (
             <button
-              key={d}
-              onClick={() => setDept(d)}
+              key={f.key}
+              onClick={() => setDept(f.key)}
               className={cn(
                 "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
-                dept === d
+                dept === f.key
                   ? "border-primary bg-primary text-white"
                   : "border-border bg-card text-secondary-foreground hover:bg-secondary",
               )}
             >
-              {d}
+              {f.name}
             </button>
           ))}
         </div>
@@ -168,12 +186,17 @@ export default function OrgPage() {
             </div>
             {deptTree.map((d) => {
               const active = dept === d.key;
+              const isTeam = d.depth > 0;
               return (
-                <div key={d.name} style={{ paddingLeft: d.depth * 12 }}>
+                <div
+                  key={d.key}
+                  className="group flex items-center gap-0.5"
+                  style={{ paddingLeft: d.depth * 12 }}
+                >
                   <button
                     onClick={() => setDept(d.key)}
                     className={cn(
-                      "flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12.5px] tracking-[-0.01em] transition-colors",
+                      "flex min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12.5px] tracking-[-0.01em] transition-colors",
                       active
                         ? "bg-accent font-semibold text-accent-foreground"
                         : "font-medium text-secondary-foreground hover:bg-secondary",
@@ -209,9 +232,47 @@ export default function OrgPage() {
                       {d.count}
                     </span>
                   </button>
+                  {isAdmin && isTeam && (
+                    <div className="flex shrink-0 opacity-0 transition-opacity group-hover:opacity-100">
+                      <button
+                        title="구성원 추가"
+                        onClick={() => setAssignTeamId(d.key)}
+                        className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-secondary-foreground"
+                      >
+                        <UserPlus className="size-3" />
+                      </button>
+                      <button
+                        title="이름 변경"
+                        onClick={() => {
+                          const next = window.prompt("팀 이름", d.name);
+                          if (next?.trim()) updateTeam(d.key, { name: next.trim() });
+                        }}
+                        className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-secondary-foreground"
+                      >
+                        <Pencil className="size-3" />
+                      </button>
+                      <button
+                        title="팀 삭제"
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              `"${d.name}" 팀을 삭제할까요? 소속 인원의 팀 배정은 해제됩니다.`,
+                            )
+                          ) {
+                            removeTeam(d.key);
+                            if (dept === d.key) setDept(ROOT_FILTER);
+                          }
+                        }}
+                        className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-[#fef2f2] hover:text-[#b91c1c]"
+                      >
+                        <Trash2 className="size-3" />
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}
+            {isAdmin && <AddTeamForm teams={teams} onAdd={addTeam} />}
           </GwCard>
         </aside>
 
@@ -257,8 +318,9 @@ export default function OrgPage() {
             <GwCard className="overflow-x-auto p-6">
               <div className="flex min-w-[720px] flex-col items-center">
                 <button
-                  onClick={() => setProfileId(0)}
-                  className="w-[214px] rounded-xl bg-[#1e293b] p-3.5 text-left shadow-[0_6px_16px_rgba(15,23,42,0.18)] transition-transform hover:-translate-y-0.5"
+                  onClick={() => ceo && setProfileId(ceo.id)}
+                  disabled={!ceo}
+                  className="w-[214px] rounded-xl bg-[#1e293b] p-3.5 text-left shadow-[0_6px_16px_rgba(15,23,42,0.18)] transition-transform hover:-translate-y-0.5 disabled:cursor-default disabled:opacity-70"
                 >
                   <div className="flex items-center gap-2.5">
                     <span
@@ -282,11 +344,10 @@ export default function OrgPage() {
                 <div className="h-5 w-px bg-[#cbd5e1]" />
                 <div className="flex w-full items-stretch">
                   {branches.map((b, i) => {
-                    const head = byId(b.head);
-                    if (!head) return null;
+                    const head = b.headId ? byId(b.headId) : undefined;
                     return (
                       <div
-                        key={b.dept}
+                        key={b.divisionId}
                         className="relative flex flex-1 flex-col items-center"
                       >
                         <div
@@ -297,46 +358,57 @@ export default function OrgPage() {
                           }}
                         />
                         <div className="h-5 w-px bg-[#cbd5e1]" />
-                        <button
-                          onClick={() => setProfileId(head.id)}
-                          className="w-full max-w-[190px] rounded-[11px] border border-border bg-card p-3 text-left transition-all hover:-translate-y-0.5 hover:border-ring"
-                        >
-                          <div className="flex items-center gap-2">
-                            <div className="relative">
-                              <span style={avatarStyle(head.name.charAt(0), 34)}>
-                                {head.name.charAt(0)}
-                              </span>
-                              <span style={statusDot(head.status, 10, 2)} />
+                        {head ? (
+                          <button
+                            onClick={() => setProfileId(head.id)}
+                            className="w-full max-w-[190px] rounded-[11px] border border-border bg-card p-3 text-left transition-all hover:-translate-y-0.5 hover:border-ring"
+                          >
+                            <div className="flex items-center gap-2">
+                              <div className="relative">
+                                <span style={avatarStyle(head.name.charAt(0), 34)}>
+                                  {head.name.charAt(0)}
+                                </span>
+                                <span style={statusDot(head.status, 10, 2)} />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate text-[12.5px] font-semibold">
+                                  {head.name}
+                                </div>
+                                <div className="mt-0.5 text-[11px] text-muted-foreground">
+                                  {head.role}
+                                </div>
+                              </div>
                             </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="truncate text-[12.5px] font-semibold">
-                                {head.name}
-                              </div>
-                              <div className="mt-0.5 text-[11px] text-muted-foreground">
-                                {head.role}
-                              </div>
+                            <div className="mt-2 text-[11px] font-semibold text-primary">
+                              {b.divisionName}
+                            </div>
+                          </button>
+                        ) : (
+                          <div className="w-full max-w-[190px] rounded-[11px] border border-dashed border-[#cbd5e1] p-3 text-left">
+                            <div className="text-[12.5px] font-semibold text-muted-foreground">
+                              본부장 미배정
+                            </div>
+                            <div className="mt-2 text-[11px] font-semibold text-primary">
+                              {b.divisionName}
                             </div>
                           </div>
-                          <div className="mt-2 text-[11px] font-semibold text-primary">
-                            {b.dept}
-                          </div>
-                        </button>
+                        )}
                         <div className="h-4 w-px bg-border" />
                         <div className="flex w-full max-w-[190px] flex-col gap-1.5 border-l border-border pl-3">
-                          {b.teams.map(([name, count]) => (
+                          {b.teams.map((t) => (
                             <button
-                              key={name}
+                              key={t.id}
                               onClick={() => {
-                                setDept(name);
+                                setDept(t.id);
                                 setView("grid");
                               }}
                               className="flex items-center gap-2 rounded-[9px] border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-secondary-foreground hover:bg-secondary"
                             >
                               <span className="flex-1 truncate text-left">
-                                {name}
+                                {t.name}
                               </span>
                               <span className="rounded-full bg-[#f1f5f9] px-1.5 py-0.5 text-[10.5px] font-semibold tabular-nums text-secondary-foreground">
-                                {count}
+                                {t.count}
                               </span>
                             </button>
                           ))}
@@ -355,6 +427,8 @@ export default function OrgPage() {
         <ProfileDrawer
           person={selected}
           directory={directory}
+          teams={teams}
+          ceoId={ceo?.id ?? null}
           onClose={() => setProfileId(null)}
           onOpen={setProfileId}
           onSave={(patch) => updatePerson(selected.id, patch)}
@@ -368,6 +442,7 @@ export default function OrgPage() {
       {addOpen && (
         <AddPersonModal
           directory={directory}
+          teams={teams}
           onClose={() => setAddOpen(false)}
           onSubmit={async (input) => {
             await addPerson(input);
@@ -375,32 +450,211 @@ export default function OrgPage() {
           }}
         />
       )}
+
+      {assignTeam && (
+        <AssignMemberModal
+          team={assignTeam}
+          directory={directory}
+          onClose={() => setAssignTeamId(null)}
+          onAssign={async (personId) => {
+            await updatePerson(personId, { teamId: assignTeam.id });
+            setAssignTeamId(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function AddTeamForm({
+  teams,
+  onAdd,
+}: {
+  teams: { id: string; name: string; parentId: string | null }[];
+  onAdd: (input: { name: string; parentId: string | null }) => Promise<unknown>;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [name, setName] = React.useState("");
+  const [parentId, setParentId] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const divisions = teams.filter((t) => t.parentId === null);
+
+  const submit = async () => {
+    if (!name.trim() || saving) return;
+    setSaving(true);
+    try {
+      await onAdd({ name: name.trim(), parentId: parentId || null });
+      setName("");
+      setParentId("");
+      setOpen(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="mt-1.5 flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12.5px] font-medium text-primary hover:bg-secondary"
+      >
+        <Plus className="size-3.5" />팀 추가
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-1.5 flex flex-col gap-1.5 rounded-lg border border-border p-2">
+      <input
+        autoFocus
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="팀 이름"
+        className="h-8 w-full rounded-md border border-border bg-card px-2 text-[12.5px] focus-visible:outline-none"
+      />
+      <select
+        value={parentId}
+        onChange={(e) => setParentId(e.target.value)}
+        className="h-8 w-full rounded-md border border-border bg-card px-2 text-[12.5px] focus-visible:outline-none"
+      >
+        <option value="">본부(최상위)로 만들기</option>
+        {divisions.map((d) => (
+          <option key={d.id} value={d.id}>
+            {d.name} 밑에 팀으로 추가
+          </option>
+        ))}
+      </select>
+      <div className="flex gap-1.5">
+        <button
+          onClick={() => setOpen(false)}
+          className="h-7.5 flex-1 rounded-md border border-border bg-card text-[11.5px] font-semibold text-muted-foreground hover:bg-secondary"
+        >
+          취소
+        </button>
+        <button
+          onClick={submit}
+          disabled={!name.trim() || saving}
+          className="h-7.5 flex-[2] rounded-md bg-primary text-[11.5px] font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
+        >
+          {saving ? "추가 중…" : "추가"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AssignMemberModal({
+  team,
+  directory,
+  onClose,
+  onAssign,
+}: {
+  team: { id: string; name: string };
+  directory: Person[];
+  onClose: () => void;
+  onAssign: (personId: string) => Promise<void>;
+}) {
+  const [q, setQ] = React.useState("");
+  const query = q.trim().toLowerCase();
+  const candidates = directory
+    .filter((p) => p.teamId !== team.id)
+    .filter(
+      (p) =>
+        !query || (p.name + p.role + p.dept).toLowerCase().includes(query),
+    )
+    .slice(0, 20);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#0f172a]/45 p-6 backdrop-blur-[2px]"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[70vh] w-full max-w-[420px] flex-col overflow-hidden rounded-2xl bg-card shadow-[0_24px_64px_rgba(15,23,42,0.28)]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-2.5 border-b border-[#eef1f5] px-5 pb-3.5 pt-4.5">
+          <div className="flex-1">
+            <div className="text-[15px] font-semibold tracking-[-0.015em]">
+              {team.name}에 구성원 추가
+            </div>
+            <div className="mt-0.5 text-xs text-muted-foreground">
+              기존 구성원을 검색해서 이 팀으로 배정합니다
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="flex size-[30px] items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+        <div className="p-3.5">
+          <input
+            autoFocus
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="이름, 직급, 부서로 검색"
+            className={modalInput}
+          />
+        </div>
+        <div className="flex-1 overflow-y-auto px-1.5 pb-3.5">
+          {candidates.length === 0 && (
+            <div className="px-3.5 py-6 text-center text-[12.5px] text-muted-foreground">
+              일치하는 구성원이 없습니다
+            </div>
+          )}
+          {candidates.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => onAssign(p.id)}
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left hover:bg-secondary"
+            >
+              <span style={avatarStyle(p.name.charAt(0), 30)}>
+                {p.name.charAt(0)}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[12.5px] font-semibold">
+                  {p.name}{" "}
+                  <span className="font-normal text-muted-foreground">
+                    {p.role}
+                  </span>
+                </span>
+                <span className="block truncate text-[11px] text-muted-foreground">
+                  {p.dept}
+                </span>
+              </span>
+              <Plus className="size-3.5 shrink-0 text-primary" />
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
 
 function AddPersonModal({
   directory,
+  teams,
   onClose,
   onSubmit,
 }: {
   directory: Person[];
+  teams: { id: string; name: string; parentId: string | null }[];
   onClose: () => void;
-  onSubmit: (input: Omit<Person, "id">) => Promise<void>;
+  onSubmit: (input: PersonInput) => Promise<void>;
 }) {
   const [name, setName] = React.useState("");
   const [role, setRole] = React.useState("");
-  const [dept, setDept] = React.useState("");
-  const [team, setTeam] = React.useState("");
+  const [teamId, setTeamId] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [ext, setExt] = React.useState("");
   const [mobile, setMobile] = React.useState("");
-  const [status, setStatus] = React.useState<PersonStatus>("online");
   const [boss, setBoss] = React.useState("");
   const [tags, setTags] = React.useState("");
   const [saving, setSaving] = React.useState(false);
 
-  const valid = name.trim() && role.trim() && dept.trim() && email.trim();
+  const valid = name.trim() && role.trim() && email.trim();
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -409,13 +663,12 @@ function AddPersonModal({
     await onSubmit({
       name: name.trim(),
       role: role.trim(),
-      dept: dept.trim(),
-      team: team.trim() || dept.trim(),
+      teamId: teamId || null,
       email: email.trim(),
       ext: ext.trim(),
       mobile: mobile.trim(),
-      status,
-      boss: boss ? Number(boss) : null,
+      status: "online",
+      boss: boss || null,
       tags: tags
         .split(",")
         .map((t) => t.trim())
@@ -439,10 +692,10 @@ function AddPersonModal({
           </span>
           <div className="flex-1">
             <div className="text-[15px] font-semibold tracking-[-0.015em]">
-              새 구성원 추가
+              가계정 추가
             </div>
             <div className="mt-0.5 text-xs text-muted-foreground">
-              조직도 · 임직원 디렉토리에 바로 등록됩니다
+              아직 초대 전인 사람을 조직도에 미리 등록합니다 — 실제 로그인 계정은 없습니다
             </div>
           </div>
           <button
@@ -476,22 +729,19 @@ function AddPersonModal({
                 required
               />
             </ModalField>
-            <ModalField label="부서" required>
-              <input
-                value={dept}
-                onChange={(e) => setDept(e.target.value)}
-                placeholder="기술본부 · 플랫폼개발팀"
+            <ModalField label="팀">
+              <select
+                value={teamId}
+                onChange={(e) => setTeamId(e.target.value)}
                 className={modalInput}
-                required
-              />
-            </ModalField>
-            <ModalField label="팀 (필터용, 비우면 부서와 동일)">
-              <input
-                value={team}
-                onChange={(e) => setTeam(e.target.value)}
-                placeholder="플랫폼개발팀"
-                className={modalInput}
-              />
+              >
+                <option value="">미배정</option>
+                {teams.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
             </ModalField>
             <ModalField label="이메일" required>
               <input
@@ -518,19 +768,6 @@ function AddPersonModal({
                 placeholder="010-0000-0000"
                 className={modalInput}
               />
-            </ModalField>
-            <ModalField label="상태">
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as PersonStatus)}
-                className={modalInput}
-              >
-                {STATUS_OPTIONS.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
             </ModalField>
             <ModalField label="직속 상사 (Reports to)">
               <select
@@ -574,7 +811,7 @@ function AddPersonModal({
                 : "bg-primary text-primary-foreground shadow-[0_1px_2px_rgba(79,70,229,0.35)] hover:bg-primary-hover",
             )}
           >
-            {saving ? "추가하는 중…" : "구성원 추가"}
+            {saving ? "추가하는 중…" : "가계정 추가"}
           </button>
         </div>
       </div>
@@ -622,7 +859,7 @@ function PersonCard({
           <span style={avatarStyle(p.name.charAt(0), 44)}>
             {p.name.charAt(0)}
           </span>
-          <span style={statusDot(p.status, 12, 2)} />
+          {!p.placeholder && <span style={statusDot(p.status, 12, 2)} />}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-1.5">
@@ -635,7 +872,11 @@ function PersonCard({
             {p.dept}
           </div>
         </div>
-        <span style={statusPill(p.status)}>{STATUS_META[p.status].label}</span>
+        {p.placeholder ? (
+          <span style={pill("#f1f5f9", "#64748b")}>가계정</span>
+        ) : (
+          <span style={statusPill(p.status)}>{STATUS_META[p.status].label}</span>
+        )}
       </div>
       <div className="mt-3 flex flex-col gap-1.5 text-xs text-secondary-foreground">
         <div className="flex min-w-0 items-center gap-1.5">
@@ -661,6 +902,8 @@ function PersonCard({
 function ProfileDrawer({
   person: p,
   directory,
+  teams,
+  ceoId,
   onClose,
   onOpen,
   onSave,
@@ -668,9 +911,11 @@ function ProfileDrawer({
 }: {
   person: Person;
   directory: Person[];
+  teams: { id: string; name: string; parentId: string | null }[];
+  ceoId: string | null;
   onClose: () => void;
-  onOpen: (id: number) => void;
-  onSave: (patch: Partial<Omit<Person, "id">>) => Promise<void>;
+  onOpen: (id: string) => void;
+  onSave: (patch: Partial<PersonInput>) => Promise<void>;
   onDelete: () => Promise<void>;
 }) {
   const [editing, setEditing] = React.useState(false);
@@ -678,13 +923,12 @@ function ProfileDrawer({
   const [form, setForm] = React.useState(() => ({
     name: p.name,
     role: p.role,
-    dept: p.dept,
-    team: p.team,
+    teamId: p.teamId ?? "",
     email: p.email,
     ext: p.ext,
     mobile: p.mobile,
     status: p.status,
-    boss: p.boss == null ? "" : String(p.boss),
+    boss: p.boss ?? "",
     tags: (p.tags ?? []).join(", "),
   }));
 
@@ -692,7 +936,9 @@ function ProfileDrawer({
     p.boss === null || p.boss === undefined
       ? null
       : (directory.find((x) => x.id === p.boss) ?? null);
-  const mates = directory.filter((x) => x.team === p.team && x.id !== p.id);
+  const mates = directory.filter(
+    (x) => x.teamId === p.teamId && x.teamId !== null && x.id !== p.id,
+  );
 
   const saveForm = async () => {
     if (!form.name.trim() || busy) return;
@@ -701,13 +947,12 @@ function ProfileDrawer({
       await onSave({
         name: form.name.trim(),
         role: form.role.trim(),
-        dept: form.dept.trim(),
-        team: form.team.trim() || form.dept.trim(),
+        teamId: form.teamId || null,
         email: form.email.trim(),
         ext: form.ext.trim(),
         mobile: form.mobile.trim(),
         status: form.status,
-        boss: form.boss ? Number(form.boss) : null,
+        boss: form.boss || null,
         tags: form.tags
           .split(",")
           .map((t) => t.trim())
@@ -721,8 +966,10 @@ function ProfileDrawer({
 
   const del = async () => {
     if (busy) return;
-    if (!window.confirm(`${p.name} 님을 조직도에서 삭제할까요? 되돌릴 수 없습니다.`))
-      return;
+    const msg = p.placeholder
+      ? `${p.name} 가계정을 삭제할까요? 되돌릴 수 없습니다.`
+      : `${p.name} 님을 조직도에서 삭제할까요? 되돌릴 수 없습니다.`;
+    if (!window.confirm(msg)) return;
     setBusy(true);
     try {
       await onDelete();
@@ -744,7 +991,7 @@ function ProfileDrawer({
           <span className="text-[13px] font-semibold tracking-[-0.01em]">
             {editing ? "프로필 편집" : "임직원 프로필"}
           </span>
-          {!editing && p.id !== 0 && (
+          {!editing && p.id !== ceoId && (
             <>
               <button
                 onClick={() => setEditing(true)}
@@ -767,7 +1014,7 @@ function ProfileDrawer({
             onClick={onClose}
             className={cn(
               "flex size-[30px] items-center justify-center rounded-lg text-muted-foreground hover:bg-[#f1f5f9]",
-              (editing || p.id === 0) && "ml-auto",
+              (editing || p.id === ceoId) && "ml-auto",
             )}
           >
             <X className="size-4" />
@@ -795,23 +1042,21 @@ function ProfileDrawer({
                   className={modalInput}
                 />
               </ModalField>
-              <ModalField label="부서">
-                <input
-                  value={form.dept}
+              <ModalField label="팀">
+                <select
+                  value={form.teamId}
                   onChange={(e) =>
-                    setForm((f) => ({ ...f, dept: e.target.value }))
+                    setForm((f) => ({ ...f, teamId: e.target.value }))
                   }
                   className={modalInput}
-                />
-              </ModalField>
-              <ModalField label="팀 (필터용)">
-                <input
-                  value={form.team}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, team: e.target.value }))
-                  }
-                  className={modalInput}
-                />
+                >
+                  <option value="">미배정</option>
+                  {teams.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
               </ModalField>
               <ModalField label="이메일">
                 <input
@@ -841,24 +1086,26 @@ function ProfileDrawer({
                   className={modalInput}
                 />
               </ModalField>
-              <ModalField label="상태">
-                <select
-                  value={form.status}
-                  onChange={(e) =>
-                    setForm((f) => ({
-                      ...f,
-                      status: e.target.value as PersonStatus,
-                    }))
-                  }
-                  className={modalInput}
-                >
-                  {STATUS_OPTIONS.map((s) => (
-                    <option key={s.value} value={s.value}>
-                      {s.label}
-                    </option>
-                  ))}
-                </select>
-              </ModalField>
+              {!p.placeholder && (
+                <ModalField label="상태">
+                  <select
+                    value={form.status}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        status: e.target.value as PersonStatus,
+                      }))
+                    }
+                    className={modalInput}
+                  >
+                    {STATUS_OPTIONS.map((s) => (
+                      <option key={s.value} value={s.value}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                </ModalField>
+              )}
               <ModalField label="직속 상사">
                 <select
                   value={form.boss}
@@ -869,7 +1116,7 @@ function ProfileDrawer({
                 >
                   <option value="">없음 (최상위)</option>
                   {directory
-                    .filter((x) => x.id !== p.id && x.id !== 0)
+                    .filter((x) => x.id !== p.id && x.id !== ceoId)
                     .map((x) => (
                       <option key={x.id} value={x.id}>
                         {x.name} · {x.role}
@@ -918,7 +1165,7 @@ function ProfileDrawer({
               <span style={avatarStyle(p.name.charAt(0), 64)}>
                 {p.name.charAt(0)}
               </span>
-              <span style={statusDot(p.status, 16, 3)} />
+              {!p.placeholder && <span style={statusDot(p.status, 16, 3)} />}
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline gap-1.5">
@@ -932,11 +1179,27 @@ function ProfileDrawer({
               <div className="mt-0.5 text-[12.5px] text-muted-foreground">
                 {p.dept}
               </div>
-              <span className="mt-2 inline-block" style={statusPill(p.status)}>
-                {STATUS_META[p.status].label}
-              </span>
+              {p.placeholder ? (
+                <span className="mt-2 inline-block" style={pill("#f1f5f9", "#64748b")}>
+                  미입사 · 가계정
+                </span>
+              ) : (
+                <span className="mt-2 inline-block" style={statusPill(p.status)}>
+                  {STATUS_META[p.status].label}
+                </span>
+              )}
             </div>
           </div>
+
+          {p.placeholder && (
+            <Link
+              href={`/admin/invite?fromPlaceholder=${p.id}`}
+              className="flex h-9.5 items-center justify-center gap-1.5 rounded-[10px] bg-primary text-[13px] font-semibold text-primary-foreground shadow-[0_1px_2px_rgba(79,70,229,0.35)] hover:bg-primary-hover"
+            >
+              <UserPlus className="size-4" />
+              초대 링크 만들기
+            </Link>
+          )}
 
           <div className="flex gap-2">
             <a

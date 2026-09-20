@@ -19,36 +19,52 @@ service cloud.firestore {
         && myRole() in ['ADMIN', 'SUPER_ADMIN'];
     }
 
-    /* ---------------- users/{uid} ---------------- */
+    /* ---------------- users/{uid} ----------------
+       조직도 · 태스크 담당자 검색 · 결재자 검색 등이 전부 이 컬렉션을 단일
+       소스로 씁니다 — orgPeople 처럼 로그인 사용자면 누구나 조회 가능해야
+       합니다(사내 디렉터리). 가계정(미입사)은 users/{placeholder-<random>}
+       로 존재하며 관리자만 생성/삭제할 수 있습니다. */
     match /users/{uid} {
-      // 본인 문서 또는 관리자만 조회
-      allow get: if isSignedIn() && (request.auth.uid == uid || isAdmin());
-      allow list: if isAdmin();
+      allow get, list: if isSignedIn();
 
-      // 가입 시: 본인 uid 로만 문서 생성, 권한은 스스로 승격 불가
-      allow create: if isSignedIn()
-        && request.auth.uid == uid
-        && request.resource.data.uid == uid
-        && request.resource.data.email == request.auth.token.email
-        && request.resource.data.status in ['PENDING', 'ACTIVE'];
+      // 가입 시: 본인 uid 로만 문서 생성, 권한은 스스로 승격 불가. teamId·
+      // managerId 는 초대장에 관리자가 미리 박아둔 값과 일치해야만 통과
+      // (본인이 스스로 팀/상사를 임의로 지정해 배정을 우회하는 것 방지).
+      allow create: if (isSignedIn()
+          && request.auth.uid == uid
+          && request.resource.data.uid == uid
+          && request.resource.data.email == request.auth.token.email
+          && request.resource.data.status in ['PENDING', 'ACTIVE']
+          && request.resource.data.teamId
+             == get(/databases/$(database)/documents/invites/$(request.resource.data.inviteId)).data.teamId
+          && request.resource.data.managerId
+             == get(/databases/$(database)/documents/invites/$(request.resource.data.inviteId)).data.managerId)
+        || (isAdmin()
+            && uid.matches('^placeholder-.*')
+            && request.resource.data.status == 'PLACEHOLDER');
 
-      // 본인은 프로필 일부만 수정, 상태/권한 변경은 관리자만
+      // 본인은 프로필 일부만 수정 — 상태/권한/사번/팀/상사 변경은 관리자만
+      // (가계정 편집도 이 update 경로로 처리되며 isAdmin() 이 커버합니다)
       allow update: if isAdmin()
         || (isSignedIn() && request.auth.uid == uid
             && request.resource.data.role == resource.data.role
             && request.resource.data.status == resource.data.status
-            && request.resource.data.employeeId == resource.data.employeeId);
+            && request.resource.data.employeeId == resource.data.employeeId
+            && request.resource.data.teamId == resource.data.teamId
+            && request.resource.data.managerId == resource.data.managerId);
 
       allow delete: if isAdmin();
     }
 
+    /* ---------------- teams/{id} (부서/팀 편제) ---------------- */
+    match /teams/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
     /* ---------------- 그룹웨어 공용 컬렉션 ----------------
        데모 특성상 로그인 사용자면 읽기/쓰기를 허용합니다.
-       운영에서는 notices/orgPeople 쓰기를 isAdmin() 으로 좁히세요. */
-    match /orgPeople/{id} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
-    }
+       운영에서는 notices 쓰기를 isAdmin() 으로 좁히세요. */
     match /notices/{id} {
       allow read: if isSignedIn();
       allow write: if isSignedIn();

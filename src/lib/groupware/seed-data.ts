@@ -6,29 +6,6 @@
  * 없었습니다. 이 파일은 데모/부트스트랩 때 Firestore 에 1회 밀어넣을 목데이터를
  * 담습니다. 앱 런타임 폴백으로는 쓰지 않습니다 — 오직 buildSeed() 에서만 참조.
  */
-import type { Person } from "./data";
-
-/* ------------------------------------------------------------------ */
-/*  임직원 디렉토리 (orgPeople/{id})                                     */
-/* ------------------------------------------------------------------ */
-
-export const SEED_PEOPLE: Person[] = [
-  { id: 0, name: "노정헌", role: "대표이사", dept: "넥스트코어", team: "경영진", email: "ceo@nextcore.io", ext: "1000", mobile: "—", status: "online", boss: null, tags: ["경영 총괄"] },
-  { id: 1, name: "한지훈", role: "CTO", dept: "기술본부", team: "기술본부", email: "jihoon.han@nextcore.io", ext: "2100", mobile: "010-2841-1102", status: "online", boss: 0, tags: ["기술전략", "보안", "아키텍처"] },
-  { id: 2, name: "김세진", role: "과장", dept: "기술본부 · 플랫폼개발팀", team: "플랫폼개발팀", email: "sejin.kim@nextcore.io", ext: "2107", mobile: "010-3320-7741", status: "online", boss: 1, tags: ["결재엔진", "근태", "그룹웨어"] },
-  { id: 3, name: "정민준", role: "과장", dept: "기술본부 · 플랫폼개발팀", team: "플랫폼개발팀", email: "minjun.jung@nextcore.io", ext: "2112", mobile: "010-7745-2210", status: "remote", boss: 1, tags: ["API", "배치", "성능"] },
-  { id: 4, name: "박서윤", role: "사원", dept: "기술본부 · 프론트엔드팀", team: "프론트엔드팀", email: "seoyoon.park@nextcore.io", ext: "2203", mobile: "010-2245-9930", status: "away", boss: 1, tags: ["대시보드", "반응형"] },
-  { id: 5, name: "이도현", role: "대리", dept: "기술본부 · 프론트엔드팀", team: "프론트엔드팀", email: "dohyun.lee@nextcore.io", ext: "2205", mobile: "010-5512-8820", status: "remote", boss: 1, tags: ["조직도", "렌더링 성능"] },
-  { id: 6, name: "최유나", role: "사원", dept: "기술본부 · QA팀", team: "QA팀", email: "yuna.choi@nextcore.io", ext: "2301", mobile: "010-8890-3312", status: "online", boss: 1, tags: ["회귀테스트", "자동화"] },
-  { id: 7, name: "윤아름", role: "대리", dept: "디자인본부 · 프로덕트디자인팀", team: "프로덕트디자인팀", email: "areum.yoon@nextcore.io", ext: "2402", mobile: "010-3345-7781", status: "remote", boss: 11, tags: ["디자인시스템", "UX 리서치"] },
-  { id: 8, name: "강태오", role: "팀장", dept: "마케팅본부 · 마케팅팀", team: "마케팅팀", email: "taeo.kang@nextcore.io", ext: "3302", mobile: "010-9921-4478", status: "online", boss: 12, tags: ["퍼포먼스", "브랜드"] },
-  { id: 9, name: "오세라", role: "팀장", dept: "경영지원본부 · 인사팀", team: "인사팀", email: "sera.oh@nextcore.io", ext: "3102", mobile: "010-4417-2093", status: "leave", boss: 10, tags: ["채용", "인사평가"] },
-  { id: 10, name: "배현수", role: "본부장", dept: "경영지원본부", team: "경영지원본부", email: "hyunsoo.bae@nextcore.io", ext: "3001", mobile: "010-2277-6650", status: "online", boss: 0, tags: ["경영기획", "재무"] },
-  { id: 11, name: "문가영", role: "본부장", dept: "디자인본부", team: "디자인본부", email: "gayoung.moon@nextcore.io", ext: "2400", mobile: "010-6612-3389", status: "online", boss: 0, tags: ["프로덕트 디자인", "브랜딩"] },
-  { id: 12, name: "서준혁", role: "본부장", dept: "마케팅본부", team: "마케팅본부", email: "junhyuk.seo@nextcore.io", ext: "3300", mobile: "010-7788-1120", status: "away", boss: 0, tags: ["그로스", "파트너십"] },
-  { id: 13, name: "신유리", role: "사원", dept: "경영지원본부 · 총무팀", team: "총무팀", email: "yuri.shin@nextcore.io", ext: "3205", mobile: "010-1123-4456", status: "online", boss: 10, tags: ["총무", "복리후생"] },
-];
-
 /* ------------------------------------------------------------------ */
 /*  공지사항 (notices/{id})                                             */
 /* ------------------------------------------------------------------ */
@@ -187,14 +164,14 @@ export const SEED_BOOKING_DATE = "2026-09-07";
 
 export const SEED_BOOKINGS: {
   id: string; res: string; from: number; to: number; title: string; who: string;
-  purpose: string; attendees: number[]; video: boolean; provider: string;
+  purpose: string; video: boolean; provider: string;
 }[] = [
-  { id: "bk-1", res: "mr-a", from: 4, to: 6, title: "플랫폼 주간 스프린트 회의", who: "김세진", purpose: "정기 회의", attendees: [2, 3, 4, 6], video: false, provider: "" },
-  { id: "bk-2", res: "mr-b", from: 11, to: 13, title: "결재 정책 유관부서 리뷰", who: "정민준", purpose: "정기 회의", attendees: [1, 2, 3], video: true, provider: "Google Meet" },
-  { id: "bk-3", res: "mr-focus", from: 14, to: 17, title: "신규 입사자 온보딩 멘토링", who: "오세라", purpose: "교육", attendees: [9, 13], video: false, provider: "" },
-  { id: "bk-4", res: "mr-hall", from: 16, to: 20, title: "2분기 경영실적 타운홀", who: "배현수", purpose: "정기 회의", attendees: [0, 1, 10, 11, 12], video: true, provider: "Zoom" },
-  { id: "bk-5", res: "car-ioniq", from: 2, to: 8, title: "고객사 방문 (판교)", who: "강태오", purpose: "고객 미팅", attendees: [8, 12], video: false, provider: "" },
-  { id: "bk-6", res: "proj-epson", from: 16, to: 20, title: "타운홀 빔프로젝터 대여", who: "신유리", purpose: "정기 회의", attendees: [13], video: false, provider: "" },
+  { id: "bk-1", res: "mr-a", from: 4, to: 6, title: "플랫폼 주간 스프린트 회의", who: "김세진", purpose: "정기 회의", video: false, provider: "" },
+  { id: "bk-2", res: "mr-b", from: 11, to: 13, title: "결재 정책 유관부서 리뷰", who: "정민준", purpose: "정기 회의", video: true, provider: "Google Meet" },
+  { id: "bk-3", res: "mr-focus", from: 14, to: 17, title: "신규 입사자 온보딩 멘토링", who: "오세라", purpose: "교육", video: false, provider: "" },
+  { id: "bk-4", res: "mr-hall", from: 16, to: 20, title: "2분기 경영실적 타운홀", who: "배현수", purpose: "정기 회의", video: true, provider: "Zoom" },
+  { id: "bk-5", res: "car-ioniq", from: 2, to: 8, title: "고객사 방문 (판교)", who: "강태오", purpose: "고객 미팅", video: false, provider: "" },
+  { id: "bk-6", res: "proj-epson", from: 16, to: 20, title: "타운홀 빔프로젝터 대여", who: "신유리", purpose: "정기 회의", video: false, provider: "" },
 ];
 
 /* ------------------------------------------------------------------ */

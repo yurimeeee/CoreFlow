@@ -68,7 +68,7 @@ export default function BookingPage() {
   const [bookTitle, setBookTitle] = React.useState("");
   const [bookPurpose, setBookPurpose] = React.useState(BOOK_PURPOSES[0]);
   const [bookQuery, setBookQuery] = React.useState("");
-  const [bookAtt, setBookAtt] = React.useState<number[]>([]);
+  const [bookAtt, setBookAtt] = React.useState<string[]>([]);
   const [bookVideoOn, setBookVideoOn] = React.useState(true);
   const [bookProvider, setBookProvider] = React.useState(BOOK_PROVIDERS[0]);
   const [viewBooking, setViewBooking] = React.useState<BookingDoc | null>(null);
@@ -203,7 +203,7 @@ export default function BookingPage() {
     clearSelection();
   };
 
-  const attendeePool = directory.filter((p) => p.id !== 0);
+  const attendeePool = directory.filter((p) => p.boss !== null);
   const bq = bookQuery.trim().toLowerCase();
   const bookSuggest = bq
     ? attendeePool

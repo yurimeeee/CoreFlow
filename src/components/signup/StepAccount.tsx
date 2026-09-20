@@ -37,10 +37,10 @@ export function StepAccount({ values, errors, set }: StepProps) {
           <Field id="employeeId" label="사번" readOnlyHint>
             <Input id="employeeId" value={values.employeeId} readOnly />
           </Field>
-          <Field id="departmentName" label="소속 부서" readOnlyHint>
+          <Field id="teamName" label="소속 부서" readOnlyHint>
             <Input
-              id="departmentName"
-              value={values.departmentName || values.departmentId}
+              id="teamName"
+              value={values.teamName || "미배정"}
               readOnly
             />
           </Field>

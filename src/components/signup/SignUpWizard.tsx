@@ -31,8 +31,9 @@ function buildInitialValues(invite: InviteDoc): SignUpFormValues {
   return {
     email: invite.email,
     employeeId: invite.employeeId,
-    departmentId: invite.departmentId,
-    departmentName: invite.departmentName ?? "",
+    teamId: invite.teamId,
+    teamName: invite.teamName ?? "",
+    managerId: invite.managerId,
     position: invite.position,
     name: "",
     password: "",

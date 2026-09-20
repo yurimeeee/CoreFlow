@@ -58,7 +58,10 @@ export default function ApprovalPage() {
   const counts = React.useMemo(() => {
     const by = (s: string) => data.filter((r) => r.status === s).length;
     return {
-      "결재 대기": by("Waiting"),
+      // 임시저장(drafted)은 아직 상신 전이라 "결재 대기" 집계에서 제외
+      "결재 대기": data.filter(
+        (r) => r.status === "Waiting" && r.bucket === "pending",
+      ).length,
       "진행 중": by("In Progress"),
       완료: by("Approved"),
       반려: by("Rejected"),

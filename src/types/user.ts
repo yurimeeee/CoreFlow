@@ -12,12 +12,21 @@ import type { Timestamp } from "firebase/firestore";
 
 export type UserRole = "SUPER_ADMIN" | "ADMIN" | "MEMBER";
 
-export type UserStatus = "INVITED" | "PENDING" | "ACTIVE" | "SUSPENDED";
+/** PLACEHOLDER = 아직 초대/가입 전인 가계정 (조직도 전용, 실제 Auth 계정 없음) */
+export type UserStatus =
+  | "INVITED"
+  | "PENDING"
+  | "ACTIVE"
+  | "SUSPENDED"
+  | "PLACEHOLDER";
 
 export type InviteStatus = "INVITED" | "PENDING" | "COMPLETED" | "EXPIRED";
 
+/** 조직도 · 프로필 카드에 쓰는 근무 상태 (계정 상태 status 와는 별개) */
+export type UserPresence = "online" | "remote" | "away" | "leave";
+
 /* ------------------------------------------------------------------ */
-/*  users/{uid}                                                        */
+/*  users/{uid}  (가계정은 users/{placeholder-<random>})                 */
 /* ------------------------------------------------------------------ */
 
 export interface UserDoc {
@@ -28,7 +37,8 @@ export interface UserDoc {
   name: string;
 
   /* 조직 정보 (필수) */
-  departmentId: string;
+  teamId: string | null; // teams/{id} 참조, null = 미배정
+  managerId: string | null; // 직속 상사 uid, null = 최상위(대표)
   position: string; // 직급 / 직책
 
   /* 근태 · 보안 정보 (필수) */
@@ -41,6 +51,7 @@ export interface UserDoc {
   extensionNumber?: string | null; // 사내 내선 번호
   tasks?: string[]; // 담당 업무 키워드 (예: ['Frontend', 'React'])
   signatureUrl?: string | null; // 전자결재용 서명 이미지
+  presence?: UserPresence; // 근무 상태 (조직도 표시용, 기본 "online")
 
   /* 권한 · 상태 */
   role: UserRole;
@@ -77,8 +88,9 @@ export interface InviteDoc {
   /* 관리자가 미리 채워두는 값 → 가입폼에서 Read-only 로 표시 */
   email: string;
   employeeId: string;
-  departmentId: string;
-  departmentName?: string;
+  teamId: string | null; // teams/{id} 참조
+  teamName?: string; // 발급 시점 팀 이름 스냅샷 (가입 화면은 비로그인 상태라 teams 조회 없이 바로 표시)
+  managerId: string | null; // 직속 상사 uid
   position: string;
 
   role: UserRole;
@@ -104,8 +116,9 @@ export interface SignUpFormValues {
   /* Step 1 — 계정 */
   email: string; // read-only (초대값)
   employeeId: string; // read-only (초대값)
-  departmentId: string; // read-only (초대값)
-  departmentName: string; // read-only (초대값)
+  teamId: string | null; // read-only (초대값)
+  teamName: string; // read-only (초대값)
+  managerId: string | null; // read-only (초대값)
   position: string; // read-only (초대값)
   name: string;
   password: string;
