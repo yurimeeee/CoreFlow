@@ -149,7 +149,7 @@ export default function DraftPage() {
   const [saving, setSaving] = React.useState<null | "draft" | "submit">(null);
   const [savedNo, setSavedNo] = React.useState<string | null>(null);
   const [attachments, setAttachments] = React.useState<
-    { name: string; size: string; url: string; kind: string; drive?: boolean }[]
+    { id: string; name: string; size: string; url: string; kind: string; drive?: boolean }[]
   >([]);
   const [uploading, setUploading] = React.useState(false);
 
@@ -275,6 +275,7 @@ export default function DraftPage() {
     setUploading(true);
     try {
       for (const file of Array.from(files)) {
+        const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         let url = "";
         if (isFirebaseConfigured) {
           const snap = await uploadBytes(
@@ -289,13 +290,13 @@ export default function DraftPage() {
         }
         setAttachments((p) => [
           ...p,
-          { name: file.name, size: fmtSize(file.size), url, kind: extKind(file.name) },
+          { id, name: file.name, size: fmtSize(file.size), url, kind: extKind(file.name) },
         ]);
         if (getGoogleDriveSession()) {
           uploadFileToDrive(file).then((saved) => {
             if (!saved) return;
             setAttachments((p) =>
-              p.map((a) => (a.name === file.name && a.url === url ? { ...a, drive: true } : a)),
+              p.map((a) => (a.id === id ? { ...a, drive: true } : a)),
             );
           });
         }
@@ -882,7 +883,7 @@ export default function DraftPage() {
             </label>
             {attachments.map((f, i) => (
               <div
-                key={`${f.name}-${i}`}
+                key={f.id}
                 className="flex items-center gap-2.5 rounded-[10px] border border-border px-3 py-2.5 text-[12.5px]"
               >
                 <Paperclip className="size-3.5 shrink-0 text-muted-foreground" />

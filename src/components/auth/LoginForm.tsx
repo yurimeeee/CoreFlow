@@ -137,12 +137,20 @@ export function LoginForm() {
         const hash = await hashBackupCode(clean);
         ok = pending.backupHashes.includes(hash);
         if (ok) {
-          // 백업 코드는 1회용 — 사용한 코드는 즉시 폐기합니다.
-          await updateDoc(doc(firebaseDb(), "users", pending.uid), {
-            "gwSettings.twoFABackupCodeHashes": pending.backupHashes.filter(
-              (h) => h !== hash,
-            ),
-          }).catch(() => {});
+          // 백업 코드는 1회용 — 폐기 저장에 실패하면 재사용이 가능해지므로
+          // 로그인을 진행하지 않고 다시 시도하도록 합니다.
+          try {
+            await updateDoc(doc(firebaseDb(), "users", pending.uid), {
+              "gwSettings.twoFABackupCodeHashes": pending.backupHashes.filter(
+                (h) => h !== hash,
+              ),
+            });
+          } catch {
+            setTwoFAError(
+              "백업 코드 처리 중 오류가 발생했습니다. 다시 시도해 주세요.",
+            );
+            return;
+          }
         }
       } else {
         ok = /^\d{6}$/.test(clean) && (await verifyTotp(pending.secret, clean));

@@ -1311,6 +1311,23 @@ export function usePendingUsers() {
 /*  워크스페이스(회사) 기본 정보 — 관리자만 쓰기                          */
 /* ------------------------------------------------------------------ */
 
+/** {"a.b.c": v} → {a: {b: {c: v}}} — updateDoc 이 실패할 때(문서 없음)의 setDoc 폴백용 */
+function expandDotPaths(patch: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(patch)) {
+    const parts = key.split(".");
+    let cur = out;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const seg = parts[i];
+      const next = cur[seg];
+      cur[seg] = typeof next === "object" && next !== null ? next : {};
+      cur = cur[seg] as Record<string, unknown>;
+    }
+    cur[parts[parts.length - 1]] = value;
+  }
+  return out;
+}
+
 const WORKSPACE_DEFAULT: WorkspaceDoc = {
   name: "",
   bizNo: "",
@@ -1341,16 +1358,28 @@ export function useWorkspace() {
     return unsub;
   }, []);
 
-  /** `Partial<WorkspaceDoc>` 전체 교체 패치 또는 "integrations.slack.on" 같은
-   *  점(dot) 경로 부분 패치를 모두 받습니다. */
+  /** `Partial<WorkspaceDoc>` 전체 교체 패치 또는 "integrations.slack" 같은
+   *  점(dot) 경로 부분 패치를 모두 받습니다.
+   *
+   *  dot 경로는 `updateDoc` 으로 써야 실제로 중첩 필드에 반영됩니다 —
+   *  `setDoc(..., {merge:true})` 는 점(.)이 든 문자열 키를 경로로 풀어주지
+   *  않고 "integrations.slack" 이라는 글자 그대로의 최상위 필드로 저장해
+   *  버립니다. 문서가 아직 없을 때만(첫 저장, 시드 전) 없는 문서에
+   *  updateDoc 이 실패하므로 dot 경로를 중첩 객체로 펼쳐 setDoc 으로
+   *  생성합니다. */
   const save = React.useCallback(
     async (patch: Partial<WorkspaceDoc> | Record<string, unknown>) => {
       if (!isFirebaseConfigured) return;
-      await setDoc(
-        doc(firebaseDb(), COL.workspace, "main"),
-        { ...patch, updatedAt: new Date() },
-        { merge: true },
-      );
+      const ref = doc(firebaseDb(), COL.workspace, "main");
+      try {
+        await updateDoc(ref, { ...patch, updatedAt: new Date() });
+      } catch {
+        await setDoc(
+          ref,
+          { ...expandDotPaths(patch), updatedAt: new Date() },
+          { merge: true },
+        );
+      }
     },
     [],
   );
