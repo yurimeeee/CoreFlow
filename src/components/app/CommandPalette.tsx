@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   CalendarDays,
@@ -101,7 +102,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     router.push(href);
   };
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-[80] flex items-start justify-center bg-[#0f172a]/40 p-4 pt-[12vh] backdrop-blur-[2px]"
       onClick={onClose}
@@ -166,6 +167,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
           })}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
