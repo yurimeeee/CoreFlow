@@ -685,7 +685,14 @@ export function useBookings() {
     [me.name],
   );
 
-  return { ...state, data, addBooking };
+  const removeBooking = React.useCallback(async (id: string) => {
+    setAdded((p) => p.filter((b) => b.id !== id));
+    if (isFirebaseConfigured) {
+      await deleteDoc(doc(firebaseDb(), COL.bookings, id));
+    }
+  }, []);
+
+  return { ...state, data, addBooking, removeBooking };
 }
 
 /* ------------------------------------------------------------------ */

@@ -10,6 +10,7 @@ import {
   Presentation,
   Projector,
   Search,
+  Trash2,
   Video,
   X,
 } from "lucide-react";
@@ -26,8 +27,9 @@ import {
   slotLabel,
   type ResourceType,
 } from "@/lib/groupware/data";
+import type { BookingDoc } from "@/lib/groupware/firestore";
 import { avatarStyle } from "@/lib/groupware/ui";
-import { useBookings, useOrgPeople } from "@/lib/groupware/hooks";
+import { useBookings, useCurrentUser, useOrgPeople } from "@/lib/groupware/hooks";
 import { GwCard, PageHeader, Toggle } from "@/components/app/primitives";
 
 const RES_ICONS: Record<string, React.ElementType> = {
@@ -47,7 +49,8 @@ const two = (n: number) => String(n).padStart(2, "0");
 
 export default function BookingPage() {
   const { people: directory } = useOrgPeople();
-  const { data: bookings, addBooking } = useBookings();
+  const { data: allBookings, addBooking, removeBooking } = useBookings();
+  const me = useCurrentUser();
 
   const [resType, setResType] = React.useState<ResourceType>("회의실");
   const [resCap, setResCap] = React.useState("전체");
@@ -68,9 +71,16 @@ export default function BookingPage() {
   const [bookAtt, setBookAtt] = React.useState<number[]>([]);
   const [bookVideoOn, setBookVideoOn] = React.useState(true);
   const [bookProvider, setBookProvider] = React.useState(BOOK_PROVIDERS[0]);
+  const [viewBooking, setViewBooking] = React.useState<BookingDoc | null>(null);
+  const [cancelling, setCancelling] = React.useState(false);
 
   const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
   const days = ["일", "월", "화", "수", "목", "금", "토"];
+
+  // 타임라인은 "오늘" 하루만 보여주므로, 다른 날짜의 예약이 슬롯을 계속
+  // 점유한 것처럼 보이지 않도록 오늘 자 예약만 사용합니다.
+  const bookings = allBookings.filter((b) => b.date === todayStr);
 
   const bookedIn = React.useCallback(
     (resKey: string, i: number) =>
@@ -151,16 +161,6 @@ export default function BookingPage() {
       setSelEnd(i + 1);
       anchorRef.current = { res: resKey, index: i };
     }
-  };
-
-  const openBookModal = (prefill?: { res: string; from: number; to: number; title?: string }) => {
-    if (prefill) {
-      setSelRes(prefill.res);
-      setSelStart(prefill.from);
-      setSelEnd(prefill.to);
-      setBookTitle(prefill.title ?? "");
-    }
-    setBookOpen(true);
   };
 
   const openNewBooking = () => {
@@ -428,9 +428,7 @@ export default function BookingPage() {
                       {blocks.map((b) => (
                         <button
                           key={b.bi}
-                          onClick={() =>
-                            openBookModal({ res: r.key, from: b.from, to: b.to, title: b.title })
-                          }
+                          onClick={() => setViewBooking(b)}
                           style={{
                             left: `${(b.from / BOOKING_SLOTS) * 100}%`,
                             width: `${((b.to - b.from) / BOOKING_SLOTS) * 100}%`,
@@ -717,6 +715,98 @@ export default function BookingPage() {
                     ? "예약하는 중…"
                     : "예약 확정"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 예약 상세 · 취소 모달 */}
+      {viewBooking && (
+        <div
+          onClick={() => setViewBooking(null)}
+          className="fixed inset-0 z-[66] flex items-center justify-center bg-[rgba(15,23,42,.45)] p-6 backdrop-blur-[2px]"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="flex w-full max-w-[420px] flex-col overflow-hidden rounded-2xl bg-card shadow-[0_24px_64px_rgba(15,23,42,0.28)]"
+          >
+            <div className="flex items-center gap-2.5 border-b border-[#eef1f5] px-5 pb-3.5 pt-4.5">
+              <div className="flex size-[34px] items-center justify-center rounded-[10px] bg-[#eef2ff] text-primary">
+                <ResIcon
+                  name={RESOURCES.find((r) => r.key === viewBooking.res)?.icon ?? "DoorOpen"}
+                  className="size-4"
+                />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[15px] font-semibold tracking-[-0.015em]">
+                  예약 상세
+                </div>
+                <div className="truncate text-xs text-muted-foreground">
+                  {RESOURCES.find((r) => r.key === viewBooking.res)?.name ?? viewBooking.res}
+                </div>
+              </div>
+              <button
+                onClick={() => setViewBooking(null)}
+                className="flex size-[30px] items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-3 px-5 py-4">
+              <div className="flex items-center gap-2.5">
+                <span style={avatarStyle(viewBooking.who.charAt(0), 34)}>
+                  {viewBooking.who.charAt(0)}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13px] font-semibold">
+                    {viewBooking.title}
+                  </div>
+                  <div className="mt-0.5 text-[11.5px] text-muted-foreground">
+                    {viewBooking.who} · {slotLabel(viewBooking.from)} –{" "}
+                    {slotLabel(viewBooking.to)}
+                  </div>
+                </div>
+              </div>
+              {viewBooking.purpose && (
+                <div className="text-[12.5px] text-secondary-foreground">
+                  사용 목적: {viewBooking.purpose}
+                </div>
+              )}
+              {viewBooking.video && (
+                <div className="flex items-center gap-1.5 text-[12.5px] text-secondary-foreground">
+                  <Video className="size-3.5 text-primary" />
+                  {viewBooking.provider} 화상회의 링크 발송됨
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-2 border-t border-[#eef1f5] bg-secondary px-5 py-3.5">
+              <button
+                onClick={() => setViewBooking(null)}
+                className="h-10 flex-1 rounded-[10px] border border-border bg-card text-[13px] font-semibold text-secondary-foreground hover:bg-[#f1f5f9]"
+              >
+                닫기
+              </button>
+              {viewBooking.who === me.name && (
+                <button
+                  onClick={async () => {
+                    if (cancelling) return;
+                    setCancelling(true);
+                    try {
+                      await removeBooking(viewBooking.id);
+                      setViewBooking(null);
+                    } finally {
+                      setCancelling(false);
+                    }
+                  }}
+                  disabled={cancelling}
+                  className="flex h-10 flex-[2] items-center justify-center gap-1.5 rounded-[10px] bg-[#e11d48] text-[13px] font-semibold text-white shadow-[0_1px_2px_rgba(225,29,72,0.35)] hover:bg-[#be123c] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Trash2 className="size-4" />
+                  {cancelling ? "취소하는 중…" : "예약 취소"}
+                </button>
+              )}
             </div>
           </div>
         </div>
