@@ -130,6 +130,11 @@ export interface ApprovalDoc {
    * Firestore 보안 규칙이 이 필드로 승인/반려 요청자를 검증합니다.
    */
   currentApproverUid?: string | null;
+  /**
+   * 휴가신청서(type "휴가")의 구조화된 신청 내역 — 승인 완료 시 이 값을
+   * 근거로 leaves/{no} 문서를 생성해 실제 연차 잔여에 반영합니다.
+   */
+  leaveRequest?: { kind: string; start: string; end: string; days: number };
   /* 상세(선택) */
   line?: { kind: string; name: string; role: string; state: string; at: string; done: boolean; uid?: string }[];
   meta?: { label: string; value: string }[];

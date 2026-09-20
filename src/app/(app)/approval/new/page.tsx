@@ -348,6 +348,15 @@ export default function DraftPage() {
         rows: buildRows(),
         attachments,
         reason: buildReason() || undefined,
+        leaveRequest:
+          form === "휴가신청서"
+            ? {
+                kind: leaveKind,
+                start: leaveStart,
+                end: leaveEnd,
+                days: leaveKind === "반차" ? 0.5 : leaveDays,
+              }
+            : undefined,
       });
       setSavedNo(no);
       if (mode === "submit") {

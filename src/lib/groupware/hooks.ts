@@ -533,6 +533,7 @@ export type NewApproval = {
   rows?: ApprovalDoc["rows"];
   attachments?: ApprovalDoc["attachments"];
   reason?: string;
+  leaveRequest?: ApprovalDoc["leaveRequest"];
 };
 
 export function useApprovals() {
@@ -578,6 +579,7 @@ export function useApprovals() {
           ? { attachments: input.attachments }
           : {}),
         ...(input.reason ? { reason: input.reason } : {}),
+        ...(input.leaveRequest ? { leaveRequest: input.leaveRequest } : {}),
       };
       setAdded((p) => [...p, payload]);
       if (isFirebaseConfigured) {
@@ -674,11 +676,31 @@ export function useApprovalDoc(no: string) {
         r ? { ...r, status: nextStatus, line: nextLine, currentApproverUid: nextApproverUid } : r,
       );
       if (isFirebaseConfigured) {
+        // 결재 문서를 먼저 확정한 뒤 연차 반영 — leaves 생성 규칙이 이 문서의
+        // status == "Approved" 를 근거로 승인 여부를 검증합니다(순서 중요).
         await updateDoc(doc(firebaseDb(), COL.approvals, no), {
           status: nextStatus,
           line: nextLine,
           currentApproverUid: nextApproverUid,
         });
+        // 휴가신청서가 최종 승인되면 실제 연차 잔여(leaves 컬렉션 기반 balance)에서
+        // 차감되도록 leaves/{no} 문서를 생성합니다 — 같은 문서번호를 id로 써서
+        // 재승인 등으로 중복 생성되지 않게 합니다.
+        if (nextStatus === "Approved" && document.type === "휴가" && document.leaveRequest && document.authorUid) {
+          const lr = document.leaveRequest;
+          await setDoc(doc(firebaseDb(), COL.leaves, no), {
+            uid: document.authorUid,
+            who: document.author,
+            kind: lr.kind,
+            start: lr.start,
+            end: lr.end,
+            days: lr.days,
+            hours: 0,
+            reason: document.reason ?? "",
+            status: "승인",
+            order: now.getTime(),
+          } satisfies Omit<LeaveDoc, "id">);
+        }
       }
       const label =
         nextStatus === "Approved" ? "승인" : nextStatus === "Rejected" ? "반려" : "결재 진행";

@@ -19,6 +19,17 @@ service cloud.firestore {
         && myRole() in ['ADMIN', 'SUPER_ADMIN'];
     }
 
+    /* 전자결재 휴가신청서(approvals/{id})가 실제로 최종 승인됐고, 그 기안자가
+       uid 본인일 때만 true — leaves/{id}(문서번호를 그대로 id로 재사용) 승인
+       생성을 이 사실에 근거해서만 허용하기 위한 헬퍼. 결재자(제3자)가 본인이
+       아닌 uid 로 leaves 문서를 만드는 유일한 합법 경로입니다. */
+    function isApprovedLeaveApproval(id, uid) {
+      let ap = get(/databases/$(database)/documents/approvals/$(id));
+      return ap.data.status == 'Approved'
+        && ap.data.type == '휴가'
+        && ap.data.authorUid == uid;
+    }
+
     /* ---------------- users/{uid} ----------------
        조직도 · 태스크 담당자 검색 · 결재자 검색 등이 전부 이 컬렉션을 단일
        소스로 씁니다 — orgPeople 처럼 로그인 사용자면 누구나 조회 가능해야
@@ -109,14 +120,22 @@ service cloud.firestore {
       allow read, write: if isSignedIn() && request.auth.uid == uid;
     }
 
-    /* ---------------- leaves/{id} (연차·초과근무 신청) ---------------- */
+    /* ---------------- leaves/{id} (연차·초과근무 신청) ----------------
+       휴가신청서 전자결재가 최종 승인되면 그 문서번호를 그대로 id로 써서
+       leaves/{id} 승인 문서를 생성해 실제 연차 잔여에 반영합니다 — 이때
+       쓰는 사람은 기안자 본인이 아니라 마지막 결재자이므로, 아래 create/
+       update 규칙에 isApprovedLeaveApproval() 경로를 별도로 열어둡니다. */
     match /leaves/{id} {
       // 본인 신청 또는 관리자만 조회 (목록 쿼리는 uid == 본인 으로 제한)
       allow read: if isSignedIn()
         && (resource.data.uid == request.auth.uid || isAdmin());
-      allow create: if isSignedIn()
-        && request.resource.data.uid == request.auth.uid
-        && (request.resource.data.status == '대기' || isAdmin());
+      allow create: if isAdmin()
+        || (isSignedIn()
+            && request.resource.data.uid == request.auth.uid
+            && request.resource.data.status == '대기')
+        || (isSignedIn()
+            && request.resource.data.status == '승인'
+            && isApprovedLeaveApproval(id, request.resource.data.uid));
       allow update, delete: if isAdmin()
         || (isSignedIn() && resource.data.uid == request.auth.uid);
     }
