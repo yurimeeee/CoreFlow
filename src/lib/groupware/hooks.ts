@@ -1120,6 +1120,22 @@ function readSessionId(uid: string): string {
   }
 }
 
+/** 이 기기(브라우저+계정)가 세션ID를 처음 발급받은 시각 — 하트비트가
+ *  매번 getDoc 없이 setDoc(merge) 만으로 생성/갱신할 수 있도록 createdAt을
+ *  Firestore 조회가 아니라 localStorage 에서 고정값으로 가져옵니다. */
+function readSessionCreatedAt(uid: string): number {
+  const key = `cf-session-created:${uid}`;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (raw) return Number(raw);
+    const now = Date.now();
+    window.localStorage.setItem(key, String(now));
+    return now;
+  } catch {
+    return Date.now();
+  }
+}
+
 function forgetSessionId(uid: string) {
   try {
     window.localStorage.removeItem(`cf-session-id:${uid}`);
@@ -1184,21 +1200,21 @@ export function useSessions() {
     const beat = async () => {
       if (revokedRef.current) return;
       const { label, icon } = parseDevice(navigator.userAgent);
-      const now = Date.now();
       try {
-        const snap = await getDoc(ref);
-        if (snap.exists()) {
-          await updateDoc(ref, { lastActive: now, device: label, icon });
-        } else {
-          await setDoc(ref, {
+        // 문서 존재 여부를 매번 getDoc 으로 확인할 필요 없이, merge:true 로
+        // 한 번의 쓰기에서 생성/갱신을 모두 처리합니다.
+        await setDoc(
+          ref,
+          {
             uid,
             device: label,
             icon,
             userAgent: navigator.userAgent,
-            createdAt: now,
-            lastActive: now,
-          });
-        }
+            createdAt: readSessionCreatedAt(uid),
+            lastActive: Date.now(),
+          },
+          { merge: true },
+        );
       } catch {
         // 권한 오류(다른 계정이 쓰던 세션ID 충돌 등) — 조용히 무시
       }

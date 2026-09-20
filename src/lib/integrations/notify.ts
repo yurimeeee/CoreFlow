@@ -6,21 +6,46 @@
  * 항상 best-effort — 실패해도 호출한 쪽의 Firestore 쓰기(공지/결재/휴가
  * 신청 등)를 막지 않도록 모든 함수가 예외를 삼킵니다.
  */
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, onSnapshot } from "firebase/firestore";
 import { firebaseDb, isFirebaseConfigured } from "@/lib/firebase";
 import type { WorkspaceDoc, WorkspaceWebhookIntegration } from "@/lib/groupware/firestore";
+
+// notifySlack/notifyJandi는 공지·결재·근태 등 거의 모든 쓰기 경로에서
+// 호출되는데, workspace/main 은 관리자가 가끔 연동 설정을 바꿀 때만
+// 변하는 문서입니다. 호출마다 getDoc 을 새로 하는 대신 한 번만
+// onSnapshot 을 구독해 두고 캐시된 값을 재사용합니다.
+let cachedWorkspace: WorkspaceDoc | null | undefined; // undefined = 아직 로드 전
+let subscribed = false;
+
+function ensureSubscribed() {
+  if (subscribed) return;
+  subscribed = true;
+  onSnapshot(
+    doc(firebaseDb(), "workspace", "main"),
+    (snap) => {
+      cachedWorkspace = snap.exists() ? (snap.data() as WorkspaceDoc) : null;
+    },
+    () => {
+      cachedWorkspace = null;
+    },
+  );
+}
 
 async function getIntegration(
   key: "slack" | "jandi",
 ): Promise<WorkspaceWebhookIntegration | null> {
   if (!isFirebaseConfigured) return null;
-  try {
-    const snap = await getDoc(doc(firebaseDb(), "workspace", "main"));
-    if (!snap.exists()) return null;
-    return ((snap.data() as WorkspaceDoc).integrations?.[key]) ?? null;
-  } catch {
-    return null;
+  ensureSubscribed();
+  if (cachedWorkspace === undefined) {
+    // 구독의 첫 스냅샷이 아직 도착 전이면(콜드 스타트) 한 번만 직접 읽습니다.
+    try {
+      const snap = await getDoc(doc(firebaseDb(), "workspace", "main"));
+      cachedWorkspace = snap.exists() ? (snap.data() as WorkspaceDoc) : null;
+    } catch {
+      return null;
+    }
   }
+  return cachedWorkspace?.integrations?.[key] ?? null;
 }
 
 async function relay(
