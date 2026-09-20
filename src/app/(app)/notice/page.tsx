@@ -5,21 +5,25 @@ import Link from "next/link";
 import {
   BellOff,
   CalendarClock,
+  FileClock,
   Loader2,
   Megaphone,
   MessageSquare,
   Paperclip,
   Pin,
   PenSquare,
+  Save,
   Search,
   SearchX,
+  Send,
   ShieldAlert,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NOTICE_CATEGORIES, NOTICE_CAT_COLORS } from "@/lib/groupware/data";
 import { pill } from "@/lib/groupware/ui";
-import { useNotices } from "@/lib/groupware/hooks";
+import { useCurrentUser, useNotices } from "@/lib/groupware/hooks";
+import type { NoticeDoc } from "@/lib/groupware/firestore";
 import { GwCard, PageHeader } from "@/components/app/primitives";
 import { EmptyState } from "@/components/app/EmptyState";
 
@@ -30,15 +34,22 @@ const PIN_ICONS: Record<string, React.ElementType> = {
 
 const COMPOSE_CATEGORIES = Object.keys(NOTICE_CAT_COLORS);
 
+type ComposeInput = { cat: string; title: string; body: string; pinned: boolean };
+type ComposeState = ComposeInput & { id?: string };
+
 export default function NoticePage() {
+  const me = useCurrentUser();
   const [query, setQuery] = React.useState("");
   const [cat, setCat] = React.useState("전체");
-  const [composeOpen, setComposeOpen] = React.useState(false);
-  const { data, loading, addNotice } = useNotices();
+  const [showDrafts, setShowDrafts] = React.useState(false);
+  const [composeState, setComposeState] = React.useState<ComposeState | null>(null);
+  const { data, loading, addNotice, updateNotice } = useNotices();
 
-  const pinned = data.filter((n) => n.pinned);
+  const published = data.filter((n) => n.status !== "draft");
+  const myDrafts = data.filter((n) => n.status === "draft" && n.authorUid === me.uid);
+  const pinned = published.filter((n) => n.pinned);
   const q = query.trim().toLowerCase();
-  const rows = data
+  const rows = published
     .filter((n) => !n.pinned)
     .filter((n) => cat === "전체" || n.cat === cat)
     .filter(
@@ -47,6 +58,15 @@ export default function NoticePage() {
         n.title.toLowerCase().includes(q) ||
         n.author.toLowerCase().includes(q),
     );
+
+  const openEditor = (n: NoticeDoc) =>
+    setComposeState({
+      id: n.id,
+      cat: n.cat,
+      title: n.title,
+      body: n.body ?? "",
+      pinned: n.pinned,
+    });
 
   return (
     <div className="mx-auto flex max-w-[1100px] flex-col gap-4.5">
@@ -69,7 +89,36 @@ export default function NoticePage() {
               />
             </div>
             <button
-              onClick={() => setComposeOpen(true)}
+              onClick={() => setShowDrafts((v) => !v)}
+              className={cn(
+                "flex h-9 items-center gap-1.5 rounded-[9px] border px-3 text-[12.5px] font-semibold transition-colors",
+                showDrafts
+                  ? "border-primary bg-primary text-white"
+                  : "border-border bg-card text-secondary-foreground hover:bg-secondary",
+              )}
+            >
+              <FileClock className="size-3.5" />
+              임시저장함
+              {myDrafts.length > 0 && (
+                <span
+                  className={cn(
+                    "flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold",
+                    showDrafts ? "bg-white/25 text-white" : "bg-[#eef2ff] text-primary",
+                  )}
+                >
+                  {myDrafts.length}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() =>
+                setComposeState({
+                  cat: COMPOSE_CATEGORIES[0] ?? "경영",
+                  title: "",
+                  body: "",
+                  pinned: false,
+                })
+              }
               className="flex h-9 items-center gap-1.5 rounded-[9px] bg-primary px-3.5 text-[13px] font-semibold text-primary-foreground shadow-[0_1px_2px_rgba(79,70,229,0.35)] hover:bg-primary-hover"
             >
               <PenSquare className="size-4" />
@@ -79,7 +128,7 @@ export default function NoticePage() {
         }
       />
 
-      {pinned.length > 0 && (
+      {!showDrafts && pinned.length > 0 && (
         <section className="flex flex-col gap-3">
           <div className="flex items-center gap-1.5">
             <Megaphone className="size-[15px] text-[#dc2626]" />
@@ -141,28 +190,82 @@ export default function NoticePage() {
       )}
 
       <GwCard>
-        <div className="flex flex-wrap items-center gap-1.5 border-b border-[#eef1f5] px-4 py-3">
-          {NOTICE_CATEGORIES.map((c) => (
-            <button
-              key={c}
-              onClick={() => setCat(c)}
-              className={cn(
-                "rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors",
-                cat === c
-                  ? "border-primary bg-primary text-white"
-                  : "border-border bg-card text-secondary-foreground hover:bg-secondary",
-              )}
-            >
-              {c}
-            </button>
-          ))}
-          <span className="ml-auto flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
-            {loading && <Loader2 className="size-3 animate-spin" />}
-            전체 {rows.length}건
-          </span>
-        </div>
+        {showDrafts ? (
+          <div className="flex items-center gap-1.5 border-b border-[#eef1f5] px-4 py-3">
+            <FileClock className="size-4 text-primary" />
+            <span className="text-[13px] font-semibold">임시저장함</span>
+            <span className="ml-auto text-[11.5px] text-muted-foreground">
+              나만 볼 수 있음 · {myDrafts.length}건
+            </span>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-1.5 border-b border-[#eef1f5] px-4 py-3">
+            {NOTICE_CATEGORIES.map((c) => (
+              <button
+                key={c}
+                onClick={() => setCat(c)}
+                className={cn(
+                  "rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors",
+                  cat === c
+                    ? "border-primary bg-primary text-white"
+                    : "border-border bg-card text-secondary-foreground hover:bg-secondary",
+                )}
+              >
+                {c}
+              </button>
+            ))}
+            <span className="ml-auto flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
+              {loading && <Loader2 className="size-3 animate-spin" />}
+              전체 {rows.length}건
+            </span>
+          </div>
+        )}
 
-        {!loading && rows.length === 0 ? (
+        {showDrafts ? (
+          myDrafts.length === 0 ? (
+            <EmptyState
+              className="rounded-none border-0 shadow-none"
+              icon={<FileClock className="size-[26px]" />}
+              title="임시저장된 공지가 없습니다"
+              desc="작성 중인 공지를 임시저장하면 여기서 이어서 편집하거나 게시할 수 있습니다."
+            />
+          ) : (
+            <div className="overflow-x-auto">
+              <div className="flex min-w-[760px] border-b border-[#eef1f5] bg-secondary px-4.5 py-2.5 text-[11.5px] font-semibold text-muted-foreground">
+                <div className="w-[84px] shrink-0">카테고리</div>
+                <div className="min-w-[220px] flex-1">제목</div>
+                <div className="w-[104px] shrink-0">작성자</div>
+                <div className="w-[84px] shrink-0">저장일</div>
+              </div>
+              {myDrafts.map((n) => {
+                const c = NOTICE_CAT_COLORS[n.cat] ?? ["#f1f5f9", "#475569"];
+                return (
+                  <button
+                    type="button"
+                    key={n.id}
+                    onClick={() => openEditor(n)}
+                    className="flex w-full min-w-[760px] items-center border-b border-[#f1f5f9] px-4.5 py-3 text-left text-[12.5px] transition-colors hover:bg-secondary"
+                  >
+                    <div className="w-[84px] shrink-0">
+                      <span style={pill(c[0], c[1])}>{n.cat}</span>
+                    </div>
+                    <div className="flex min-w-[220px] flex-1 items-center gap-1.5 pr-3.5">
+                      <span className="flex-1 truncate text-secondary-foreground">
+                        {n.title || "(제목 없음)"}
+                      </span>
+                    </div>
+                    <div className="w-[104px] shrink-0 truncate text-secondary-foreground">
+                      {n.author}
+                    </div>
+                    <div className="w-[84px] shrink-0 tabular-nums text-muted-foreground">
+                      {n.date}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )
+        ) : !loading && rows.length === 0 ? (
           <EmptyState
             className="rounded-none border-0 shadow-none"
             tint={
@@ -189,7 +292,13 @@ export default function NoticePage() {
                 : {
                     label: "공지 작성",
                     icon: <PenSquare className="size-4" />,
-                    onClick: () => setComposeOpen(true),
+                    onClick: () =>
+                      setComposeState({
+                        cat: COMPOSE_CATEGORIES[0] ?? "경영",
+                        title: "",
+                        body: "",
+                        pinned: false,
+                      }),
                   }
             }
           />
@@ -254,12 +363,17 @@ export default function NoticePage() {
         )}
       </GwCard>
 
-      {composeOpen && (
+      {composeState && (
         <ComposeModal
-          onClose={() => setComposeOpen(false)}
-          onSubmit={async (input) => {
-            await addNotice(input);
-            setComposeOpen(false);
+          initial={composeState}
+          onClose={() => setComposeState(null)}
+          onSubmit={async (input, draft) => {
+            if (composeState.id) {
+              await updateNotice(composeState.id, input, draft);
+            } else {
+              await addNotice(input, draft);
+            }
+            setComposeState(null);
           }}
         />
       )}
@@ -268,31 +382,31 @@ export default function NoticePage() {
 }
 
 function ComposeModal({
+  initial,
   onClose,
   onSubmit,
 }: {
+  initial: ComposeState;
   onClose: () => void;
-  onSubmit: (input: {
-    cat: string;
-    title: string;
-    body: string;
-    pinned: boolean;
-  }) => Promise<void>;
+  onSubmit: (input: ComposeInput, draft: boolean) => Promise<void>;
 }) {
-  const [cat, setCat] = React.useState(COMPOSE_CATEGORIES[0] ?? "경영");
-  const [title, setTitle] = React.useState("");
-  const [body, setBody] = React.useState("");
-  const [pinned, setPinned] = React.useState(false);
-  const [saving, setSaving] = React.useState(false);
+  const isEdit = !!initial.id;
+  const [cat, setCat] = React.useState(initial.cat || COMPOSE_CATEGORIES[0] || "경영");
+  const [title, setTitle] = React.useState(initial.title);
+  const [body, setBody] = React.useState(initial.body);
+  const [pinned, setPinned] = React.useState(initial.pinned);
+  const [saving, setSaving] = React.useState<null | "draft" | "publish">(null);
 
   const valid = title.trim().length > 0;
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const submit = async (draft: boolean) => {
     if (!valid || saving) return;
-    setSaving(true);
-    await onSubmit({ cat, title: title.trim(), body: body.trim(), pinned });
-    setSaving(false);
+    setSaving(draft ? "draft" : "publish");
+    try {
+      await onSubmit({ cat, title: title.trim(), body: body.trim(), pinned }, draft);
+    } finally {
+      setSaving(null);
+    }
   };
 
   return (
@@ -310,10 +424,12 @@ function ComposeModal({
           </span>
           <div className="flex-1">
             <div className="text-[15px] font-semibold tracking-[-0.015em]">
-              공지 작성
+              {isEdit ? "임시저장 공지 편집" : "공지 작성"}
             </div>
             <div className="mt-0.5 text-xs text-muted-foreground">
-              등록하면 바로 공지사항 목록에 게시됩니다
+              {isEdit
+                ? "게시하기 전까지는 나에게만 보입니다"
+                : "임시저장하면 나에게만 보이고, 게시하면 전사에 바로 알림이 갑니다"}
             </div>
           </div>
           <button
@@ -325,7 +441,7 @@ function ComposeModal({
         </div>
 
         <form
-          onSubmit={submit}
+          onSubmit={(e) => e.preventDefault()}
           className="flex flex-1 flex-col gap-3.5 overflow-y-auto px-5 py-4"
         >
           <div className="grid grid-cols-[140px_1fr] gap-3">
@@ -396,16 +512,25 @@ function ComposeModal({
             취소
           </button>
           <button
-            onClick={submit}
-            disabled={!valid || saving}
+            onClick={() => submit(true)}
+            disabled={!valid || !!saving}
+            className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-[10px] border border-border bg-card text-[13px] font-semibold text-secondary-foreground hover:bg-[#f1f5f9] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Save className="size-3.5" />
+            {saving === "draft" ? "저장 중…" : "임시저장"}
+          </button>
+          <button
+            onClick={() => submit(false)}
+            disabled={!valid || !!saving}
             className={cn(
-              "h-10 flex-[2] rounded-[10px] text-[13px] font-semibold transition-colors",
+              "flex h-10 flex-[2] items-center justify-center gap-1.5 rounded-[10px] text-[13px] font-semibold transition-colors",
               !valid || saving
                 ? "cursor-not-allowed bg-[#f1f5f9] text-muted-foreground"
                 : "bg-primary text-primary-foreground shadow-[0_1px_2px_rgba(79,70,229,0.35)] hover:bg-primary-hover",
             )}
           >
-            {saving ? "게시하는 중…" : "공지 등록"}
+            <Send className="size-3.5" />
+            {saving === "publish" ? "게시하는 중…" : "공지 등록"}
           </button>
         </div>
       </div>

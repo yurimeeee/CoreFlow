@@ -94,6 +94,8 @@ export interface NoticeDoc {
   cat: string;
   title: string;
   author: string;
+  /** 작성자 uid — 임시저장함 필터·수정 권한 판단에 사용 */
+  authorUid?: string;
   date: string;
   views: number;
   attach: boolean;
@@ -101,6 +103,8 @@ export interface NoticeDoc {
   pinned: boolean;
   body?: string;
   order: number;
+  /** "draft"면 임시저장(작성자 본인에게만 노출) — 값이 없으면 게시된 것으로 취급(레거시) */
+  status?: "draft" | "published";
   /** 댓글 수 (notices/{id}/comments 서브컬렉션과 동기, increment 로 관리) */
   comments?: number;
   /* 필독 카드 스타일 (pinned 전용) */
@@ -202,6 +206,8 @@ export interface NoticeCommentDoc {
   body: string;
   at: string; // yyyy.mm.dd HH:MM
   order: number;
+  /** 수정된 댓글인지 (UI에 "(수정됨)" 표시용) */
+  edited?: boolean;
 }
 
 /** 캘린더 일정 — events/{id} (owner 본인만 수정/삭제) */

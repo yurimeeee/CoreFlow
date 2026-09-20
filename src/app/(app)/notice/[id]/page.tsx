@@ -5,11 +5,15 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
   ArrowLeft,
+  Check,
   Loader2,
   MessageSquare,
   Paperclip,
+  Pencil,
   Pin,
   Send,
+  Trash2,
+  X,
 } from "lucide-react";
 import { NOTICE_CAT_COLORS } from "@/lib/groupware/data";
 import { useNoticeComments, useNoticeDoc } from "@/lib/groupware/hooks";
@@ -20,9 +24,18 @@ export default function NoticeDetailPage() {
   const params = useParams<{ id: string }>();
   const id = decodeURIComponent(params.id ?? "");
   const { notice, loading } = useNoticeDoc(id);
-  const { comments, addComment } = useNoticeComments(id);
+  const {
+    comments,
+    addComment,
+    updateComment,
+    removeComment,
+    myUid,
+    isAdmin,
+  } = useNoticeComments(id);
   const [draft, setDraft] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  const [editingId, setEditingId] = React.useState<string | null>(null);
+  const [editText, setEditText] = React.useState("");
 
   const submit = async () => {
     if (!draft.trim()) return;
@@ -30,6 +43,37 @@ export default function NoticeDetailPage() {
     try {
       await addComment(draft);
       setDraft("");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const startEdit = (commentId: string, body: string) => {
+    setEditingId(commentId);
+    setEditText(body);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditText("");
+  };
+
+  const saveEdit = async (commentId: string) => {
+    if (!editText.trim()) return;
+    setBusy(true);
+    try {
+      await updateComment(commentId, editText);
+      cancelEdit();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (commentId: string) => {
+    if (!window.confirm("댓글을 삭제할까요?")) return;
+    setBusy(true);
+    try {
+      await removeComment(commentId);
     } finally {
       setBusy(false);
     }
@@ -115,31 +159,90 @@ export default function NoticeDetailPage() {
         </div>
 
         <div className="flex flex-col divide-y divide-[#f1f5f9]">
-          {comments.map((c) => (
-            <div key={c.id} className="flex gap-2.5 py-3">
-              <span style={avatarStyle(c.author.charAt(0), 30)}>
-                {c.author.charAt(0)}
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[12.5px] font-semibold">
-                    {c.author}
-                  </span>
-                  {c.role && (
-                    <span className="text-[11px] text-muted-foreground">
-                      {c.role}
+          {comments.map((c) => {
+            const isOwn = !!myUid && c.uid === myUid;
+            const isEditing = editingId === c.id;
+            return (
+              <div key={c.id} className="flex gap-2.5 py-3">
+                <span style={avatarStyle(c.author.charAt(0), 30)}>
+                  {c.author.charAt(0)}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[12.5px] font-semibold">
+                      {c.author}
                     </span>
+                    {c.role && (
+                      <span className="text-[11px] text-muted-foreground">
+                        {c.role}
+                      </span>
+                    )}
+                    <span className="ml-auto text-[11px] tabular-nums text-[#cbd5e1]">
+                      {c.at}
+                      {c.edited && " · 수정됨"}
+                    </span>
+                    {!isEditing && (isOwn || isAdmin) && (
+                      <div className="flex items-center gap-0.5">
+                        {isOwn && (
+                          <button
+                            onClick={() => startEdit(c.id, c.body)}
+                            className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-secondary-foreground"
+                            title="수정"
+                          >
+                            <Pencil className="size-3" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => remove(c.id)}
+                          disabled={busy}
+                          className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-[#fef2f2] hover:text-[#b91c1c] disabled:opacity-50"
+                          title="삭제"
+                        >
+                          <Trash2 className="size-3" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  {isEditing ? (
+                    <div className="mt-1.5 flex flex-col gap-1.5">
+                      <textarea
+                        value={editText}
+                        onChange={(e) => setEditText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") saveEdit(c.id);
+                          if (e.key === "Escape") cancelEdit();
+                        }}
+                        rows={2}
+                        autoFocus
+                        className="w-full resize-none rounded-[8px] border border-border bg-card px-2.5 py-2 text-[12.5px] leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      />
+                      <div className="flex justify-end gap-1.5">
+                        <button
+                          onClick={cancelEdit}
+                          className="flex h-7 items-center gap-1 rounded-md border border-border bg-card px-2 text-[11.5px] font-semibold text-secondary-foreground hover:bg-secondary"
+                        >
+                          <X className="size-3" />
+                          취소
+                        </button>
+                        <button
+                          onClick={() => saveEdit(c.id)}
+                          disabled={busy || !editText.trim()}
+                          className="flex h-7 items-center gap-1 rounded-md bg-primary px-2 text-[11.5px] font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
+                        >
+                          <Check className="size-3" />
+                          저장
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="mt-1 whitespace-pre-wrap text-[12.5px] leading-[1.65] text-secondary-foreground">
+                      {c.body}
+                    </p>
                   )}
-                  <span className="ml-auto text-[11px] tabular-nums text-[#cbd5e1]">
-                    {c.at}
-                  </span>
                 </div>
-                <p className="mt-1 whitespace-pre-wrap text-[12.5px] leading-[1.65] text-secondary-foreground">
-                  {c.body}
-                </p>
               </div>
-            </div>
-          ))}
+            );
+          })}
           {comments.length === 0 && (
             <p className="py-6 text-center text-[12px] text-muted-foreground">
               첫 댓글을 남겨보세요

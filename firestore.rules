@@ -85,8 +85,12 @@ service cloud.firestore {
         allow read: if isSignedIn();
         allow create: if isSignedIn()
           && request.resource.data.uid == request.auth.uid;
-        allow update, delete: if isSignedIn()
+        // 수정은 작성자 본인만. 삭제는 작성자 본인이거나 관리자/최상위
+        // 관리자(admin/super_admin)도 가능 — 타인 댓글을 정리할 수 있도록.
+        allow update: if isSignedIn()
           && resource.data.uid == request.auth.uid;
+        allow delete: if isSignedIn()
+          && (resource.data.uid == request.auth.uid || isAdmin());
       }
     }
     match /tasks/{id} {

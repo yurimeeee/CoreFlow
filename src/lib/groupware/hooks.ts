@@ -168,8 +168,12 @@ export function useNotices() {
   const state = useGwCollection<NoticeDoc>(COL.notices, NOTICE_FALLBACK);
   const me = useCurrentUser();
 
+  /** draft=true면 임시저장(본인에게만 보이고 전사 알림도 안 나감) */
   const addNotice = React.useCallback(
-    async (input: { cat: string; title: string; body: string; pinned: boolean }) => {
+    async (
+      input: { cat: string; title: string; body: string; pinned: boolean },
+      draft: boolean,
+    ) => {
       if (!isFirebaseConfigured) return;
       const id = String(Date.now());
       const now = new Date();
@@ -180,23 +184,56 @@ export function useNotices() {
         title: input.title,
         body: input.body,
         author,
+        ...(me.uid ? { authorUid: me.uid } : {}),
         date,
         views: 0,
         attach: false,
-        unread: true,
+        unread: !draft,
         pinned: input.pinned,
         comments: 0,
+        status: draft ? "draft" : "published",
         order: -now.getTime(), // 최신 글이 위로 오도록
       });
-      notifySlack(
-        `${input.pinned ? "📌 " : ""}[공지] ${input.title}\n${author} · ${input.body.slice(0, 140)}`,
-        input.title,
-      ).catch(() => {});
+      if (!draft) {
+        notifySlack(
+          `${input.pinned ? "📌 " : ""}[공지] ${input.title}\n${author} · ${input.body.slice(0, 140)}`,
+          input.title,
+        ).catch(() => {});
+      }
+      return id;
+    },
+    [me.name, me.role, me.uid],
+  );
+
+  /** 임시저장한 글을 계속 수정하거나(draft=true), 최종 게시(draft=false)합니다. */
+  const updateNotice = React.useCallback(
+    async (
+      id: string,
+      input: { cat: string; title: string; body: string; pinned: boolean },
+      draft: boolean,
+    ) => {
+      if (!isFirebaseConfigured) return;
+      const patch: Partial<NoticeDoc> = {
+        cat: input.cat,
+        title: input.title,
+        body: input.body,
+        pinned: input.pinned,
+        status: draft ? "draft" : "published",
+        ...(draft ? {} : { unread: true }),
+      };
+      await updateDoc(doc(firebaseDb(), COL.notices, id), patch);
+      if (!draft) {
+        const author = me.role ? `${me.name} ${me.role}` : me.name;
+        notifySlack(
+          `${input.pinned ? "📌 " : ""}[공지] ${input.title}\n${author} · ${input.body.slice(0, 140)}`,
+          input.title,
+        ).catch(() => {});
+      }
     },
     [me.name, me.role],
   );
 
-  return { ...state, addNotice };
+  return { ...state, addNotice, updateNotice };
 }
 
 export function useNoticeDoc(id: string) {
@@ -217,7 +254,8 @@ export function useNoticeDoc(id: string) {
 /** 공지 댓글 — notices/{id}/comments 서브컬렉션 */
 export function useNoticeComments(noticeId: string) {
   const me = useCurrentUser();
-  const { authUser } = useAuthUser();
+  const { authUser, profile } = useAuthUser();
+  const isAdmin = profile?.role === "ADMIN" || profile?.role === "SUPER_ADMIN";
   const [data, setData] = React.useState<NoticeCommentDoc[]>([]);
   const [loading, setLoading] = React.useState(isFirebaseConfigured);
   const [added, setAdded] = React.useState<NoticeCommentDoc[]>([]);
@@ -278,7 +316,40 @@ export function useNoticeComments(noticeId: string) {
     [noticeId, me.name, me.role, authUser?.uid],
   );
 
-  return { comments, loading, addComment };
+  /** 본인 댓글만 — Firestore 규칙도 uid == 본인만 허용 */
+  const updateComment = React.useCallback(
+    async (commentId: string, body: string) => {
+      const text = body.trim();
+      if (!text || !isFirebaseConfigured) return;
+      await updateDoc(doc(firebaseDb(), noticeCommentsPath(noticeId), commentId), {
+        body: text,
+        edited: true,
+      });
+    },
+    [noticeId],
+  );
+
+  /** 본인 댓글 또는 관리자/최상위 관리자 — Firestore 규칙에서 함께 검증 */
+  const removeComment = React.useCallback(
+    async (commentId: string) => {
+      if (!isFirebaseConfigured) return;
+      await deleteDoc(doc(firebaseDb(), noticeCommentsPath(noticeId), commentId));
+      await updateDoc(doc(firebaseDb(), COL.notices, noticeId), {
+        comments: increment(-1),
+      }).catch(() => {});
+    },
+    [noticeId],
+  );
+
+  return {
+    comments,
+    loading,
+    addComment,
+    updateComment,
+    removeComment,
+    myUid: authUser?.uid ?? null,
+    isAdmin,
+  };
 }
 
 /* ------------------------------------------------------------------ */
