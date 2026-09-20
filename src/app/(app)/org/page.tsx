@@ -22,13 +22,11 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  DEPT_FILTERS,
-  DEPT_TREE,
-  ORG_BRANCHES,
   STATUS_META,
   type Person,
   type PersonStatus,
 } from "@/lib/groupware/data";
+import { buildOrgStructure } from "@/lib/groupware/org-tree";
 import { useOrgPeople, useWorkspace } from "@/lib/groupware/hooks";
 import { avatarStyle, pill, statusDot, statusPill } from "@/lib/groupware/ui";
 import { GwCard, PageHeader, Segmented } from "@/components/app/primitives";
@@ -56,6 +54,15 @@ export default function OrgPage() {
   } = useOrgPeople();
   const { data: workspace } = useWorkspace();
 
+  const { deptTree, branches, filters } = React.useMemo(
+    () =>
+      buildOrgStructure(
+        directory,
+        `${workspace.name || "전체 조직"} (대표이사)`,
+      ),
+    [directory, workspace.name],
+  );
+
   const byId = React.useCallback(
     (id: number) => directory.find((p) => p.id === id),
     [directory],
@@ -74,6 +81,7 @@ export default function OrgPage() {
     );
 
   const ceo = byId(0);
+  const ceoInitial = (ceo?.name || workspace.ceo || "대").charAt(0);
   const selected = profileId === null ? null : byId(profileId);
 
   return (
@@ -132,7 +140,7 @@ export default function OrgPage() {
           />
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {DEPT_FILTERS.map((d) => (
+          {filters.map((d) => (
             <button
               key={d}
               onClick={() => setDept(d)}
@@ -158,7 +166,7 @@ export default function OrgPage() {
             <div className="px-2 pb-2 pt-1.5 text-[11px] font-semibold tracking-[0.03em] text-muted-foreground">
               부서 트리
             </div>
-            {DEPT_TREE.map((d) => {
+            {deptTree.map((d) => {
               const active = dept === d.key;
               return (
                 <div key={d.name} style={{ paddingLeft: d.depth * 12 }}>
@@ -255,11 +263,11 @@ export default function OrgPage() {
                   <div className="flex items-center gap-2.5">
                     <span
                       style={{
-                        ...avatarStyle("노", 36),
+                        ...avatarStyle(ceoInitial, 36),
                         background: "#4f46e5",
                       }}
                     >
-                      노
+                      {ceoInitial}
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="text-[13.5px] font-semibold text-slate-50">
@@ -273,7 +281,7 @@ export default function OrgPage() {
                 </button>
                 <div className="h-5 w-px bg-[#cbd5e1]" />
                 <div className="flex w-full items-stretch">
-                  {ORG_BRANCHES.map((b, i) => {
+                  {branches.map((b, i) => {
                     const head = byId(b.head);
                     if (!head) return null;
                     return (
@@ -285,7 +293,7 @@ export default function OrgPage() {
                           className="absolute top-0 h-px bg-[#cbd5e1]"
                           style={{
                             left: i === 0 ? "50%" : 0,
-                            right: i === ORG_BRANCHES.length - 1 ? "50%" : 0,
+                            right: i === branches.length - 1 ? "50%" : 0,
                           }}
                         />
                         <div className="h-5 w-px bg-[#cbd5e1]" />
