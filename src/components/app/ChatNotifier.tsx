@@ -13,12 +13,17 @@ import { useChats } from "@/lib/groupware/hooks";
  * (이미 markRead가 처리하므로) 알리지 않습니다.
  */
 export function ChatNotifier() {
-  const { chats } = useChats();
+  const { chats, loading } = useChats();
   const pathname = usePathname();
   const router = useRouter();
   const seenRef = React.useRef<Map<string, number> | null>(null);
 
   React.useEffect(() => {
+    // Firestore 구독이 아직 실제 스냅샷을 받기 전(chats가 임시로 빈 배열인
+    // 동안)에 seenRef를 초기화하면, 뒤이어 도착하는 진짜 첫 스냅샷이 전부
+    // "새 메시지"로 오인되어 기존 안읽은 대화들이 한꺼번에 토스트로 뜹니다.
+    // 그래서 loading이 처음 false가 되는 시점(=진짜 첫 스냅샷)까지 기다립니다.
+    if (loading) return;
     if (seenRef.current === null) {
       seenRef.current = new Map(chats.map((c) => [c.id, c.lastMessageAt]));
       return;
@@ -41,7 +46,7 @@ export function ChatNotifier() {
       }
       seen.set(c.id, c.lastMessageAt);
     }
-  }, [chats, pathname, router]);
+  }, [chats, loading, pathname, router]);
 
   return null;
 }

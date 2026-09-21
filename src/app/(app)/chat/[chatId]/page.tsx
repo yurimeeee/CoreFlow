@@ -12,6 +12,7 @@ import {
   Send,
   Users,
 } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useChatMessages, useChats, useCurrentUser } from "@/lib/groupware/hooks";
 import type { ChatMessageDoc } from "@/lib/groupware/firestore";
@@ -95,6 +96,8 @@ export default function ChatThreadPage() {
     setUploading(true);
     try {
       await sendFile(file);
+    } catch {
+      toast.error("파일을 보내지 못했습니다. 다시 시도해주세요.");
     } finally {
       setUploading(false);
     }

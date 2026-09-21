@@ -2028,7 +2028,10 @@ export function useChatMessages(chatId: string | null) {
     async (text: string) => {
       const body = text.trim();
       if (!body || !chatId || !uid) return;
-      const id = String(Date.now());
+      // Date.now()를 id로 쓰면 텍스트/파일을 거의 동시에 보낼 때 같은 id가
+      // 나와 먼저 보낸 메시지가 setDoc으로 조용히 덮어써질 수 있어
+      // randomUUID로 충돌 없는 id를 씁니다.
+      const id = crypto.randomUUID();
       const now = Date.now();
       const payload: Omit<ChatMessageDoc, "id"> = {
         chatId,
@@ -2049,8 +2052,14 @@ export function useChatMessages(chatId: string | null) {
   const sendFile = React.useCallback(
     async (file: File) => {
       if (!chatId || !uid || !isFirebaseConfigured) return;
-      const id = String(Date.now());
-      const path = `chats/${chatId}/${id}-${file.name}`;
+      const id = crypto.randomUUID();
+      // file.name을 그대로 Storage 경로에 이어붙이면 "/" 등이 섞여 있을 때
+      // chats/{chatId}/ 밑에 예상 못한 하위 경로가 생기고, storage.rules의
+      // {fileName} 와일드카드(단일 세그먼트)와 어긋나 업로드가 조용히
+      // 거부됩니다 — 경로에는 안전한 이름만 쓰고, 원본 파일명은 표시/다운로드용
+      // fileName 필드에 그대로 보존합니다.
+      const safeName = file.name.replace(/[/\\?%*:|"<>]/g, "_");
+      const path = `chats/${chatId}/${id}-${safeName}`;
       const ref = storageRef(firebaseStorage(), path);
       const snap = await uploadBytes(ref, file);
       const url = await getDownloadURL(snap.ref);
