@@ -1054,6 +1054,7 @@ export function useBookings() {
       attendees?: string[];
       video?: boolean;
       provider?: string;
+      meetingUrl?: string;
     }) => {
       const id = String(Date.now());
       const now = new Date();
@@ -1068,6 +1069,7 @@ export function useBookings() {
         attendees: input.attendees ?? [],
         video: input.video ?? false,
         provider: input.provider ?? "",
+        meetingUrl: input.video ? (input.meetingUrl ?? "").trim() : "",
         order: input.from,
       };
       setAdded((p) => [...p, { id, ...payload }]);
@@ -2203,17 +2205,16 @@ export function useNotifications(): Notification[] {
   const { data: approvals } = useApprovals();
   const { data: notices } = useNotices();
   const { data: leaves } = useLeaves();
+  const me = useCurrentUser();
 
   return React.useMemo(() => {
     const byRecency = <T extends { _s: number }>(a: T, b: T) => a._s - b._s;
 
+    // bucket === "pending"만 보면 회사 전체 상신 문서가 다 내 알림으로
+    // 뜹니다 — isPendingApprover로 결재선의 현재 차례가 나인 문서만 골라야
+    // /approval, /my 등 다른 화면의 "결재 대기" 집계와도 건수가 맞습니다.
     const ap = approvals
-      .filter(
-        (a) =>
-          a.bucket === "pending" &&
-          a.status !== "Approved" &&
-          a.status !== "Rejected",
-      )
+      .filter((a) => a.bucket === "pending" && isPendingApprover(a, me))
       .map((a) => ({
         id: `ap-${a.no}`,
         cat: "결재" as const,
@@ -2264,7 +2265,7 @@ export function useNotifications(): Notification[] {
       to: n.to,
       icon: n.icon,
     }));
-  }, [approvals, notices, leaves]);
+  }, [approvals, notices, leaves, me]);
 }
 
 /* ------------------------------------------------------------------ */

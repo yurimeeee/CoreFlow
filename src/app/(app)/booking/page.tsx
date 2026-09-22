@@ -71,6 +71,7 @@ export default function BookingPage() {
   const [bookAtt, setBookAtt] = React.useState<string[]>([]);
   const [bookVideoOn, setBookVideoOn] = React.useState(true);
   const [bookProvider, setBookProvider] = React.useState(BOOK_PROVIDERS[0]);
+  const [bookMeetingUrl, setBookMeetingUrl] = React.useState("");
   const [viewBooking, setViewBooking] = React.useState<BookingDoc | null>(null);
   const [cancelling, setCancelling] = React.useState(false);
 
@@ -176,6 +177,7 @@ export default function BookingPage() {
   const closeBook = () => {
     setBookOpen(false);
     setBookQuery("");
+    setBookMeetingUrl("");
   };
 
   const [saving, setSaving] = React.useState(false);
@@ -193,6 +195,7 @@ export default function BookingPage() {
         attendees: bookAtt,
         video: bookVideoOn,
         provider: bookVideoOn ? bookProvider : "",
+        meetingUrl: bookMeetingUrl,
       });
     } finally {
       setSaving(false);
@@ -200,6 +203,7 @@ export default function BookingPage() {
     setBookOpen(false);
     setBookTitle("");
     setBookAtt([]);
+    setBookMeetingUrl("");
     clearSelection();
   };
 
@@ -662,32 +666,40 @@ export default function BookingPage() {
                   <Video className="size-4 text-primary" />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div className="text-[12.5px] font-semibold">화상회의 링크 자동 생성</div>
+                  <div className="text-[12.5px] font-semibold">화상회의로 표시</div>
                   <div className="mt-0.5 text-[11.5px] text-muted-foreground">
                     {bookVideoOn
-                      ? `${bookProvider} 링크가 초대장에 함께 발송됩니다`
-                      : "링크 없이 오프라인 회의로 등록됩니다"}
+                      ? `${bookProvider} 회의로 표시됩니다 — 참여 링크는 아래에 직접 붙여넣어 공유하세요`
+                      : "오프라인 회의로 등록됩니다"}
                   </div>
                 </div>
                 <Toggle on={bookVideoOn} onClick={() => setBookVideoOn((v) => !v)} />
               </div>
 
               {bookVideoOn && (
-                <div className="flex gap-1.5">
-                  {BOOK_PROVIDERS.map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => setBookProvider(p)}
-                      className={cn(
-                        "h-[34px] flex-1 rounded-[9px] border text-xs font-semibold transition-colors",
-                        bookProvider === p
-                          ? "border-primary bg-[#f5f6ff] text-[#4338ca]"
-                          : "border-border bg-card text-muted-foreground hover:bg-secondary",
-                      )}
-                    >
-                      {p}
-                    </button>
-                  ))}
+                <div className="flex flex-col gap-2">
+                  <div className="flex gap-1.5">
+                    {BOOK_PROVIDERS.map((p) => (
+                      <button
+                        key={p}
+                        onClick={() => setBookProvider(p)}
+                        className={cn(
+                          "h-[34px] flex-1 rounded-[9px] border text-xs font-semibold transition-colors",
+                          bookProvider === p
+                            ? "border-primary bg-[#f5f6ff] text-[#4338ca]"
+                            : "border-border bg-card text-muted-foreground hover:bg-secondary",
+                        )}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    value={bookMeetingUrl}
+                    onChange={(e) => setBookMeetingUrl(e.target.value)}
+                    placeholder="참여 링크 (선택) — 예: https://meet.google.com/..."
+                    className="h-[36px] w-full rounded-[9px] border border-border px-3 text-[12.5px] outline-none focus:border-primary focus:ring-[3px] focus:ring-[rgba(79,70,229,0.12)]"
+                  />
                 </div>
               )}
             </div>
@@ -775,8 +787,21 @@ export default function BookingPage() {
               )}
               {viewBooking.video && (
                 <div className="flex items-center gap-1.5 text-[12.5px] text-secondary-foreground">
-                  <Video className="size-3.5 text-primary" />
-                  {viewBooking.provider} 화상회의 링크 발송됨
+                  <Video className="size-3.5 text-primary shrink-0" />
+                  {viewBooking.meetingUrl ? (
+                    <a
+                      href={viewBooking.meetingUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="truncate font-semibold text-primary hover:underline"
+                    >
+                      {viewBooking.provider} 참여 링크 열기
+                    </a>
+                  ) : (
+                    <span>
+                      {viewBooking.provider} 화상회의로 표시됨 — 참여 링크는 예약자가 별도 공유
+                    </span>
+                  )}
                 </div>
               )}
             </div>

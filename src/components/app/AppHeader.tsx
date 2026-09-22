@@ -25,7 +25,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NOTIF_CAT_COLORS } from "@/lib/groupware/data";
-import { useChats, useNotifications } from "@/lib/groupware/hooks";
+import { useChats, useCurrentUser, useNotifications } from "@/lib/groupware/hooks";
+import { getReadIds, saveReadIds } from "@/lib/notificationRead";
 import { pill } from "@/lib/groupware/ui";
 import { CommandPalette } from "./CommandPalette";
 import { screenTitle } from "./nav";
@@ -53,6 +54,27 @@ export function AppHeader({ onMenu }: { onMenu: () => void }) {
 
   const notifs = useNotifications();
   const { totalUnread: chatUnread } = useChats();
+  const me = useCurrentUser();
+
+  // 계정이 확인되면 이 브라우저에 저장해둔 읽음 상태를 불러옵니다. 렌더
+  // 도중 상태를 조정하는 패턴(useChatMessages의 seenChatId와 동일)이라
+  // effect 안에서 setState하지 않습니다 — me.uid가 실제로 바뀐 딱 한
+  // 번만 조건이 참이 됩니다.
+  const [readForUid, setReadForUid] = React.useState<string | null>(null);
+  if (me.uid !== readForUid) {
+    setReadForUid(me.uid);
+    setRead(
+      me.uid ? Object.fromEntries(getReadIds(me.uid).map((id) => [id, true])) : {},
+    );
+  }
+
+  // read가 바뀔 때마다 저장하되, 더 이상 목록에 없는(오래돼 밀려난) 알림
+  // id는 함께 걸러내 저장 용량이 끝없이 늘지 않게 합니다.
+  React.useEffect(() => {
+    if (!me.uid) return;
+    const ids = Object.keys(read).filter((id) => notifs.some((n) => n.id === id));
+    saveReadIds(me.uid, ids);
+  }, [read, me.uid, notifs]);
 
   const quickActions = React.useMemo(
     () => [

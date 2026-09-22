@@ -192,6 +192,12 @@ export interface BookingDoc {
   attendees?: string[]; // 참석자 uid 목록 (users/{uid})
   video?: boolean;
   provider?: string; // Google Meet | Zoom
+  /**
+   * 예약자가 직접 붙여넣은 화상회의 참여 링크(선택) — CoreFlow가 Zoom/Meet
+   * API로 링크를 만들거나 발송해주지는 않으므로, 실제 공유 가능한 값은
+   * 이것뿐입니다. 비어 있으면 상세 화면에 "링크는 별도 공유" 안내만 뜹니다.
+   */
+  meetingUrl?: string;
   order: number; // 정렬용 = from
 }
 
