@@ -192,7 +192,13 @@ export default function ApprovalPage() {
               <button
                 key={r.no}
                 type="button"
-                onClick={() => router.push(`/approval/${r.no}`)}
+                onClick={() =>
+                  router.push(
+                    r.bucket === "drafted"
+                      ? `/approval/new?edit=${encodeURIComponent(r.no)}`
+                      : `/approval/${r.no}`,
+                  )
+                }
                 className="flex w-full min-w-[880px] items-center border-b border-[#f1f5f9] px-4.5 py-3 text-left text-[12.5px] transition-colors hover:bg-secondary"
               >
                 <div className="w-[116px] shrink-0 font-mono text-[11.5px] text-muted-foreground">

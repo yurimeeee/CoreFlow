@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
+import { Suspense } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   ArrowRight,
@@ -10,6 +11,7 @@ import {
   FileBarChart,
   FileSignature,
   HardDrive,
+  Loader2,
   Lock,
   Palmtree,
   Paperclip,
@@ -37,12 +39,30 @@ import {
 } from "@/lib/groupware/data";
 import { avatarStyle, pill } from "@/lib/groupware/ui";
 import {
+  useApprovalDoc,
   useApprovals,
   useCurrentUser,
   useLeaves,
   useOrgPeople,
 } from "@/lib/groupware/hooks";
 import { GwCard } from "@/components/app/primitives";
+
+/** 임시저장 폼의 원본 입력 스냅샷 — "이어서 작성" 복원용 */
+type DraftFormState = {
+  form: string;
+  title: string;
+  sec: string;
+  retention: string;
+  leaveKind: string;
+  leaveStart: string;
+  leaveEnd: string;
+  reportKind: string;
+  shift: string;
+  text: Record<string, string>;
+  expense: typeof EXPENSE_ROWS;
+  purchase: typeof PURCHASE_ROWS;
+  approvers: { uid: string; label: string }[];
+};
 
 /** 서식 → 결재 문서 유형 (APPROVAL_TYPE_COLORS 키) */
 const FORM_TYPE: Record<string, string> = {
@@ -122,9 +142,26 @@ const areaCls =
 const labelCls = "mb-1.5 block text-[11.5px] font-semibold text-muted-foreground";
 
 export default function DraftPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[50vh] items-center justify-center">
+          <Loader2 className="size-6 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <DraftPageClient />
+    </Suspense>
+  );
+}
+
+function DraftPageClient() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const editNo = searchParams.get("edit");
   const me = useCurrentUser();
   const { createApproval } = useApprovals();
+  const { doc: editDoc, loading: editLoading } = useApprovalDoc(editNo ?? "");
   const { balance: leaveBalance } = useLeaves();
   const { people } = useOrgPeople();
 
@@ -161,6 +198,66 @@ export default function DraftPage() {
     { id: string; name: string; size: string; url: string; kind: string; drive?: boolean }[]
   >([]);
   const [uploading, setUploading] = React.useState(false);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+
+  // ?edit=<no> 로 들어오면 기존 임시저장 문서를 폼에 복원합니다. draftState가
+  // 있으면(이 기능 이후 저장된 임시저장) 원본 입력값 그대로, 없으면(레거시
+  // 임시저장) 제목·첨부파일만 최선으로 복원합니다. 편집 대상이 아니거나
+  // (이미 상신됨) 본인 문서가 아니면 상세 페이지로 돌려보냅니다.
+  //
+  // 비동기로 도착한 editDoc을 여러 useState에 나눠 반영해야 해서, effect
+  // 안에서 한꺼번에 setState하는 대신(리액트 컴파일러 lint가 금지하는
+  // 캐스케이드 렌더 패턴) useChatMessages와 같은 "렌더 중 상태 조정" 방식을
+  // 씁니다 — editNo가 바뀌거나 문서가 막 로드된 딱 한 번만 조건이 참이 되고,
+  // 그 즉시 hydratedFor를 갱신해 다음 렌더부터는 다시 실행되지 않습니다.
+  const editReady = !editLoading && !me.loading;
+  const editOwned =
+    !!editDoc &&
+    editDoc.bucket === "drafted" &&
+    (!editDoc.authorUid || editDoc.authorUid === me.uid);
+  const [hydratedFor, setHydratedFor] = React.useState<string | null>(null);
+  if (editNo && editReady && editOwned && hydratedFor !== editNo) {
+    setHydratedFor(editNo);
+    setSavedNo(editDoc.no);
+    setAttachments(
+      (editDoc.attachments ?? []).map((f, i) => ({
+        id: `${editDoc.no}-${i}`,
+        ...f,
+      })),
+    );
+    const ds = editDoc.draftState as Partial<DraftFormState> | undefined;
+    if (ds) {
+      if (ds.form) setForm(ds.form);
+      if (ds.title !== undefined) setTitle(ds.title);
+      if (ds.sec) setSec(ds.sec);
+      if (ds.retention) setRetention(ds.retention);
+      if (ds.leaveKind) setLeaveKind(ds.leaveKind);
+      if (ds.leaveStart) setLeaveStart(ds.leaveStart);
+      if (ds.leaveEnd) setLeaveEnd(ds.leaveEnd);
+      if (ds.reportKind) setReportKind(ds.reportKind);
+      if (ds.shift) setShift(ds.shift);
+      if (ds.text) setText(ds.text);
+      if (ds.expense) setExpense(ds.expense);
+      if (ds.purchase) setPurchase(ds.purchase);
+      if (ds.approvers) setApprovers(ds.approvers);
+    } else {
+      setTitle(editDoc.title ?? "");
+      setLoadError(
+        "이 임시저장 문서는 예전 버전에서 저장되어 제목·첨부파일만 복원했습니다. 나머지 항목을 다시 입력해주세요.",
+      );
+    }
+  }
+
+  // 편집 대상이 없거나(문서 없음) 본인 임시저장이 아니면 상세/목록으로
+  // 돌려보냅니다 — 라우팅은 외부(URL) 부작용이라 effect에서 처리합니다.
+  const redirectedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!editNo || !editReady || editOwned || redirectedRef.current) return;
+    redirectedRef.current = true;
+    router.replace(
+      editDoc ? `/approval/${encodeURIComponent(editDoc.no)}` : "/approval",
+    );
+  }, [editNo, editReady, editOwned, editDoc, router]);
 
   const t = (k: string) => text[k] ?? "";
   const setT = (k: string, v: string) => setText((p) => ({ ...p, [k]: v }));
@@ -289,6 +386,23 @@ export default function DraftPage() {
     ];
   };
 
+  /** "이어서 작성"이 원래 입력값을 그대로 복원할 수 있도록 폼 상태 전체를 스냅샷 */
+  const buildDraftState = (): DraftFormState => ({
+    form,
+    title,
+    sec,
+    retention,
+    leaveKind,
+    leaveStart,
+    leaveEnd,
+    reportKind,
+    shift,
+    text,
+    expense,
+    purchase,
+    approvers,
+  });
+
   const genNo = () => {
     const d = new Date();
     const mmdd = `${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
@@ -366,6 +480,9 @@ export default function DraftPage() {
                 days: leaveKind === "반차" ? 0.5 : leaveDays,
               }
             : undefined,
+        // 제출(submit) 시에도 남겨둡니다 — 이후 승인 전 문서를 다시 임시저장
+        // 상태로 되돌리는 기능이 생기더라도 원본 입력을 잃지 않도록.
+        draftState: buildDraftState(),
       });
       setSavedNo(no);
       if (mode === "submit") {
@@ -423,6 +540,11 @@ export default function DraftPage() {
       {saveError && (
         <p className="rounded-[10px] border border-[#fecaca] bg-[#fef2f2] px-3.5 py-2.5 text-[12.5px] font-semibold text-[#b91c1c]">
           {saveError}
+        </p>
+      )}
+      {loadError && (
+        <p className="rounded-[10px] border border-[#fde68a] bg-[#fffbeb] px-3.5 py-2.5 text-[12.5px] font-semibold text-[#92400e]">
+          {loadError}
         </p>
       )}
 

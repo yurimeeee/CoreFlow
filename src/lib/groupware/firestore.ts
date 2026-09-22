@@ -152,9 +152,24 @@ export interface ApprovalDoc {
   line?: { kind: string; name: string; role: string; state: string; at: string; done: boolean; uid?: string }[];
   meta?: { label: string; value: string }[];
   rows?: { date: string; desc: string; amount: number; receipt: string }[];
-  comments?: { name: string; role: string; at: string; body: string }[];
+  comments?: {
+    id: string;
+    /** 작성자 uid — 본인 의견만 수정/삭제 가능 판단에 사용(레거시 의견엔 없음) */
+    uid?: string;
+    name: string;
+    role: string;
+    at: string;
+    body: string;
+    edited?: boolean;
+  }[];
   attachments?: { name: string; size: string; url: string; kind: string }[];
   reason?: string;
+  /**
+   * 임시저장(bucket "drafted") 화면(/approval/new)의 입력 필드 스냅샷 —
+   * "이어서 작성"으로 돌아왔을 때 meta/reason 텍스트를 역파싱하지 않고
+   * 원래 폼 상태 그대로 복원하기 위해 저장합니다.
+   */
+  draftState?: Record<string, unknown>;
 }
 
 export interface BookingDoc {
@@ -416,7 +431,9 @@ export function buildSeed(): SeedDoc[] {
             line: detail.line,
             meta: detail.meta,
             rows: detail.rows,
-            comments: detail.comments,
+            // 시드 의견엔 uid가 없어(작성자 미상) 어차피 수정/삭제 버튼은
+            // 뜨지 않지만, comments 필드 타입엔 id가 필요합니다.
+            comments: detail.comments.map((c, ci) => ({ id: `seed-${r.no}-${ci}`, ...c })),
             reason: detail.reason,
           }
         : {

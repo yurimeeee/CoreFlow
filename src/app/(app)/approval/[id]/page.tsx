@@ -2,16 +2,21 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
+  Ban,
   Check,
   CircleX,
   Download,
+  FileEdit,
   FileText,
   Image as ImageIcon,
   Loader2,
+  Pencil,
   Printer,
+  Trash2,
+  X,
 } from "lucide-react";
 import {
   isPendingApprover,
@@ -19,6 +24,7 @@ import {
   useCurrentUser,
   useWorkspace,
 } from "@/lib/groupware/hooks";
+import { useAuthUser } from "@/hooks/useAuthUser";
 import { avatarStyle, pill } from "@/lib/groupware/ui";
 import { GwCard } from "@/components/app/primitives";
 
@@ -33,14 +39,28 @@ const won = (v: number) => v.toLocaleString("ko-KR") + "원";
 
 export default function ApprovalDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const no = decodeURIComponent(params.id ?? "EX-2026-0912");
-  const { doc, loading, setStatus, addComment } = useApprovalDoc(no);
+  const {
+    doc,
+    loading,
+    setStatus,
+    addComment,
+    updateComment,
+    removeComment,
+    cancelApproval,
+  } = useApprovalDoc(no);
   const { data: workspace } = useWorkspace();
   const me = useCurrentUser();
+  const { profile } = useAuthUser();
+  const isAdmin = profile?.role === "ADMIN" || profile?.role === "SUPER_ADMIN";
   const orgName = (workspace.name || "NEXTCORE").toUpperCase();
   const [opinion, setOpinion] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [decideError, setDecideError] = React.useState<string | null>(null);
+  const [editingId, setEditingId] = React.useState<string | null>(null);
+  const [editingBody, setEditingBody] = React.useState("");
+  const [cancelling, setCancelling] = React.useState(false);
 
   const decide = async (status: "Approved" | "Rejected") => {
     setBusy(true);
@@ -64,6 +84,47 @@ export default function ApprovalDetailPage() {
       setOpinion("");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const startEditComment = (id: string, body: string) => {
+    setEditingId(id);
+    setEditingBody(body);
+  };
+
+  const saveEditComment = async () => {
+    if (!editingId || !editingBody.trim()) return;
+    setBusy(true);
+    try {
+      await updateComment(editingId, editingBody.trim());
+      setEditingId(null);
+      setEditingBody("");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteComment = async (id: string) => {
+    if (!window.confirm("이 의견을 삭제하시겠어요?")) return;
+    await removeComment(id);
+  };
+
+  const cancel = async () => {
+    if (
+      !window.confirm(
+        "이 문서를 취소하시겠어요? 취소하면 문서가 삭제되어 되돌릴 수 없습니다.",
+      )
+    )
+      return;
+    setCancelling(true);
+    setDecideError(null);
+    try {
+      await cancelApproval();
+      router.push("/approval");
+    } catch (e) {
+      setDecideError(e instanceof Error ? e.message : "취소하지 못했습니다.");
+    } finally {
+      setCancelling(false);
     }
   };
 
@@ -93,6 +154,8 @@ export default function ApprovalDetailPage() {
 
   const approved = doc.status === "Approved";
   const resolved = approved || doc.status === "Rejected";
+  const isDraft = doc.bucket === "drafted";
+  const isAuthor = !!me.uid && doc.authorUid === me.uid;
   const pendingStep =
     (doc.line ?? []).find((l) => l.kind !== "기안" && !l.done) ?? null;
   const isMyTurn = isPendingApprover(doc, me);
@@ -122,11 +185,17 @@ export default function ApprovalDetailPage() {
             </span>
             <span
               style={pill(
-                approved ? "#f0fdf4" : "#fff7ed",
-                approved ? "#15803d" : "#c2410c",
+                approved ? "#f0fdf4" : isDraft ? "#f1f5f9" : "#fff7ed",
+                approved ? "#15803d" : isDraft ? "#475569" : "#c2410c",
               )}
             >
-              {approved ? "완결" : doc.status === "Rejected" ? "반려" : "결재 대기"}
+              {approved
+                ? "완결"
+                : doc.status === "Rejected"
+                  ? "반려"
+                  : isDraft
+                    ? "임시저장"
+                    : "결재 대기"}
             </span>
           </div>
           <div className="mt-0.5 truncate text-[14.5px] font-bold tracking-[-0.02em]">
@@ -148,7 +217,25 @@ export default function ApprovalDetailPage() {
             <Printer className="size-3.5" />
             인쇄
           </button>
-          {resolved ? (
+          {isAuthor && !resolved && (
+            <button
+              onClick={cancel}
+              disabled={cancelling}
+              className="flex h-9 items-center gap-1.5 rounded-[9px] border border-[#fecaca] bg-card px-3 text-[12.5px] font-semibold text-[#b91c1c] hover:bg-[#fef2f2] disabled:opacity-50"
+            >
+              <Ban className="size-3.5" />
+              {cancelling ? "취소하는 중…" : isDraft ? "임시저장 삭제" : "기안 취소"}
+            </button>
+          )}
+          {isDraft ? (
+            <Link
+              href={`/approval/new?edit=${encodeURIComponent(doc.no)}`}
+              className="flex h-9 items-center gap-1.5 rounded-[9px] bg-primary px-4 text-[13px] font-semibold text-primary-foreground shadow-[0_1px_2px_rgba(79,70,229,0.35)] hover:bg-primary-hover"
+            >
+              <FileEdit className="size-3.5" />
+              이어서 작성
+            </Link>
+          ) : resolved ? (
             <span
               style={pill(
                 approved ? "#f0fdf4" : "#fef2f2",
@@ -378,9 +465,13 @@ export default function ApprovalDetailPage() {
               )}
             </div>
             <div className="flex flex-col gap-2">
-              {(doc.comments ?? []).map((c, i) => (
+              {(doc.comments ?? []).map((c, i) => {
+                const mine = !!me.uid && c.uid === me.uid;
+                const canDelete = mine || isAdmin;
+                const editing = editingId === c.id;
+                return (
                   <div
-                    key={`${c.name}-${i}`}
+                    key={c.id || `${c.name}-${i}`}
                     className="flex gap-2.5 rounded-[10px] border border-border p-3"
                   >
                     <span style={avatarStyle(c.name.charAt(0), 30)}>
@@ -396,14 +487,66 @@ export default function ApprovalDetailPage() {
                         </span>
                         <span className="ml-auto text-[11px] tabular-nums text-[#cbd5e1]">
                           {c.at}
+                          {c.edited && " · 수정됨"}
                         </span>
+                        {mine && !editing && (
+                          <button
+                            type="button"
+                            onClick={() => startEditComment(c.id, c.body)}
+                            className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-secondary-foreground"
+                            aria-label="의견 수정"
+                          >
+                            <Pencil className="size-3.5" />
+                          </button>
+                        )}
+                        {canDelete && !editing && (
+                          <button
+                            type="button"
+                            onClick={() => deleteComment(c.id)}
+                            className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-[#fef2f2] hover:text-[#b91c1c]"
+                            aria-label="의견 삭제"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        )}
                       </div>
-                      <div className="mt-1.5 text-[12.5px] leading-[1.65] text-secondary-foreground">
-                        {c.body}
-                      </div>
+                      {editing ? (
+                        <div className="mt-1.5 flex flex-col gap-1.5">
+                          <textarea
+                            value={editingBody}
+                            onChange={(e) => setEditingBody(e.target.value)}
+                            rows={2}
+                            autoFocus
+                            className="w-full resize-none rounded-[8px] border border-ring bg-card px-2.5 py-2 text-[12.5px] leading-relaxed focus-visible:outline-none"
+                          />
+                          <div className="flex justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setEditingId(null)}
+                              className="flex h-7 items-center gap-1 rounded-[7px] px-2.5 text-[11.5px] font-semibold text-muted-foreground hover:bg-secondary"
+                            >
+                              <X className="size-3" />
+                              취소
+                            </button>
+                            <button
+                              type="button"
+                              onClick={saveEditComment}
+                              disabled={busy || !editingBody.trim()}
+                              className="flex h-7 items-center gap-1 rounded-[7px] bg-primary px-2.5 text-[11.5px] font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
+                            >
+                              저장
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="mt-1.5 text-[12.5px] leading-[1.65] text-secondary-foreground">
+                          {c.body}
+                        </div>
+                      )}
                     </div>
                   </div>
-                ))}
+                );
+              })}
               {(doc.comments ?? []).length === 0 && (
                 <p className="rounded-[10px] border border-dashed border-border px-3 py-4 text-center text-[12px] text-muted-foreground">
                   아직 등록된 의견이 없습니다

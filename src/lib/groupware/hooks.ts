@@ -614,6 +614,7 @@ export type NewApproval = {
   attachments?: ApprovalDoc["attachments"];
   reason?: string;
   leaveRequest?: ApprovalDoc["leaveRequest"];
+  draftState?: ApprovalDoc["draftState"];
 };
 
 export function useApprovals() {
@@ -664,21 +665,36 @@ export function useApprovals() {
           : {}),
         ...(input.reason ? { reason: input.reason } : {}),
         ...(input.leaveRequest ? { leaveRequest: input.leaveRequest } : {}),
+        ...(input.draftState ? { draftState: input.draftState } : {}),
       };
       setAdded((p) => [...p, payload]);
       if (isFirebaseConfigured) {
         await setDoc(doc(firebaseDb(), COL.approvals, input.no), payload);
       }
-      notifySlack(
-        `[결재 상신] ${input.title} (${input.no})\n기안자 ${author} · 결재자 ${input.approver}`,
-        input.title,
-      ).catch(() => {});
+      // 임시저장(bucket "drafted")은 아직 상신 전이라 전사 알림을 보내지
+      // 않습니다 — "결재 요청하기"로 실제 상신될 때만 알립니다.
+      if (input.bucket === "pending") {
+        notifySlack(
+          `[결재 상신] ${input.title} (${input.no})\n기안자 ${author} · 결재자 ${input.approver}`,
+          input.title,
+        ).catch(() => {});
+      }
       return input.no;
     },
     [me.name, me.role, me.uid],
   );
 
-  return { ...state, data, createApproval };
+  const removeApproval = React.useCallback(
+    async (no: string) => {
+      setAdded((p) => p.filter((a) => a.no !== no));
+      if (isFirebaseConfigured) {
+        await deleteDoc(doc(firebaseDb(), COL.approvals, no));
+      }
+    },
+    [],
+  );
+
+  return { ...state, data, createApproval, removeApproval };
 }
 
 /**
@@ -710,7 +726,10 @@ export function useApprovalDoc(no: string) {
   );
 
   React.useEffect(() => {
-    if (!isFirebaseConfigured) return;
+    // no가 빈 문자열이면 doc()이 잘못된 경로로 예외를 던지므로 구독하지
+    // 않습니다 — /approval/new 가 편집 대상 없이(?edit 파라미터 없이)
+    // useApprovalDoc("") 을 호출하는 경우가 이에 해당합니다.
+    if (!isFirebaseConfigured || !no) return;
     const unsub = onSnapshot(
       doc(firebaseDb(), COL.approvals, no),
       (snap) =>
@@ -814,10 +833,14 @@ export function useApprovalDoc(no: string) {
       const now = new Date();
       const pad = (n: number) => String(n).padStart(2, "0");
       const comment = {
+        id: String(now.getTime()),
         name: me.name,
         role: me.role || "결재자",
         at: `${now.getFullYear()}.${pad(now.getMonth() + 1)}.${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`,
         body: text,
+        // Firestore는 literal undefined 필드를 거부하므로 uid가 없을 때는
+        // 키 자체를 넣지 않습니다.
+        ...(me.uid ? { uid: me.uid } : {}),
       };
       setRemote((r) =>
         r ? { ...r, comments: [...(r.comments ?? []), comment] } : r,
@@ -828,10 +851,70 @@ export function useApprovalDoc(no: string) {
         });
       }
     },
-    [no, me.name, me.role],
+    [no, me.name, me.role, me.uid],
   );
 
-  return { doc: document, loading, setStatus, addComment };
+  /**
+   * 의견은 배열 필드라 서브컬렉션처럼 개별 update가 안 되므로, 전체
+   * comments 배열을 고쳐서 통째로 다시 씁니다. 본인 의견만 — UI에서도
+   * uid가 일치할 때만 수정 버튼을 보여줍니다.
+   */
+  const updateComment = React.useCallback(
+    async (commentId: string, body: string) => {
+      const text = body.trim();
+      if (!text || !document) return;
+      const next = (document.comments ?? []).map((c) =>
+        c.id === commentId ? { ...c, body: text, edited: true } : c,
+      );
+      setRemote((r) => (r ? { ...r, comments: next } : r));
+      if (isFirebaseConfigured) {
+        await updateDoc(doc(firebaseDb(), COL.approvals, no), { comments: next });
+      }
+    },
+    [no, document],
+  );
+
+  /** 본인 의견 또는 관리자만 — 버튼 노출은 화면에서 판단 */
+  const removeComment = React.useCallback(
+    async (commentId: string) => {
+      if (!document) return;
+      const next = (document.comments ?? []).filter((c) => c.id !== commentId);
+      setRemote((r) => (r ? { ...r, comments: next } : r));
+      if (isFirebaseConfigured) {
+        await updateDoc(doc(firebaseDb(), COL.approvals, no), { comments: next });
+      }
+    },
+    [no, document],
+  );
+
+  /**
+   * 기안 취소 — 아직 승인/반려로 완결되지 않은 문서를 기안자 본인이 삭제해
+   * 상신을 철회합니다(임시저장 상태도 포함). 완결된 문서는 leaves 반영 등
+   * 후속 효과가 있어 취소 대상에서 제외합니다.
+   */
+  const cancelApproval = React.useCallback(async () => {
+    if (!document) return;
+    if (document.status === "Approved" || document.status === "Rejected") {
+      throw new Error("이미 완결된 문서는 취소할 수 없습니다.");
+    }
+    if (!me.uid || document.authorUid !== me.uid) {
+      throw new Error("본인이 기안한 문서만 취소할 수 있습니다.");
+    }
+    if (isFirebaseConfigured) {
+      await deleteDoc(doc(firebaseDb(), COL.approvals, no));
+    }
+  }, [no, me.uid, document]);
+
+  return {
+    doc: document,
+    loading,
+    setStatus,
+    addComment,
+    updateComment,
+    removeComment,
+    cancelApproval,
+    myUid: me.uid,
+  };
 }
 
 /* ------------------------------------------------------------------ */
