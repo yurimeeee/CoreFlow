@@ -45,6 +45,8 @@ import {
 } from "./data";
 import {
   ANNUAL_LEAVE_TOTAL,
+  CHAT_FILE_MAX_BYTES,
+  CHAT_FILE_MAX_MB,
   COL,
   EVENT_CATEGORIES,
   TASK_COLUMNS,
@@ -2135,6 +2137,13 @@ export function useChatMessages(chatId: string | null) {
   const sendFile = React.useCallback(
     async (file: File) => {
       if (!chatId || !uid || !isFirebaseConfigured) return;
+      // storage.rules가 파일당 20MB 초과 업로드를 거부하므로, 그 전에
+      // 먼저 걸러 불필요한 업로드 시도와 모호한 실패를 막습니다.
+      if (file.size > CHAT_FILE_MAX_BYTES) {
+        throw new Error(
+          `파일이 너무 큽니다. ${CHAT_FILE_MAX_MB}MB 이하 파일만 보낼 수 있어요.`,
+        );
+      }
       const id = crypto.randomUUID();
       // file.name을 그대로 Storage 경로에 이어붙이면 "/" 등이 섞여 있을 때
       // chats/{chatId}/ 밑에 예상 못한 하위 경로가 생기고, storage.rules의

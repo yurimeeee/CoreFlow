@@ -15,7 +15,7 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useChatMessages, useChats, useCurrentUser } from "@/lib/groupware/hooks";
-import type { ChatMessageDoc } from "@/lib/groupware/firestore";
+import { CHAT_FILE_MAX_MB, type ChatMessageDoc } from "@/lib/groupware/firestore";
 import { avatarStyle } from "@/lib/groupware/ui";
 import { GwCard } from "@/components/app/primitives";
 import { EmojiPicker } from "@/components/app/EmojiPicker";
@@ -96,8 +96,10 @@ export default function ChatThreadPage() {
     setUploading(true);
     try {
       await sendFile(file);
-    } catch {
-      toast.error("파일을 보내지 못했습니다. 다시 시도해주세요.");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "파일을 보내지 못했습니다. 다시 시도해주세요.",
+      );
     } finally {
       setUploading(false);
     }
@@ -210,49 +212,55 @@ export default function ChatThreadPage() {
         })}
       </div>
 
-      <div className="flex items-end gap-1.5 border-t border-[#eef1f5] px-3 py-2.5">
-        <input ref={fileRef} type="file" className="hidden" onChange={onPickFile} />
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          disabled={uploading}
-          className="flex size-9 shrink-0 items-center justify-center rounded-[9px] text-secondary-foreground transition-colors hover:bg-secondary disabled:opacity-50"
-          aria-label="파일 첨부"
-        >
-          {uploading ? (
-            <Loader2 className="size-[18px] animate-spin" />
-          ) : (
-            <Paperclip className="size-[18px]" />
-          )}
-        </button>
-        <EmojiPicker onPick={(e) => setDraft((d) => d + e)} />
-        <textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              submit();
-            }
-          }}
-          rows={1}
-          placeholder="메시지 입력…"
-          className="max-h-28 min-h-9.5 flex-1 resize-none rounded-[9px] border border-border bg-secondary px-3 py-2 text-[13px] outline-none transition-colors focus:border-ring focus:bg-card"
-        />
-        <button
-          type="button"
-          onClick={submit}
-          disabled={!draft.trim()}
-          className={cn(
-            "flex size-9 shrink-0 items-center justify-center rounded-[9px] transition-colors",
-            draft.trim()
-              ? "bg-primary text-primary-foreground hover:bg-primary-hover"
-              : "cursor-not-allowed bg-[#f1f5f9] text-muted-foreground",
-          )}
-          aria-label="전송"
-        >
-          <Send className="size-4" />
-        </button>
+      <div className="border-t border-[#eef1f5] px-3 pb-1.5 pt-2.5">
+        <div className="flex items-end gap-1.5">
+          <input ref={fileRef} type="file" className="hidden" onChange={onPickFile} />
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            title={`파일 첨부 · 최대 ${CHAT_FILE_MAX_MB}MB`}
+            className="flex size-9 shrink-0 items-center justify-center rounded-[9px] text-secondary-foreground transition-colors hover:bg-secondary disabled:opacity-50"
+            aria-label={`파일 첨부 (최대 ${CHAT_FILE_MAX_MB}MB)`}
+          >
+            {uploading ? (
+              <Loader2 className="size-[18px] animate-spin" />
+            ) : (
+              <Paperclip className="size-[18px]" />
+            )}
+          </button>
+          <EmojiPicker onPick={(e) => setDraft((d) => d + e)} />
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                submit();
+              }
+            }}
+            rows={1}
+            placeholder="메시지 입력…"
+            className="max-h-28 min-h-9.5 flex-1 resize-none rounded-[9px] border border-border bg-secondary px-3 py-2 text-[13px] outline-none transition-colors focus:border-ring focus:bg-card"
+          />
+          <button
+            type="button"
+            onClick={submit}
+            disabled={!draft.trim()}
+            className={cn(
+              "flex size-9 shrink-0 items-center justify-center rounded-[9px] transition-colors",
+              draft.trim()
+                ? "bg-primary text-primary-foreground hover:bg-primary-hover"
+                : "cursor-not-allowed bg-[#f1f5f9] text-muted-foreground",
+            )}
+            aria-label="전송"
+          >
+            <Send className="size-4" />
+          </button>
+        </div>
+        <div className="mt-1 pl-[42px] text-[10.5px] text-muted-foreground">
+          파일·사진은 최대 {CHAT_FILE_MAX_MB}MB까지 보낼 수 있어요.
+        </div>
       </div>
     </GwCard>
   );

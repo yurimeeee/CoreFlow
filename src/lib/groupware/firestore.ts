@@ -50,6 +50,14 @@ export const chatMessagesPath = (chatId: string) =>
 export const dmChatId = (uidA: string, uidB: string) =>
   [uidA, uidB].sort().join("_");
 
+/**
+ * 채팅 첨부파일 용량 제한 — storage.rules의 `chats/{chatId}/*` 쓰기 규칙
+ * (`request.resource.size < 20 * 1024 * 1024`)과 반드시 같은 값이어야
+ * 합니다. 클라이언트에서 미리 걸러 업로드 자체를 시도하지 않게 합니다.
+ */
+export const CHAT_FILE_MAX_MB = 20;
+export const CHAT_FILE_MAX_BYTES = CHAT_FILE_MAX_MB * 1024 * 1024;
+
 export const TASK_COLUMNS: { key: string; name: string; color: string }[] = [
   { key: "todo", name: "To Do", color: "#94a3b8" },
   { key: "doing", name: "In Progress", color: "#4f46e5" },
