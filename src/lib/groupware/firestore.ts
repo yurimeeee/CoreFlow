@@ -236,6 +236,23 @@ export interface LeaveDoc {
 /** 연차 부여 기본값 (전용 정책 컬렉션 없음 · 데모 기준) */
 export const ANNUAL_LEAVE_TOTAL = 15;
 
+/** 연차 잔여 계산에 실제로 차감되는 휴가 종류 (초과근무 · 경조 · 병가는 제외) */
+export const LEAVE_TYPES_COUNTED = ["연차", "반차"];
+
+/**
+ * 연차 잔여 계산 — 반려되지 않은 연차/반차 신청의 days 합을 총 부여일수에서
+ * 차감합니다. useLeaves() 가 구독한 leaves 데이터에 그대로 적용됩니다.
+ */
+export function calculateLeaveBalance(
+  leaves: Pick<LeaveDoc, "kind" | "status" | "days">[],
+  total: number = ANNUAL_LEAVE_TOTAL,
+): { total: number; used: number; remaining: number } {
+  const used = leaves
+    .filter((l) => LEAVE_TYPES_COUNTED.includes(l.kind) && l.status !== "반려")
+    .reduce((sum, l) => sum + (l.days || 0), 0);
+  return { total, used, remaining: Math.max(0, total - used) };
+}
+
 export interface NoticeCommentDoc {
   id: string;
   uid: string;

@@ -44,13 +44,13 @@ import {
   type Person,
 } from "./data";
 import {
-  ANNUAL_LEAVE_TOTAL,
   CHAT_FILE_MAX_BYTES,
   CHAT_FILE_MAX_MB,
   COL,
   EVENT_CATEGORIES,
   TASK_COLUMNS,
   buildSeed,
+  calculateLeaveBalance,
   chatMessagesPath,
   dmChatId,
   noticeCommentsPath,
@@ -1350,8 +1350,6 @@ export function useAttendance() {
 /*  휴가 / 초과근무 신청 (leaves/{id})                                   */
 /* ------------------------------------------------------------------ */
 
-const LEAVE_TYPES_COUNTED = ["연차", "반차"];
-
 export function useLeaves() {
   const { authUser } = useAuthUser();
   const me = useCurrentUser();
@@ -1379,14 +1377,7 @@ export function useLeaves() {
     return [...remote, ...extra].sort((a, b) => b.order - a.order);
   }, [remote, added]);
 
-  const usedDays = data
-    .filter((l) => LEAVE_TYPES_COUNTED.includes(l.kind) && l.status !== "반려")
-    .reduce((sum, l) => sum + (l.days || 0), 0);
-  const balance = {
-    total: ANNUAL_LEAVE_TOTAL,
-    used: usedDays,
-    remaining: Math.max(0, ANNUAL_LEAVE_TOTAL - usedDays),
-  };
+  const balance = calculateLeaveBalance(data);
 
   const addLeave = React.useCallback(
     async (input: {
