@@ -619,8 +619,114 @@ export type NewApproval = {
   draftState?: ApprovalDoc["draftState"];
 };
 
+/**
+ * approvals 컬렉션 실시간 구독 — 관리자는 전체, 일반 사용자는 "본인이
+ * 관련된 문서"만 구독합니다.
+ *
+ * firestore.rules 의 approvals read 규칙이 authorUid/currentApproverUid/
+ * approverUids 중 하나가 request.auth.uid 와 일치하거나 관리자일 때만
+ * 허용하도록 좁혀져 있어(전사 결재함 공개 → 기안자/결재라인/관리자만
+ * 열람으로 전환), 예전처럼 컬렉션 전체를 where 없이 구독하면 Firestore가
+ * "잠재적 결과 중 하나라도 규칙을 위반할 수 있는" list 쿼리 자체를
+ * 통째로 거부합니다(부분 필터링이 아님). 그래서 관리자가 아니면 반드시
+ * where 로 범위를 증명할 수 있는 쿼리 여러 개로 나눠 구독해야 합니다.
+ */
+function useApprovalCollection(): { data: ApprovalDoc[]; loading: boolean; source: Source } {
+  const { authUser, profile, loading: authLoading } = useAuthUser();
+  const isAdmin = profile?.role === "ADMIN" || profile?.role === "SUPER_ADMIN";
+  const uid = authUser?.uid ?? null;
+
+  const [state, setState] = React.useState<{
+    data: ApprovalDoc[];
+    loading: boolean;
+    source: Source;
+  }>({ data: APPROVAL_FALLBACK, loading: isFirebaseConfigured, source: "fallback" });
+
+  React.useEffect(() => {
+    if (!isFirebaseConfigured) return;
+    // 로그인/프로필 로딩이 끝나기 전엔 관리자 여부를 알 수 없어 구독을
+    // 미룹니다 — 좁은 쿼리로 먼저 구독했다가 admin 확정 후 다시 넓히면
+    // 목록이 깜빡이는 걸 방지.
+    if (authLoading || !uid) return;
+
+    if (isAdmin) {
+      const q = query(collection(firebaseDb(), COL.approvals), orderBy("order"));
+      return onSnapshot(
+        q,
+        (snap) => {
+          setState(
+            snap.empty
+              ? { data: APPROVAL_FALLBACK, loading: false, source: "fallback" }
+              : {
+                  data: snap.docs.map(
+                    (d) => ({ id: d.id, ...d.data() }) as unknown as ApprovalDoc,
+                  ),
+                  loading: false,
+                  source: "firestore",
+                },
+          );
+        },
+        () => setState({ data: APPROVAL_FALLBACK, loading: false, source: "fallback" }),
+      );
+    }
+
+    // 일반 사용자: "기안자 본인" · "결재라인 소속(approverUids)" · "현재
+    // 결재 차례(currentApproverUid — approverUids 필드가 없는 구 문서용
+    // 폴백)" 세 쿼리를 따로 구독해 클라이언트에서 합칩니다.
+    type SliceKey = "authored" | "involved" | "current";
+    const slices: Record<SliceKey, ApprovalDoc[]> = { authored: [], involved: [], current: [] };
+    const loaded: Record<SliceKey, boolean> = { authored: false, involved: false, current: false };
+
+    const emit = () => {
+      if (!loaded.authored || !loaded.involved || !loaded.current) return;
+      const merged = new Map<string, ApprovalDoc>();
+      for (const list of Object.values(slices)) {
+        for (const d of list) {
+          merged.set((d as unknown as { id: string }).id ?? d.no, d);
+        }
+      }
+      const list = Array.from(merged.values()).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      setState(
+        list.length
+          ? { data: list, loading: false, source: "firestore" }
+          : { data: APPROVAL_FALLBACK, loading: false, source: "fallback" },
+      );
+    };
+
+    const subscribe = (key: SliceKey, field: string, op: "==" | "array-contains") =>
+      onSnapshot(
+        query(collection(firebaseDb(), COL.approvals), where(field, op, uid)),
+        (snap) => {
+          slices[key] = snap.docs.map(
+            (d) => ({ id: d.id, ...d.data() }) as unknown as ApprovalDoc,
+          );
+          loaded[key] = true;
+          emit();
+        },
+        () => {
+          loaded[key] = true;
+          emit();
+        },
+      );
+
+    const unsubs = [
+      subscribe("authored", "authorUid", "=="),
+      subscribe("involved", "approverUids", "array-contains"),
+      subscribe("current", "currentApproverUid", "=="),
+    ];
+    return () => unsubs.forEach((u) => u());
+  }, [isAdmin, uid, authLoading]);
+
+  // 로그인 정보가 없을 때는 effect 안에서 setState 로 되돌리는 대신 여기서
+  // 그대로 파생시킵니다(react-hooks/set-state-in-effect 회피 + 더 정확함 —
+  // uid 가 사라지는 즉시 이전 구독 결과가 아닌 폴백을 보여줘야 함).
+  if (!isFirebaseConfigured || authLoading) return state;
+  if (!uid) return { data: APPROVAL_FALLBACK, loading: false, source: "fallback" };
+  return state;
+}
+
 export function useApprovals() {
-  const state = useGwCollection<ApprovalDoc>(COL.approvals, APPROVAL_FALLBACK);
+  const state = useApprovalCollection();
   const me = useCurrentUser();
   // 낙관적 추가 (Firebase 미설정 시엔 이게 유일한 저장소)
   const [added, setAdded] = React.useState<ApprovalDoc[]>([]);
@@ -643,6 +749,12 @@ export function useApprovals() {
       // "본인 차례가 아니면 승인/반려 불가"를 판단합니다.
       const firstApproverUid =
         (input.line ?? []).find((l) => l.kind !== "기안")?.uid ?? null;
+      // 결재 문서 열람 권한(firestore.rules/storage.rules) 판정용 — line
+      // 각 단계(기안 포함)의 uid 를 중복 없이 평탄화. line 은 객체 배열이라
+      // 보안 규칙에서 바로 필터링할 수 없어 별도 필드로 둡니다.
+      const approverUids = Array.from(
+        new Set((input.line ?? []).map((l) => l.uid).filter((u): u is string => !!u)),
+      );
       const payload: ApprovalDoc = {
         no: input.no,
         type: input.type,
@@ -660,6 +772,7 @@ export function useApprovals() {
         // 기안 저장이 에러 메시지 하나 없이 그냥 실패합니다.
         ...(me.uid ? { authorUid: me.uid } : {}),
         ...(input.line ? { line: input.line } : {}),
+        ...(approverUids.length ? { approverUids } : {}),
         ...(input.meta ? { meta: input.meta } : {}),
         ...(input.rows ? { rows: input.rows } : {}),
         ...(input.attachments && input.attachments.length

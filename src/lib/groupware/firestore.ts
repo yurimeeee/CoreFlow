@@ -152,6 +152,16 @@ export interface ApprovalDoc {
    */
   currentApproverUid?: string | null;
   /**
+   * line 에 속한 모든 결재 단계(기안 포함)의 uid 를 평탄화한 목록 — 생성
+   * 시점 한 번만 계산해 저장합니다(이후 승인/반려로 각 단계의 state/done/
+   * at 만 바뀔 뿐 결재선 구성원 자체는 바뀌지 않음). firestore.rules ·
+   * storage.rules 가 "결재 문서 열람은 기안자/결재라인/관리자만" 을
+   * 판정할 때 이 필드를 씁니다 — line 은 객체 배열이라 보안 규칙에서 직접
+   * 필터링할 수 없어 uid 만 뽑아 별도로 둡니다. 이 필드가 추가되기 전에
+   * 생성된 문서는 값이 없으므로 authorUid/currentApproverUid 로만 판정됩니다.
+   */
+  approverUids?: string[];
+  /**
    * 휴가신청서(type "휴가")의 구조화된 신청 내역 — 승인 완료 시 이 값을
    * 근거로 leaves/{no} 문서를 생성해 실제 연차 잔여에 반영합니다.
    */
