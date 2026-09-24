@@ -18,6 +18,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { toast } from "sonner";
 import {
   isPendingApprover,
   useApprovalDoc,
@@ -61,6 +62,75 @@ export default function ApprovalDetailPage() {
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [editingBody, setEditingBody] = React.useState("");
   const [cancelling, setCancelling] = React.useState(false);
+  const [generatingPdf, setGeneratingPdf] = React.useState(false);
+  const printableRef = React.useRef<HTMLDivElement>(null);
+
+  const downloadPdf = async () => {
+    if (!printableRef.current || generatingPdf) return;
+    setGeneratingPdf(true);
+    try {
+      // jsPDF's own doc.html() redraws DOM text as PDF vector text using its
+      // built-in Latin-only fonts, which garbles Korean. Rasterizing the
+      // node with html2canvas first and embedding it as an image keeps the
+      // browser-rendered (correct) Hangul glyphs.
+      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+        import("html2canvas"),
+        import("jspdf"),
+      ]);
+      const canvas = await html2canvas(printableRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+      });
+
+      const pdf = new jsPDF({ unit: "pt", format: "a4" });
+      const margin = 24;
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = pageWidth - margin * 2;
+      const usableHeight = pageHeight - margin * 2;
+      const pxPerPt = canvas.width / imgWidth;
+      const pageHeightPx = usableHeight * pxPerPt;
+
+      let renderedPx = 0;
+      let pageIndex = 0;
+      while (renderedPx < canvas.height) {
+        const sliceHeightPx = Math.min(pageHeightPx, canvas.height - renderedPx);
+        const slice = document.createElement("canvas");
+        slice.width = canvas.width;
+        slice.height = sliceHeightPx;
+        slice
+          .getContext("2d")
+          ?.drawImage(
+            canvas,
+            0,
+            renderedPx,
+            canvas.width,
+            sliceHeightPx,
+            0,
+            0,
+            canvas.width,
+            sliceHeightPx,
+          );
+        if (pageIndex > 0) pdf.addPage();
+        pdf.addImage(
+          slice.toDataURL("image/jpeg", 0.92),
+          "JPEG",
+          margin,
+          margin,
+          imgWidth,
+          sliceHeightPx / pxPerPt,
+        );
+        renderedPx += sliceHeightPx;
+        pageIndex++;
+      }
+      pdf.save(`${no}.pdf`);
+    } catch {
+      toast.error("PDF를 생성하지 못했습니다. 다시 시도해주세요.");
+    } finally {
+      setGeneratingPdf(false);
+    }
+  };
 
   const decide = async (status: "Approved" | "Rejected") => {
     setBusy(true);
@@ -204,11 +274,16 @@ export default function ApprovalDetailPage() {
         </div>
         <div className="ml-auto flex flex-wrap gap-1.5">
           <button
-            onClick={() => window.print()}
-            className="flex h-9 items-center gap-1.5 rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-secondary-foreground hover:bg-secondary"
+            onClick={downloadPdf}
+            disabled={generatingPdf}
+            className="flex h-9 items-center gap-1.5 rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-secondary-foreground hover:bg-secondary disabled:opacity-50"
           >
-            <Download className="size-3.5" />
-            PDF
+            {generatingPdf ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Download className="size-3.5" />
+            )}
+            {generatingPdf ? "생성 중…" : "PDF"}
           </button>
           <button
             onClick={() => window.print()}
@@ -279,301 +354,308 @@ export default function ApprovalDetailPage() {
         </p>
       )}
 
-      {line.length > 0 && (
-        <GwCard className="p-4.5">
-          <div className="flex items-center gap-2">
-            <span className="text-[12.5px] font-semibold tracking-[-0.01em]">
-              결재란
-            </span>
-            <span className="text-[11.5px] text-muted-foreground">
-              {line.filter((l) => l.done).length} / {line.length} 단계 완료
-            </span>
-          </div>
-          <div className="mt-3 flex gap-2 overflow-x-auto pb-0.5">
-            {line.map((a, i) => {
-              const kc = KIND_PILL[a.kind] ?? ["#f1f5f9", "#475569"];
-              return (
-                <div
-                  key={i}
-                  className="flex w-[122px] shrink-0 flex-col rounded-[11px] border bg-card px-2 pb-2.5 pt-2.5"
-                  style={{ borderColor: a.done ? "#e0e7ff" : "#eef1f5" }}
-                >
-                  <span
-                    className="self-center rounded-[5px] px-1.5 py-0.5 text-[10px] font-bold"
-                    style={{ background: kc[0], color: kc[1] }}
-                  >
-                    {a.kind}
-                  </span>
-                  <div
-                    className="mt-2 flex size-14 items-center justify-center self-center rounded-[10px]"
-                    style={{
-                      border: a.done ? "1px solid #e0e7ff" : "1px dashed #cbd5e1",
-                      background: a.done ? "#fbfbff" : "#fbfcfe",
-                    }}
-                  >
-                    {a.done && (
-                      <span className="flex size-10 rotate-[-9deg] items-center justify-center rounded-full border-2 border-[#dc2626] text-base font-bold text-[#dc2626] opacity-90">
-                        {a.name.charAt(0)}
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-2 text-center text-xs font-semibold">
-                    {a.name}
-                  </div>
-                  <div className="mt-0.5 text-center text-[11px] text-muted-foreground">
-                    {a.role}
-                  </div>
-                  <span
-                    className="mt-2 self-center"
-                    style={pill(
-                      a.done ? "#f0fdf4" : "#f8fafc",
-                      a.done ? "#15803d" : "#94a3b8",
-                    )}
-                  >
-                    {a.state}
-                  </span>
-                  <div className="mt-1.5 min-h-3 text-center text-[10px] tabular-nums text-[#cbd5e1]">
-                    {a.at}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </GwCard>
-      )}
-
-      <GwCard className="shadow-[0_4px_18px_rgba(15,23,42,0.05)]">
-        <div className="flex flex-col gap-6 p-6 sm:px-8 sm:pb-8 sm:pt-7">
-          <div className="border-b-2 border-[#0f172a] pb-4 text-center">
-            <div className="text-[11.5px] font-semibold tracking-[0.14em] text-muted-foreground">
-              {orgName}
+      <div ref={printableRef} className="flex flex-col gap-4">
+        {line.length > 0 && (
+          <GwCard className="p-4.5">
+            <div className="flex items-center gap-2">
+              <span className="text-[12.5px] font-semibold tracking-[-0.01em]">
+                결재란
+              </span>
+              <span className="text-[11.5px] text-muted-foreground">
+                {line.filter((l) => l.done).length} / {line.length} 단계 완료
+              </span>
             </div>
-            <div className="mt-2 text-[27px] font-bold tracking-[0.22em]">
-              {isExpense ? "지출결의서" : doc.title}
-            </div>
-          </div>
-
-          {doc.meta && doc.meta.length > 0 && (
-            <div className="grid grid-cols-[repeat(auto-fit,minmax(230px,1fr))] overflow-hidden rounded-[10px] border border-border">
-              {doc.meta.map((m) => (
-                <div key={m.label} className="flex border-t border-[#eef1f5]">
-                  <div className="w-[100px] shrink-0 bg-secondary px-3 py-2.5 text-xs font-semibold text-muted-foreground">
-                    {m.label}
-                  </div>
-                  <div className="min-w-0 flex-1 truncate px-3 py-2.5 text-[12.5px]">
-                    {m.value}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {isExpense && (
-            <div>
-              <div className="mb-2.5 text-[13px] font-semibold">지출 내역</div>
-              <div className="overflow-hidden rounded-[10px] border border-border">
-                <div className="flex border-b border-[#eef1f5] bg-secondary px-3.5 py-2.5 text-[11.5px] font-semibold text-muted-foreground">
-                  <div className="w-[110px] shrink-0">사용일자</div>
-                  <div className="min-w-[130px] flex-1">내역</div>
-                  <div className="w-[120px] shrink-0 text-right">금액</div>
-                  <div className="w-20 shrink-0 text-center">증빙</div>
-                </div>
-                {rows.map((r) => (
-                  <div
-                    key={r.desc}
-                    className="flex items-center border-b border-[#f1f5f9] px-3.5 py-2.5 text-[12.5px]"
-                  >
-                    <div className="w-[110px] shrink-0 tabular-nums text-secondary-foreground">
-                      {r.date}
-                    </div>
-                    <div className="min-w-[130px] flex-1">{r.desc}</div>
-                    <div className="w-[120px] shrink-0 text-right font-medium tabular-nums">
-                      {won(r.amount)}
-                    </div>
-                    <div className="flex w-20 shrink-0 justify-center">
-                      <span
-                        style={pill(
-                          r.receipt === "첨부" ? "#f0fdf4" : "#fff7ed",
-                          r.receipt === "첨부" ? "#15803d" : "#c2410c",
-                        )}
-                      >
-                        {r.receipt}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-                <div className="flex items-center bg-[#f5f6ff] px-3.5 py-3">
-                  <div className="flex-1 text-[12.5px] font-semibold text-[#4338ca]">
-                    총 합계액
-                  </div>
-                  <div className="text-base font-bold tracking-[-0.02em] tabular-nums text-[#3730a3]">
-                    {won(total)}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {doc.reason && (
-            <div>
-              <div className="mb-2 text-[13px] font-semibold">기안 사유</div>
-              <div className="rounded-[10px] border border-[#eef1f5] bg-secondary p-3.5 text-[12.5px] leading-[1.75] text-secondary-foreground">
-                {doc.reason}
-              </div>
-            </div>
-          )}
-
-          {attachments.length > 0 && (
-            <div>
-              <div className="mb-2 text-[13px] font-semibold">첨부 파일</div>
-              <div className="flex flex-col gap-1.5">
-                {attachments.map((f) => (
-                  <a
-                    key={f.name}
-                    href={f.url || undefined}
-                    target={f.url ? "_blank" : undefined}
-                    rel="noreferrer"
-                    className="flex items-center gap-2.5 rounded-[10px] border border-border px-3 py-2.5 transition-colors hover:border-ring hover:bg-secondary"
-                  >
-                    <span className="flex size-[30px] shrink-0 items-center justify-center rounded-lg bg-[#f1f5f9]">
-                      {f.kind === "pdf" ? (
-                        <FileText className="size-[15px] text-muted-foreground" />
-                      ) : (
-                        <ImageIcon className="size-[15px] text-muted-foreground" />
-                      )}
-                    </span>
-                    <span className="flex-1 truncate text-[12.5px]">
-                      {f.name}
-                    </span>
-                    <span className="tabular-nums text-[11.5px] text-muted-foreground">
-                      {f.size}
-                    </span>
-                    <Download className="size-3.5 text-[#cbd5e1]" />
-                  </a>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div>
-            <div className="mb-2.5 text-[13px] font-semibold">
-              결재 의견
-              {doc.comments && doc.comments.length > 0 && (
-                <span className="ml-1.5 text-[11.5px] font-medium text-muted-foreground">
-                  {doc.comments.length}
-                </span>
-              )}
-            </div>
-            <div className="flex flex-col gap-2">
-              {(doc.comments ?? []).map((c, i) => {
-                const mine = !!me.uid && c.uid === me.uid;
-                const canDelete = mine || isAdmin;
-                const editing = editingId === c.id;
+            <div className="mt-3 flex gap-2 overflow-x-auto pb-0.5">
+              {line.map((a, i) => {
+                const kc = KIND_PILL[a.kind] ?? ["#f1f5f9", "#475569"];
                 return (
                   <div
-                    key={c.id || `${c.name}-${i}`}
-                    className="flex gap-2.5 rounded-[10px] border border-border p-3"
+                    key={i}
+                    className="flex w-[122px] shrink-0 flex-col rounded-[11px] border bg-card px-2 pb-2.5 pt-2.5"
+                    style={{ borderColor: a.done ? "#e0e7ff" : "#eef1f5" }}
                   >
-                    <span style={avatarStyle(c.name.charAt(0), 30)}>
-                      {c.name.charAt(0)}
+                    <span
+                      className="self-center rounded-[5px] px-1.5 py-0.5 text-[10px] font-bold"
+                      style={{ background: kc[0], color: kc[1] }}
+                    >
+                      {a.kind}
                     </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[12.5px] font-semibold">
-                          {c.name}
+                    <div
+                      className="mt-2 flex size-14 items-center justify-center self-center rounded-[10px]"
+                      style={{
+                        border: a.done ? "1px solid #e0e7ff" : "1px dashed #cbd5e1",
+                        background: a.done ? "#fbfbff" : "#fbfcfe",
+                      }}
+                    >
+                      {a.done && (
+                        <span className="flex size-10 rotate-[-9deg] items-center justify-center rounded-full border-2 border-[#dc2626] text-base font-bold text-[#dc2626] opacity-90">
+                          {a.name.charAt(0)}
                         </span>
-                        <span className="text-[11px] text-muted-foreground">
-                          {c.role}
-                        </span>
-                        <span className="ml-auto text-[11px] tabular-nums text-[#cbd5e1]">
-                          {c.at}
-                          {c.edited && " · 수정됨"}
-                        </span>
-                        {mine && !editing && (
-                          <button
-                            type="button"
-                            onClick={() => startEditComment(c.id, c.body)}
-                            className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-secondary-foreground"
-                            aria-label="의견 수정"
-                          >
-                            <Pencil className="size-3.5" />
-                          </button>
-                        )}
-                        {canDelete && !editing && (
-                          <button
-                            type="button"
-                            onClick={() => deleteComment(c.id)}
-                            className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-[#fef2f2] hover:text-[#b91c1c]"
-                            aria-label="의견 삭제"
-                          >
-                            <Trash2 className="size-3.5" />
-                          </button>
-                        )}
-                      </div>
-                      {editing ? (
-                        <div className="mt-1.5 flex flex-col gap-1.5">
-                          <textarea
-                            value={editingBody}
-                            onChange={(e) => setEditingBody(e.target.value)}
-                            rows={2}
-                            autoFocus
-                            className="w-full resize-none rounded-[8px] border border-ring bg-card px-2.5 py-2 text-[12.5px] leading-relaxed focus-visible:outline-none"
-                          />
-                          <div className="flex justify-end gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => setEditingId(null)}
-                              className="flex h-7 items-center gap-1 rounded-[7px] px-2.5 text-[11.5px] font-semibold text-muted-foreground hover:bg-secondary"
-                            >
-                              <X className="size-3" />
-                              취소
-                            </button>
-                            <button
-                              type="button"
-                              onClick={saveEditComment}
-                              disabled={busy || !editingBody.trim()}
-                              className="flex h-7 items-center gap-1 rounded-[7px] bg-primary px-2.5 text-[11.5px] font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
-                            >
-                              저장
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="mt-1.5 text-[12.5px] leading-[1.65] text-secondary-foreground">
-                          {c.body}
-                        </div>
                       )}
+                    </div>
+                    <div className="mt-2 text-center text-xs font-semibold">
+                      {a.name}
+                    </div>
+                    <div className="mt-0.5 text-center text-[11px] text-muted-foreground">
+                      {a.role}
+                    </div>
+                    <span
+                      className="mt-2 self-center"
+                      style={pill(
+                        a.done ? "#f0fdf4" : "#f8fafc",
+                        a.done ? "#15803d" : "#94a3b8",
+                      )}
+                    >
+                      {a.state}
+                    </span>
+                    <div className="mt-1.5 min-h-3 text-center text-[10px] tabular-nums text-[#cbd5e1]">
+                      {a.at}
                     </div>
                   </div>
                 );
               })}
-              {(doc.comments ?? []).length === 0 && (
-                <p className="rounded-[10px] border border-dashed border-border px-3 py-4 text-center text-[12px] text-muted-foreground">
-                  아직 등록된 의견이 없습니다
-                </p>
-              )}
-              <div className="mt-1 flex flex-col gap-2 rounded-[10px] border border-border bg-secondary p-3">
-                <textarea
-                  value={opinion}
-                  onChange={(e) => setOpinion(e.target.value)}
-                  rows={2}
-                  placeholder="결재 의견을 입력하세요. 승인·반려 시 함께 기록됩니다."
-                  className="w-full resize-none rounded-[8px] border border-border bg-card px-2.5 py-2 text-[12.5px] leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                />
-                <div className="flex justify-end">
-                  <button
-                    onClick={postOpinion}
-                    disabled={busy || !opinion.trim()}
-                    className="h-8 rounded-[8px] border border-border bg-card px-3 text-[12px] font-semibold text-secondary-foreground hover:bg-secondary disabled:opacity-50"
-                  >
-                    의견만 등록
-                  </button>
+            </div>
+          </GwCard>
+        )}
+
+        <GwCard className="shadow-[0_4px_18px_rgba(15,23,42,0.05)]">
+          <div className="flex flex-col gap-6 p-6 sm:px-8 sm:pb-8 sm:pt-7">
+            <div className="border-b-2 border-[#0f172a] pb-4 text-center">
+              <div className="text-[11.5px] font-semibold tracking-[0.14em] text-muted-foreground">
+                {orgName}
+              </div>
+              <div className="mt-2 text-[27px] font-bold tracking-[0.22em]">
+                {isExpense ? "지출결의서" : doc.title}
+              </div>
+            </div>
+
+            {doc.meta && doc.meta.length > 0 && (
+              <div className="grid grid-cols-[repeat(auto-fit,minmax(230px,1fr))] overflow-hidden rounded-[10px] border border-border">
+                {doc.meta.map((m) => (
+                  <div key={m.label} className="flex border-t border-[#eef1f5]">
+                    <div className="w-[100px] shrink-0 bg-secondary px-3 py-2.5 text-xs font-semibold text-muted-foreground">
+                      {m.label}
+                    </div>
+                    <div className="min-w-0 flex-1 truncate px-3 py-2.5 text-[12.5px]">
+                      {m.value}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {isExpense && (
+              <div>
+                <div className="mb-2.5 text-[13px] font-semibold">지출 내역</div>
+                <div className="overflow-hidden rounded-[10px] border border-border">
+                  <div className="flex border-b border-[#eef1f5] bg-secondary px-3.5 py-2.5 text-[11.5px] font-semibold text-muted-foreground">
+                    <div className="w-[110px] shrink-0">사용일자</div>
+                    <div className="min-w-[130px] flex-1">내역</div>
+                    <div className="w-[120px] shrink-0 text-right">금액</div>
+                    <div className="w-20 shrink-0 text-center">증빙</div>
+                  </div>
+                  {rows.map((r) => (
+                    <div
+                      key={r.desc}
+                      className="flex items-center border-b border-[#f1f5f9] px-3.5 py-2.5 text-[12.5px]"
+                    >
+                      <div className="w-[110px] shrink-0 tabular-nums text-secondary-foreground">
+                        {r.date}
+                      </div>
+                      <div className="min-w-[130px] flex-1">{r.desc}</div>
+                      <div className="w-[120px] shrink-0 text-right font-medium tabular-nums">
+                        {won(r.amount)}
+                      </div>
+                      <div className="flex w-20 shrink-0 justify-center">
+                        <span
+                          style={pill(
+                            r.receipt === "첨부" ? "#f0fdf4" : "#fff7ed",
+                            r.receipt === "첨부" ? "#15803d" : "#c2410c",
+                          )}
+                        >
+                          {r.receipt}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="flex items-center bg-[#f5f6ff] px-3.5 py-3">
+                    <div className="flex-1 text-[12.5px] font-semibold text-[#4338ca]">
+                      총 합계액
+                    </div>
+                    <div className="text-base font-bold tracking-[-0.02em] tabular-nums text-[#3730a3]">
+                      {won(total)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {doc.reason && (
+              <div>
+                <div className="mb-2 text-[13px] font-semibold">기안 사유</div>
+                <div className="rounded-[10px] border border-[#eef1f5] bg-secondary p-3.5 text-[12.5px] leading-[1.75] text-secondary-foreground">
+                  {doc.reason}
+                </div>
+              </div>
+            )}
+
+            {attachments.length > 0 && (
+              <div>
+                <div className="mb-2 text-[13px] font-semibold">첨부 파일</div>
+                <div className="flex flex-col gap-1.5">
+                  {attachments.map((f) => (
+                    <a
+                      key={f.name}
+                      href={f.url || undefined}
+                      target={f.url ? "_blank" : undefined}
+                      rel="noreferrer"
+                      className="flex items-center gap-2.5 rounded-[10px] border border-border px-3 py-2.5 transition-colors hover:border-ring hover:bg-secondary"
+                    >
+                      <span className="flex size-[30px] shrink-0 items-center justify-center rounded-lg bg-[#f1f5f9]">
+                        {f.kind === "pdf" ? (
+                          <FileText className="size-[15px] text-muted-foreground" />
+                        ) : (
+                          <ImageIcon className="size-[15px] text-muted-foreground" />
+                        )}
+                      </span>
+                      <span className="flex-1 truncate text-[12.5px]">
+                        {f.name}
+                      </span>
+                      <span className="tabular-nums text-[11.5px] text-muted-foreground">
+                        {f.size}
+                      </span>
+                      <Download className="size-3.5 text-[#cbd5e1]" />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <div className="mb-2.5 text-[13px] font-semibold">
+                결재 의견
+                {doc.comments && doc.comments.length > 0 && (
+                  <span className="ml-1.5 text-[11.5px] font-medium text-muted-foreground">
+                    {doc.comments.length}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-col gap-2">
+                {(doc.comments ?? []).map((c, i) => {
+                  const mine = !!me.uid && c.uid === me.uid;
+                  const canDelete = mine || isAdmin;
+                  const editing = editingId === c.id;
+                  return (
+                    <div
+                      key={c.id || `${c.name}-${i}`}
+                      className="flex gap-2.5 rounded-[10px] border border-border p-3"
+                    >
+                      <span style={avatarStyle(c.name.charAt(0), 30)}>
+                        {c.name.charAt(0)}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[12.5px] font-semibold">
+                            {c.name}
+                          </span>
+                          <span className="text-[11px] text-muted-foreground">
+                            {c.role}
+                          </span>
+                          <span className="ml-auto text-[11px] tabular-nums text-[#cbd5e1]">
+                            {c.at}
+                            {c.edited && " · 수정됨"}
+                          </span>
+                          {mine && !editing && (
+                            <button
+                              type="button"
+                              onClick={() => startEditComment(c.id, c.body)}
+                              data-html2canvas-ignore="true"
+                              className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-secondary-foreground"
+                              aria-label="의견 수정"
+                            >
+                              <Pencil className="size-3.5" />
+                            </button>
+                          )}
+                          {canDelete && !editing && (
+                            <button
+                              type="button"
+                              onClick={() => deleteComment(c.id)}
+                              data-html2canvas-ignore="true"
+                              className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-[#fef2f2] hover:text-[#b91c1c]"
+                              aria-label="의견 삭제"
+                            >
+                              <Trash2 className="size-3.5" />
+                            </button>
+                          )}
+                        </div>
+                        {editing ? (
+                          <div className="mt-1.5 flex flex-col gap-1.5">
+                            <textarea
+                              value={editingBody}
+                              onChange={(e) => setEditingBody(e.target.value)}
+                              rows={2}
+                              autoFocus
+                              className="w-full resize-none rounded-[8px] border border-ring bg-card px-2.5 py-2 text-[12.5px] leading-relaxed focus-visible:outline-none"
+                            />
+                            <div className="flex justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setEditingId(null)}
+                                className="flex h-7 items-center gap-1 rounded-[7px] px-2.5 text-[11.5px] font-semibold text-muted-foreground hover:bg-secondary"
+                              >
+                                <X className="size-3" />
+                                취소
+                              </button>
+                              <button
+                                type="button"
+                                onClick={saveEditComment}
+                                disabled={busy || !editingBody.trim()}
+                                className="flex h-7 items-center gap-1 rounded-[7px] bg-primary px-2.5 text-[11.5px] font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
+                              >
+                                저장
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="mt-1.5 text-[12.5px] leading-[1.65] text-secondary-foreground">
+                            {c.body}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+                {(doc.comments ?? []).length === 0 && (
+                  <p className="rounded-[10px] border border-dashed border-border px-3 py-4 text-center text-[12px] text-muted-foreground">
+                    아직 등록된 의견이 없습니다
+                  </p>
+                )}
+                <div
+                  data-html2canvas-ignore="true"
+                  className="mt-1 flex flex-col gap-2 rounded-[10px] border border-border bg-secondary p-3"
+                >
+                  <textarea
+                    value={opinion}
+                    onChange={(e) => setOpinion(e.target.value)}
+                    rows={2}
+                    placeholder="결재 의견을 입력하세요. 승인·반려 시 함께 기록됩니다."
+                    className="w-full resize-none rounded-[8px] border border-border bg-card px-2.5 py-2 text-[12.5px] leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                  <div className="flex justify-end">
+                    <button
+                      onClick={postOpinion}
+                      disabled={busy || !opinion.trim()}
+                      className="h-8 rounded-[8px] border border-border bg-card px-3 text-[12px] font-semibold text-secondary-foreground hover:bg-secondary disabled:opacity-50"
+                    >
+                      의견만 등록
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      </GwCard>
+        </GwCard>
+      </div>
     </div>
   );
 }
