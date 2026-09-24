@@ -362,10 +362,12 @@ function EventModal({
   const [location, setLocation] = React.useState(initial.location);
   const [memo, setMemo] = React.useState(initial.memo);
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   const submit = async () => {
     if (!title.trim() || busy) return;
     setBusy(true);
+    setError(null);
     try {
       await onSave({
         title,
@@ -378,7 +380,21 @@ function EventModal({
         location,
         memo,
       });
+    } catch {
+      setError("저장하지 못했습니다. 다시 시도해주세요.");
     } finally {
+      setBusy(false);
+    }
+  };
+
+  const runDelete = async () => {
+    if (!onDelete || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onDelete();
+    } catch {
+      setError("삭제하지 못했습니다. 다시 시도해주세요.");
       setBusy(false);
     }
   };
@@ -533,11 +549,18 @@ function EventModal({
               className="w-full resize-none rounded-[8px] border border-border bg-card px-2.5 py-2 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
 
+            {error && (
+              <p className="rounded-[8px] border border-[#fecaca] bg-[#fef2f2] px-3 py-2 text-[12px] font-semibold text-[#b91c1c]">
+                {error}
+              </p>
+            )}
+
             <div className="flex items-center gap-2">
               {onDelete && (
                 <button
-                  onClick={onDelete}
-                  className="flex h-9 items-center gap-1.5 rounded-[9px] border border-[#fecaca] bg-card px-3 text-[12.5px] font-semibold text-[#b91c1c] hover:bg-[#fef2f2]"
+                  onClick={runDelete}
+                  disabled={busy}
+                  className="flex h-9 items-center gap-1.5 rounded-[9px] border border-[#fecaca] bg-card px-3 text-[12.5px] font-semibold text-[#b91c1c] hover:bg-[#fef2f2] disabled:opacity-50"
                 >
                   <Trash2 className="size-3.5" />
                   삭제

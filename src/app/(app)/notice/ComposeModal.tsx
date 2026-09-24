@@ -36,14 +36,18 @@ export function ComposeModal({
   const [body, setBody] = React.useState(initial.body);
   const [pinned, setPinned] = React.useState(initial.pinned);
   const [saving, setSaving] = React.useState<null | "draft" | "publish">(null);
+  const [error, setError] = React.useState<string | null>(null);
 
   const valid = title.trim().length > 0;
 
   const submit = async (draft: boolean) => {
     if (!valid || saving) return;
     setSaving(draft ? "draft" : "publish");
+    setError(null);
     try {
       await onSubmit({ cat, title: title.trim(), body: body.trim(), pinned }, draft);
+    } catch {
+      setError("저장하지 못했습니다. 다시 시도해주세요.");
     } finally {
       setSaving(null);
     }
@@ -145,6 +149,12 @@ export function ComposeModal({
             </span>
           </label>
         </form>
+
+        {error && (
+          <p className="border-t border-[#fecaca] bg-[#fef2f2] px-5 py-2 text-[12px] font-semibold text-[#b91c1c]">
+            {error}
+          </p>
+        )}
 
         <div className="flex gap-2 border-t border-[#eef1f5] bg-secondary px-5 py-3.5">
           <button

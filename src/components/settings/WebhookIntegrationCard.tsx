@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Check, Loader2, Send, X } from "lucide-react";
+import { toast } from "sonner";
 import { sendTestNotification } from "@/lib/integrations/notify";
 import type { WorkspaceWebhookIntegration } from "@/lib/groupware/firestore";
 import { cn } from "@/lib/utils";
@@ -58,6 +59,8 @@ export function WebhookIntegrationCard({
     try {
       const trimmed = url.trim();
       await onSave({ webhookUrl: trimmed, on: trimmed ? (value?.on ?? true) : false });
+    } catch {
+      toast.error("연동 설정을 저장하지 못했습니다. 다시 시도해주세요.");
     } finally {
       setSaving(false);
     }
@@ -68,6 +71,8 @@ export function WebhookIntegrationCard({
     setSaving(true);
     try {
       await onSave({ webhookUrl: savedUrl, on: !on });
+    } catch {
+      toast.error("연동 상태를 변경하지 못했습니다. 다시 시도해주세요.");
     } finally {
       setSaving(false);
     }

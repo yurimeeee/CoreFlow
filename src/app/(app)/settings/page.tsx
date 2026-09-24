@@ -30,6 +30,7 @@ import {
   X,
 } from "lucide-react";
 import { updatePassword } from "firebase/auth";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { firebaseAuth } from "@/lib/firebase";
 import {
@@ -203,10 +204,14 @@ export default function SettingsPage() {
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return;
-      const url = await uploadImage(kind, file);
-      if (!url) return;
-      if (kind === "profile") setAvatarUrl(url);
-      else setSignatureUrl(url);
+      try {
+        const url = await uploadImage(kind, file);
+        if (!url) return;
+        if (kind === "profile") setAvatarUrl(url);
+        else setSignatureUrl(url);
+      } catch {
+        toast.error("이미지를 업로드하지 못했습니다. 다시 시도해주세요.");
+      }
     };
     input.click();
   };
@@ -253,16 +258,21 @@ export default function SettingsPage() {
 
   const commit = async () => {
     setEdits((e) => ({ ...e, saving: true }));
-    // 이메일은 Firebase Auth 계정과 연동되므로 여기서는 저장하지 않습니다.
-    await save({
-      name,
-      "gwSettings.toggles": toggles,
-      "gwSettings.lang": lang,
-      "gwSettings.tz": tz,
-    });
-    // RBAC 는 워크스페이스 문서(관리자 전용)에 저장
-    if (edits.rbac) await saveWorkspace({ rbac: edits.rbac });
-    setEdits({});
+    try {
+      // 이메일은 Firebase Auth 계정과 연동되므로 여기서는 저장하지 않습니다.
+      await save({
+        name,
+        "gwSettings.toggles": toggles,
+        "gwSettings.lang": lang,
+        "gwSettings.tz": tz,
+      });
+      // RBAC 는 워크스페이스 문서(관리자 전용)에 저장
+      if (edits.rbac) await saveWorkspace({ rbac: edits.rbac });
+      setEdits({});
+    } catch {
+      setEdits((e) => ({ ...e, saving: false }));
+      toast.error("저장하지 못했습니다. 다시 시도해주세요.");
+    }
   };
 
   return (
@@ -339,8 +349,12 @@ export default function SettingsPage() {
                     {photo && (
                       <button
                         onClick={async () => {
-                          await clearImage("profile");
-                          setAvatarUrl(null);
+                          try {
+                            await clearImage("profile");
+                            setAvatarUrl(null);
+                          } catch {
+                            toast.error("이미지를 삭제하지 못했습니다. 다시 시도해주세요.");
+                          }
                         }}
                         className="h-8.5 rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-muted-foreground hover:bg-secondary"
                       >
@@ -450,8 +464,12 @@ export default function SettingsPage() {
                     {signature && (
                       <button
                         onClick={async () => {
-                          await clearImage("signature");
-                          setSignatureUrl(null);
+                          try {
+                            await clearImage("signature");
+                            setSignatureUrl(null);
+                          } catch {
+                            toast.error("서명을 삭제하지 못했습니다. 다시 시도해주세요.");
+                          }
                         }}
                         className="flex h-9.5 items-center justify-center gap-1.5 rounded-[10px] border border-border bg-card text-[12.5px] font-semibold text-secondary-foreground hover:bg-secondary"
                       >
@@ -570,9 +588,14 @@ export default function SettingsPage() {
                     <button
                       onClick={async () => {
                         setRegenBusy(true);
-                        const codes = await twoFactor.regenerateBackupCodes();
-                        setRegenBusy(false);
-                        if (codes) setNewBackupCodes(codes);
+                        try {
+                          const codes = await twoFactor.regenerateBackupCodes();
+                          if (codes) setNewBackupCodes(codes);
+                        } catch {
+                          toast.error("백업 코드를 재발급하지 못했습니다. 다시 시도해주세요.");
+                        } finally {
+                          setRegenBusy(false);
+                        }
                       }}
                       disabled={regenBusy}
                       className="h-8.5 rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-secondary-foreground hover:bg-secondary disabled:opacity-60"
@@ -696,7 +719,9 @@ export default function SettingsPage() {
                               `${d.device} 기기의 접속 기록을 제거할까요?\n그 기기가 CoreFlow를 열어둔 상태라면 즉시 로그아웃됩니다.`,
                             )
                           ) {
-                            sessions.removeSession(d.id);
+                            sessions.removeSession(d.id).catch(() => {
+                              toast.error("세션을 제거하지 못했습니다. 다시 시도해주세요.");
+                            });
                           }
                         }}
                         className={cn(
@@ -949,9 +974,14 @@ function CompanyInfoCard() {
 
   const commit = async () => {
     setSaving(true);
-    await save(edits);
-    setEdits({});
-    setSaving(false);
+    try {
+      await save(edits);
+      setEdits({});
+    } catch {
+      toast.error("저장하지 못했습니다. 다시 시도해주세요.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -1009,8 +1039,13 @@ function PendingMembersCard() {
 
   const act = async (uid: string, fn: (uid: string) => Promise<void>) => {
     setBusy(uid);
-    await fn(uid);
-    setBusy(null);
+    try {
+      await fn(uid);
+    } catch {
+      toast.error("처리하지 못했습니다. 다시 시도해주세요.");
+    } finally {
+      setBusy(null);
+    }
   };
 
   return (

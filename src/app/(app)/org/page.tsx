@@ -21,6 +21,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
   STATUS_META,
@@ -249,7 +250,11 @@ export default function OrgPage() {
                         title="이름 변경"
                         onClick={() => {
                           const next = window.prompt("팀 이름", d.name);
-                          if (next?.trim()) updateTeam(d.key, { name: next.trim() });
+                          if (next?.trim()) {
+                            updateTeam(d.key, { name: next.trim() }).catch(() => {
+                              toast.error("팀 이름을 변경하지 못했습니다. 다시 시도해주세요.");
+                            });
+                          }
                         }}
                         className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-secondary-foreground"
                       >
@@ -263,7 +268,9 @@ export default function OrgPage() {
                               `"${d.name}" 팀을 삭제할까요? 소속 인원의 팀 배정은 해제됩니다.`,
                             )
                           ) {
-                            removeTeam(d.key);
+                            removeTeam(d.key).catch(() => {
+                              toast.error("팀을 삭제하지 못했습니다. 다시 시도해주세요.");
+                            });
                             if (dept === d.key) setDept(ROOT_FILTER);
                           }
                         }}
@@ -491,6 +498,8 @@ function AddTeamForm({
       setName("");
       setParentId("");
       setOpen(false);
+    } catch {
+      toast.error("팀을 추가하지 못했습니다. 다시 시도해주세요.");
     } finally {
       setSaving(false);
     }
@@ -559,6 +568,7 @@ function AssignMemberModal({
   onAssign: (personId: string) => Promise<void>;
 }) {
   const [q, setQ] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
   const query = q.trim().toLowerCase();
   const candidates = directory
     .filter((p) => p.teamId !== team.id)
@@ -567,6 +577,17 @@ function AssignMemberModal({
         !query || (p.name + p.role + p.dept).toLowerCase().includes(query),
     )
     .slice(0, 20);
+
+  const assign = async (personId: string) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await onAssign(personId);
+    } catch {
+      toast.error("구성원을 배정하지 못했습니다. 다시 시도해주세요.");
+      setBusy(false);
+    }
+  };
 
   return (
     <div
@@ -611,8 +632,9 @@ function AssignMemberModal({
           {candidates.map((p) => (
             <button
               key={p.id}
-              onClick={() => onAssign(p.id)}
-              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left hover:bg-secondary"
+              onClick={() => assign(p.id)}
+              disabled={busy}
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left hover:bg-secondary disabled:opacity-50"
             >
               <span style={avatarStyle(p.name.charAt(0), 30)}>
                 {p.name.charAt(0)}
@@ -657,6 +679,7 @@ function AddPersonModal({
   const [boss, setBoss] = React.useState("");
   const [tags, setTags] = React.useState("");
   const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   const valid = name.trim() && role.trim() && email.trim();
 
@@ -664,21 +687,27 @@ function AddPersonModal({
     e.preventDefault();
     if (!valid || saving) return;
     setSaving(true);
-    await onSubmit({
-      name: name.trim(),
-      role: role.trim(),
-      teamId: teamId || null,
-      email: email.trim(),
-      ext: ext.trim(),
-      mobile: mobile.trim(),
-      status: "online",
-      boss: boss || null,
-      tags: tags
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean),
-    });
-    setSaving(false);
+    setError(null);
+    try {
+      await onSubmit({
+        name: name.trim(),
+        role: role.trim(),
+        teamId: teamId || null,
+        email: email.trim(),
+        ext: ext.trim(),
+        mobile: mobile.trim(),
+        status: "online",
+        boss: boss || null,
+        tags: tags
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean),
+      });
+    } catch {
+      setError("가계정을 추가하지 못했습니다. 다시 시도해주세요.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -797,6 +826,11 @@ function AddPersonModal({
           </div>
         </form>
 
+        {error && (
+          <p className="border-t border-[#fecaca] bg-[#fef2f2] px-5 py-2 text-[12px] font-semibold text-[#b91c1c]">
+            {error}
+          </p>
+        )}
         <div className="flex gap-2 border-t border-[#eef1f5] bg-secondary px-5 py-3.5">
           <button
             onClick={onClose}
@@ -925,6 +959,7 @@ function ProfileDrawer({
   const me = useCurrentUser();
   const [editing, setEditing] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
   const [messaging, setMessaging] = React.useState(false);
   const [form, setForm] = React.useState(() => ({
     name: p.name,
@@ -949,6 +984,7 @@ function ProfileDrawer({
   const saveForm = async () => {
     if (!form.name.trim() || busy) return;
     setBusy(true);
+    setError(null);
     try {
       await onSave({
         name: form.name.trim(),
@@ -965,6 +1001,8 @@ function ProfileDrawer({
           .filter(Boolean),
       });
       setEditing(false);
+    } catch {
+      setError("저장하지 못했습니다. 다시 시도해주세요.");
     } finally {
       setBusy(false);
     }
@@ -977,9 +1015,11 @@ function ProfileDrawer({
       : `${p.name} 님을 조직도에서 삭제할까요? 되돌릴 수 없습니다.`;
     if (!window.confirm(msg)) return;
     setBusy(true);
+    setError(null);
     try {
       await onDelete();
-    } finally {
+    } catch {
+      setError("삭제하지 못했습니다. 다시 시도해주세요.");
       setBusy(false);
     }
   };
@@ -1026,6 +1066,12 @@ function ProfileDrawer({
             <X className="size-4" />
           </button>
         </div>
+
+        {error && (
+          <p className="border-b border-[#fecaca] bg-[#fef2f2] px-4.5 py-2 text-[12px] font-semibold text-[#b91c1c]">
+            {error}
+          </p>
+        )}
 
         {editing ? (
           <div className="flex flex-1 flex-col overflow-y-auto">

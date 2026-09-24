@@ -14,6 +14,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { TAG_COLORS } from "@/lib/groupware/data";
 import { TASK_COLUMNS, TASK_TAGS, type TaskDoc } from "@/lib/groupware/firestore";
@@ -106,7 +107,11 @@ export default function TasksPage() {
   );
 
   const handleDrop = (colKey: string, beforeId: string | null) => {
-    if (dragId) moveTaskTo(dragId, colKey, beforeId);
+    if (dragId) {
+      moveTaskTo(dragId, colKey, beforeId).catch(() => {
+        toast.error("카드를 옮기지 못했습니다. 다시 시도해주세요.");
+      });
+    }
     setDragId(null);
     setDragOverCol(null);
   };
@@ -523,6 +528,7 @@ function TaskModal({
   const [dueDate, setDueDate] = React.useState(initial.dueDate);
   const [time, setTime] = React.useState(initial.time);
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   const assigneeQ = who.trim().toLowerCase();
   const assigneeMatches = assigneeQ
@@ -546,6 +552,7 @@ function TaskModal({
   const submit = async () => {
     if (!title.trim() || busy) return;
     setBusy(true);
+    setError(null);
     try {
       await onSave({
         colKey: initial.colKey,
@@ -559,7 +566,33 @@ function TaskModal({
         dueDate: dueDate && startDate && dueDate < startDate ? startDate : dueDate,
         time,
       });
+    } catch {
+      setError("저장하지 못했습니다. 다시 시도해주세요.");
     } finally {
+      setBusy(false);
+    }
+  };
+
+  const runDelete = async () => {
+    if (!onDelete || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onDelete();
+    } catch {
+      setError("삭제하지 못했습니다. 다시 시도해주세요.");
+      setBusy(false);
+    }
+  };
+
+  const runAdvance = async () => {
+    if (!onAdvance || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onAdvance();
+    } catch {
+      setError("단계를 이동하지 못했습니다. 다시 시도해주세요.");
       setBusy(false);
     }
   };
@@ -706,11 +739,18 @@ function TaskModal({
           />
         </label>
 
+        {error && (
+          <p className="rounded-[8px] border border-[#fecaca] bg-[#fef2f2] px-3 py-2 text-[12px] font-semibold text-[#b91c1c]">
+            {error}
+          </p>
+        )}
+
         <div className="flex items-center gap-2">
           {onDelete && (
             <button
-              onClick={onDelete}
-              className="flex h-9 items-center gap-1.5 rounded-[9px] border border-[#fecaca] bg-card px-3 text-[12.5px] font-semibold text-[#b91c1c] hover:bg-[#fef2f2]"
+              onClick={runDelete}
+              disabled={busy}
+              className="flex h-9 items-center gap-1.5 rounded-[9px] border border-[#fecaca] bg-card px-3 text-[12.5px] font-semibold text-[#b91c1c] hover:bg-[#fef2f2] disabled:opacity-50"
             >
               <Trash2 className="size-3.5" />
               삭제
@@ -718,8 +758,9 @@ function TaskModal({
           )}
           {onAdvance && (
             <button
-              onClick={onAdvance}
-              className="h-9 rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-secondary-foreground hover:bg-secondary"
+              onClick={runAdvance}
+              disabled={busy}
+              className="h-9 rounded-[9px] border border-border bg-card px-3 text-[12.5px] font-semibold text-secondary-foreground hover:bg-secondary disabled:opacity-50"
             >
               다음 단계로
             </button>

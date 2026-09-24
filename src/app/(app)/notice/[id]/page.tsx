@@ -15,6 +15,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { toast } from "sonner";
 import { NOTICE_CAT_COLORS } from "@/lib/groupware/data";
 import { useCurrentUser, useNoticeComments, useNoticeDoc, useNotices } from "@/lib/groupware/hooks";
 import { avatarStyle, pill } from "@/lib/groupware/ui";
@@ -47,6 +48,8 @@ export default function NoticeDetailPage() {
     try {
       await addComment(draft);
       setDraft("");
+    } catch {
+      toast.error("댓글을 등록하지 못했습니다. 다시 시도해주세요.");
     } finally {
       setBusy(false);
     }
@@ -68,6 +71,8 @@ export default function NoticeDetailPage() {
     try {
       await updateComment(commentId, editText);
       cancelEdit();
+    } catch {
+      toast.error("댓글을 수정하지 못했습니다. 다시 시도해주세요.");
     } finally {
       setBusy(false);
     }
@@ -78,6 +83,8 @@ export default function NoticeDetailPage() {
     setBusy(true);
     try {
       await removeComment(commentId);
+    } catch {
+      toast.error("댓글을 삭제하지 못했습니다. 다시 시도해주세요.");
     } finally {
       setBusy(false);
     }
