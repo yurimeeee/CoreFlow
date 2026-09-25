@@ -73,6 +73,12 @@ export default function ChatThreadPage() {
   const [uploading, setUploading] = React.useState(false);
   const listRef = React.useRef<HTMLDivElement>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
+  // 한글 등 조합형 입력 중 Enter를 눌러 마지막 글자를 확정하면, 브라우저가
+  // Enter keydown을 두 번(조합 확정용 + 실제 전송용) 발생시켜 submit()이
+  // 두 번 호출되고 마지막 글자만 별도 메시지로 한 번 더 전송됩니다.
+  // isComposing으로 걸러도 일부 브라우저는 확정 시점에 이미 false라서
+  // compositionend를 직접 추적해 보강합니다.
+  const composingRef = React.useRef(false);
 
   React.useEffect(() => {
     if (messages.length > 0) markRead();
@@ -233,8 +239,15 @@ export default function ChatThreadPage() {
           <textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
+            onCompositionStart={() => {
+              composingRef.current = true;
+            }}
+            onCompositionEnd={() => {
+              composingRef.current = false;
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
+                if (e.nativeEvent.isComposing || composingRef.current) return;
                 e.preventDefault();
                 submit();
               }

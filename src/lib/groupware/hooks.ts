@@ -2062,6 +2062,11 @@ export function useChats() {
   const { uid } = useCurrentUser();
   const [raw, setRaw] = React.useState<ChatDoc[]>([]);
   const [loading, setLoading] = React.useState(isFirebaseConfigured);
+  // onSnapshot의 에러 콜백도 loading을 false로 내리므로(스피너를 영원히
+  // 돌리지 않기 위해), loading===false 만으로는 "진짜 스냅샷을 받았다"를
+  // 보장하지 못합니다. 실제 데이터 도착 여부를 구분해야 하는 소비자(예:
+  // ChatNotifier)를 위해 별도로 추적합니다.
+  const [hasSynced, setHasSynced] = React.useState(false);
 
   React.useEffect(() => {
     if (!isFirebaseConfigured || !uid) return;
@@ -2074,8 +2079,12 @@ export function useChats() {
       (snap) => {
         setRaw(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as ChatDoc));
         setLoading(false);
+        setHasSynced(true);
       },
-      () => setLoading(false),
+      (err) => {
+        console.error("[useChats] onSnapshot error", err);
+        setLoading(false);
+      },
     );
     return unsub;
   }, [uid]);
@@ -2106,7 +2115,7 @@ export function useChats() {
 
   const totalUnread = chats.filter((c) => c.unread).length;
 
-  return { chats, loading, totalUnread, myUid: uid };
+  return { chats, loading, hasSynced, totalUnread, myUid: uid };
 }
 
 /** 조직도 "메시지" 버튼 — 상대와의 1:1 방을 찾거나 없으면 만들고 id를 반환 */
