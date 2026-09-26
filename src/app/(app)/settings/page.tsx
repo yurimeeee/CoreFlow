@@ -16,11 +16,13 @@ import {
   MessagesSquare,
   Minus,
   Monitor,
+  Moon,
   PenLine,
   Plug,
   RotateCcw,
   ShieldCheck,
   Smartphone,
+  Sun,
   Tablet,
   Upload,
   User,
@@ -33,6 +35,8 @@ import { updatePassword } from "firebase/auth";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { firebaseAuth } from "@/lib/firebase";
+import { useThemeMode } from "@/hooks/useThemeMode";
+import type { ThemeMode } from "@/lib/theme";
 import {
   DEFAULT_RBAC,
   NOTIFY_GROUPS,
@@ -126,6 +130,12 @@ interface Edits {
   touched?: boolean;
 }
 
+const THEME_OPTIONS: { key: ThemeMode; label: string; icon: React.ElementType }[] = [
+  { key: "light", label: "라이트", icon: Sun },
+  { key: "dark", label: "다크", icon: Moon },
+  { key: "system", label: "시스템 설정", icon: Monitor },
+];
+
 const LANGS = ["한국어 (Korean)", "English", "日本語"];
 const TIMEZONES = [
   "(GMT+09:00) 서울",
@@ -143,6 +153,7 @@ function relTime(ms: number): string {
 
 export default function SettingsPage() {
   const [tab, setTab] = React.useState<Tab>("profile");
+  const { mode: themeMode, setMode: setThemeMode } = useThemeMode();
   const { profile, canSave, save, uploadImage, clearImage } = useGwSettings();
   const { data: workspace, save: saveWorkspace } = useWorkspace();
   const me = useCurrentUser();
@@ -419,6 +430,30 @@ export default function SettingsPage() {
                       <option key={z}>{z}</option>
                     ))}
                   </select>
+                </Field>
+                <Field label="화면 모드">
+                  <div className="flex h-9.5 gap-1 rounded-[9px] border border-border bg-secondary p-1">
+                    {THEME_OPTIONS.map((o) => {
+                      const Icon = o.icon;
+                      const active = themeMode === o.key;
+                      return (
+                        <button
+                          key={o.key}
+                          type="button"
+                          onClick={() => setThemeMode(o.key)}
+                          className={cn(
+                            "flex flex-1 items-center justify-center gap-1.5 rounded-[7px] text-[12.5px] font-semibold transition-colors",
+                            active
+                              ? "bg-card text-foreground shadow-[var(--shadow-card)]"
+                              : "text-muted-foreground hover:text-secondary-foreground",
+                          )}
+                        >
+                          <Icon className="size-3.5" />
+                          <span className="hidden sm:inline">{o.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </Field>
               </div>
               <div className="border-t border-[#f1f5f9] pt-4.5">

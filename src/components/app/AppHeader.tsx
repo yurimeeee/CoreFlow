@@ -29,6 +29,7 @@ import { useChats, useCurrentUser, useNotifications } from "@/lib/groupware/hook
 import { getReadIds, saveReadIds } from "@/lib/notificationRead";
 import { pill } from "@/lib/groupware/ui";
 import { CommandPalette } from "./CommandPalette";
+import { ThemeToggle } from "./ThemeToggle";
 import { screenTitle } from "./nav";
 
 const NOTIF_ICONS: Record<string, React.ElementType> = {
@@ -153,6 +154,8 @@ export function AppHeader({ onMenu }: { onMenu: () => void }) {
       </div>
 
       <div className="ml-auto flex items-center gap-2">
+        <ThemeToggle />
+
         <Link
           href="/chat"
           className={cn(

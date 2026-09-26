@@ -19,10 +19,14 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
+/** localStorage("cf_theme")·시스템 설정 기준으로 첫 페인트 전에 .dark를 세팅 — src/lib/theme.ts와 동일한 규칙을 유지해야 합니다. */
+const THEME_INIT_SCRIPT = `(function(){try{var m=localStorage.getItem("cf_theme");var dark=m==="dark"||(m!=="light"&&matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.classList.toggle("dark",dark);}catch(e){}})();`;
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="ko" className="h-full">
+    <html lang="ko" className="h-full" suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <link
           rel="stylesheet"
           href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
