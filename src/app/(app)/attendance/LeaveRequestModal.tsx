@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Palmtree, Timer, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { LEAVE_TYPES_COUNTED } from "@/lib/groupware/firestore";
 
 type Submit = {
   kind: string;
@@ -48,7 +49,13 @@ export function LeaveRequestModal({
       ) + 1,
     );
   const days = overtime ? 0 : kind === "반차" ? 0.5 : spanDays;
-  const overBalance = !overtime && kind !== "반차" && days > remaining;
+  // 연차 잔여 부족 검사는 실제로 잔여일수에서 차감되는 종류(LEAVE_TYPES_COUNTED)에만
+  // 적용 — 경조·병가는 잔여 연차와 무관하므로 빼야 함(반차는 기존과 동일하게 제외).
+  const overBalance =
+    !overtime &&
+    kind !== "반차" &&
+    LEAVE_TYPES_COUNTED.includes(kind) &&
+    days > remaining;
   const valid =
     reason.trim().length > 0 &&
     !overBalance &&
