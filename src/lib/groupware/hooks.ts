@@ -54,6 +54,7 @@ import {
   chatMessagesPath,
   dmChatId,
   noticeCommentsPath,
+  taskCommentsPath,
   type ApprovalDoc,
   type AttendanceDoc,
   type BookingDoc,
@@ -64,6 +65,7 @@ import {
   type NoticeCommentDoc,
   type NoticeDoc,
   type SessionDoc,
+  type TaskCommentDoc,
   type TaskDoc,
   type TeamDoc,
   type WorkspaceDoc,
@@ -588,6 +590,99 @@ export function useTasks() {
     toggleDone,
     moveTask,
     moveTaskTo,
+  };
+}
+
+/** Task 댓글 — tasks/{id}/comments 서브컬렉션. 카드 목록마다 구독을 걸지
+ *  않도록 Task 상세 모달이 열려 있을 때만(taskId가 있을 때만) 호출합니다. */
+export function useTaskComments(taskId: string) {
+  const me = useCurrentUser();
+  const { authUser, profile } = useAuthUser();
+  const isAdmin = profile?.role === "ADMIN" || profile?.role === "SUPER_ADMIN";
+  const [data, setData] = React.useState<TaskCommentDoc[]>([]);
+  const [loading, setLoading] = React.useState(isFirebaseConfigured);
+  const [added, setAdded] = React.useState<TaskCommentDoc[]>([]);
+
+  React.useEffect(() => {
+    if (!isFirebaseConfigured || !taskId) return;
+    const q = query(
+      collection(firebaseDb(), taskCommentsPath(taskId)),
+      orderBy("order"),
+    );
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setData(
+          snap.docs.map((d) => ({ id: d.id, ...d.data() }) as TaskCommentDoc),
+        );
+        setLoading(false);
+      },
+      () => setLoading(false),
+    );
+    return unsub;
+  }, [taskId]);
+
+  const comments = React.useMemo(() => {
+    const extra = added.filter((a) => !data.some((d) => d.id === a.id));
+    return [...data, ...extra].sort((a, b) => a.order - b.order);
+  }, [data, added]);
+
+  const addComment = React.useCallback(
+    async (body: string) => {
+      const text = body.trim();
+      if (!text) return;
+      const id = String(Date.now());
+      const now = new Date();
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const at = `${now.getFullYear()}.${pad(now.getMonth() + 1)}.${pad(
+        now.getDate(),
+      )} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+      const payload: Omit<TaskCommentDoc, "id"> = {
+        uid: authUser?.uid ?? "local",
+        author: me.name,
+        role: me.role,
+        body: text,
+        at,
+        order: now.getTime(),
+      };
+      setAdded((p) => [...p, { id, ...payload }]);
+      if (isFirebaseConfigured) {
+        await setDoc(doc(firebaseDb(), taskCommentsPath(taskId), id), payload);
+      }
+    },
+    [taskId, me.name, me.role, authUser?.uid],
+  );
+
+  /** 본인 댓글만 — Firestore 규칙도 uid == 본인만 허용 */
+  const updateComment = React.useCallback(
+    async (commentId: string, body: string) => {
+      const text = body.trim();
+      if (!text || !isFirebaseConfigured) return;
+      await updateDoc(doc(firebaseDb(), taskCommentsPath(taskId), commentId), {
+        body: text,
+        edited: true,
+      });
+    },
+    [taskId],
+  );
+
+  /** 본인 댓글 또는 관리자/최상위 관리자 — Firestore 규칙에서 함께 검증 */
+  const removeComment = React.useCallback(
+    async (commentId: string) => {
+      if (!isFirebaseConfigured) return;
+      await deleteDoc(doc(firebaseDb(), taskCommentsPath(taskId), commentId));
+    },
+    [taskId],
+  );
+
+  return {
+    comments,
+    loading,
+    addComment,
+    updateComment,
+    removeComment,
+    myUid: authUser?.uid ?? null,
+    isAdmin,
   };
 }
 

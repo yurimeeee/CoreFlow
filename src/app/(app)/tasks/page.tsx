@@ -2,14 +2,18 @@
 
 import * as React from "react";
 import {
+  Check,
   CheckSquare,
   Clock,
   GanttChart,
   GripVertical,
   List,
   ListChecks,
+  MessageSquare,
+  Pencil,
   Plus,
   Search,
+  Send,
   SquareKanban,
   Trash2,
   X,
@@ -21,6 +25,7 @@ import { TASK_COLUMNS, TASK_TAGS, type TaskDoc } from "@/lib/groupware/firestore
 import {
   useCurrentUser,
   useOrgPeople,
+  useTaskComments,
   useTasks,
   useTeams,
   type TaskInput,
@@ -473,6 +478,7 @@ export default function TasksPage() {
           key={modal.mode === "edit" ? modal.task.id : `new-${modal.colKey}`}
           initial={modal.mode === "edit" ? taskToInput(modal.task) : emptyInput(modal.colKey)}
           isNew={modal.mode === "new"}
+          taskId={modal.mode === "edit" ? modal.task.id : null}
           onClose={() => setModal(null)}
           onSave={async (input) => {
             if (modal.mode === "edit") await saveTask(modal.task.id, input);
@@ -504,6 +510,7 @@ export default function TasksPage() {
 function TaskModal({
   initial,
   isNew,
+  taskId,
   onClose,
   onSave,
   onDelete,
@@ -511,6 +518,7 @@ function TaskModal({
 }: {
   initial: TaskInput;
   isNew: boolean;
+  taskId: string | null;
   onClose: () => void;
   onSave: (input: TaskInput) => Promise<void>;
   onDelete?: () => Promise<void>;
@@ -606,7 +614,7 @@ function TaskModal({
       onClick={onClose}
     >
       <div
-        className="animate-step flex w-full max-w-[460px] flex-col gap-4 rounded-[14px] border border-border bg-card p-5 shadow-[var(--shadow-pop)]"
+        className="animate-step flex max-h-[88vh] w-full max-w-[460px] flex-col gap-4 overflow-y-auto rounded-[14px] border border-border bg-card p-5 shadow-[var(--shadow-pop)]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2">
@@ -739,6 +747,8 @@ function TaskModal({
           />
         </label>
 
+        {taskId && <TaskComments taskId={taskId} />}
+
         {error && (
           <p className="rounded-[8px] border border-[#fecaca] bg-[#fef2f2] px-3 py-2 text-[12px] font-semibold text-[#b91c1c]">
             {error}
@@ -779,6 +789,182 @@ function TaskModal({
             저장
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Task 상세 모달 안의 댓글 스레드 — notice 상세 페이지의 댓글 UI와 동일한 패턴. */
+function TaskComments({ taskId }: { taskId: string }) {
+  const { comments, addComment, updateComment, removeComment, myUid, isAdmin } =
+    useTaskComments(taskId);
+  const [draft, setDraft] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [editingId, setEditingId] = React.useState<string | null>(null);
+  const [editText, setEditText] = React.useState("");
+
+  const submit = async () => {
+    if (!draft.trim()) return;
+    setBusy(true);
+    try {
+      await addComment(draft);
+      setDraft("");
+    } catch {
+      toast.error("댓글을 등록하지 못했습니다. 다시 시도해주세요.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const startEdit = (commentId: string, body: string) => {
+    setEditingId(commentId);
+    setEditText(body);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditText("");
+  };
+
+  const saveEdit = async (commentId: string) => {
+    if (!editText.trim()) return;
+    setBusy(true);
+    try {
+      await updateComment(commentId, editText);
+      cancelEdit();
+    } catch {
+      toast.error("댓글을 수정하지 못했습니다. 다시 시도해주세요.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (commentId: string) => {
+    if (!window.confirm("댓글을 삭제할까요?")) return;
+    setBusy(true);
+    try {
+      await removeComment(commentId);
+    } catch {
+      toast.error("댓글을 삭제하지 못했습니다. 다시 시도해주세요.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-2.5 border-t border-[#eef1f5] pt-3.5">
+      <div className="flex items-center gap-1.5 text-[12.5px] font-semibold">
+        <MessageSquare className="size-3.5 text-primary" />
+        댓글
+        <span className="text-[11.5px] font-medium text-muted-foreground">
+          {comments.length}
+        </span>
+      </div>
+
+      <div className="flex flex-col divide-y divide-[#f1f5f9]">
+        {comments.map((c) => {
+          const isOwn = !!myUid && c.uid === myUid;
+          const isEditing = editingId === c.id;
+          return (
+            <div key={c.id} className="flex gap-2 py-2.5">
+              <span style={avatarStyle(c.author.charAt(0), 24)}>
+                {c.author.charAt(0)}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11.5px] font-semibold">{c.author}</span>
+                  <span className="ml-auto text-[10.5px] tabular-nums text-[#cbd5e1]">
+                    {c.at}
+                    {c.edited && " · 수정됨"}
+                  </span>
+                  {!isEditing && (isOwn || isAdmin) && (
+                    <div className="flex items-center gap-0.5">
+                      {isOwn && (
+                        <button
+                          onClick={() => startEdit(c.id, c.body)}
+                          className="flex size-5.5 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-secondary-foreground"
+                          title="수정"
+                        >
+                          <Pencil className="size-2.5" />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => remove(c.id)}
+                        disabled={busy}
+                        className="flex size-5.5 items-center justify-center rounded-md text-muted-foreground hover:bg-[#fef2f2] hover:text-[#b91c1c] disabled:opacity-50"
+                        title="삭제"
+                      >
+                        <Trash2 className="size-2.5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {isEditing ? (
+                  <div className="mt-1.5 flex flex-col gap-1.5">
+                    <textarea
+                      value={editText}
+                      onChange={(e) => setEditText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if ((e.metaKey || e.ctrlKey) && e.key === "Enter") saveEdit(c.id);
+                        if (e.key === "Escape") cancelEdit();
+                      }}
+                      rows={2}
+                      autoFocus
+                      className="w-full resize-none rounded-[8px] border border-border bg-card px-2.5 py-2 text-[12px] leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    />
+                    <div className="flex justify-end gap-1.5">
+                      <button
+                        onClick={cancelEdit}
+                        className="flex h-6.5 items-center gap-1 rounded-md border border-border bg-card px-2 text-[11px] font-semibold text-secondary-foreground hover:bg-secondary"
+                      >
+                        <X className="size-2.5" />
+                        취소
+                      </button>
+                      <button
+                        onClick={() => saveEdit(c.id)}
+                        disabled={busy || !editText.trim()}
+                        className="flex h-6.5 items-center gap-1 rounded-md bg-primary px-2 text-[11px] font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
+                      >
+                        <Check className="size-2.5" />
+                        저장
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="mt-1 whitespace-pre-wrap text-[12px] leading-[1.6] text-secondary-foreground">
+                    {c.body}
+                  </p>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        {comments.length === 0 && (
+          <p className="py-4 text-center text-[11.5px] text-muted-foreground">
+            첫 댓글을 남겨보세요
+          </p>
+        )}
+      </div>
+
+      <div className="flex items-end gap-1.5 rounded-[9px] border border-border bg-secondary p-2">
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit();
+          }}
+          rows={2}
+          placeholder="댓글을 입력하세요 (⌘/Ctrl+Enter 로 등록)"
+          className="min-h-[36px] flex-1 resize-none rounded-[8px] border border-border bg-card px-2.5 py-1.5 text-[12px] leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        />
+        <button
+          onClick={submit}
+          disabled={busy || !draft.trim()}
+          className="flex h-8 items-center gap-1 rounded-[8px] bg-primary px-2.5 text-[11.5px] font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
+        >
+          <Send className="size-3" />
+          등록
+        </button>
       </div>
     </div>
   );

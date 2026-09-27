@@ -109,6 +109,17 @@ service cloud.firestore {
     }
     match /tasks/{id} {
       allow read, write: if isSignedIn();
+
+      /* Task 댓글 — tasks/{id}/comments/{cid} (notices/{id}/comments 와 동일 정책) */
+      match /comments/{cid} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn()
+          && request.resource.data.uid == request.auth.uid;
+        allow update: if isSignedIn()
+          && resource.data.uid == request.auth.uid;
+        allow delete: if isSignedIn()
+          && (resource.data.uid == request.auth.uid || isAdmin());
+      }
     }
     /* ---------------- approvals/{no} (전자결재) ----------------
        승인/반려로 status·line 이 바뀌는 요청은 반드시 "현재 결재 차례"인

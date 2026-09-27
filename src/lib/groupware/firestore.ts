@@ -42,6 +42,10 @@ export const COL = {
 export const noticeCommentsPath = (noticeId: string) =>
   `${COL.notices}/${noticeId}/comments`;
 
+/** tasks/{id}/comments 서브컬렉션 경로 */
+export const taskCommentsPath = (taskId: string) =>
+  `${COL.tasks}/${taskId}/comments`;
+
 /** chats/{id}/messages 서브컬렉션 경로 */
 export const chatMessagesPath = (chatId: string) =>
   `${COL.chats}/${chatId}/messages`;
@@ -272,6 +276,20 @@ export interface NoticeCommentDoc {
   at: string; // yyyy.mm.dd HH:MM
   order: number;
   /** 수정된 댓글인지 (UI에 "(수정됨)" 표시용) */
+  edited?: boolean;
+}
+
+/** Task 댓글 — tasks/{id}/comments 서브컬렉션. NoticeCommentDoc과 필드는 같지만
+ *  Task 카드에는 댓글 수를 별도로 집계하지 않음(칸반 카드마다 실시간 구독을
+ *  거는 것을 피하기 위함) — 댓글은 Task 상세 모달을 열었을 때만 구독합니다. */
+export interface TaskCommentDoc {
+  id: string;
+  uid: string;
+  author: string;
+  role: string;
+  body: string;
+  at: string; // yyyy.mm.dd HH:MM
+  order: number;
   edited?: boolean;
 }
 
