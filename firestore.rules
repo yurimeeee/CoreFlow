@@ -125,7 +125,11 @@ service cloud.firestore {
        승인/반려로 status·line 이 바뀌는 요청은 반드시 "현재 결재 차례"인
        사람(currentApproverUid)만 보낼 수 있습니다 — 기안자 본인이거나
        자기 차례가 아닌 사용자가 임의로 승인/반려하는 것을 서버에서 차단.
-       의견 등록 등 상태에 영향 없는 갱신은 그대로 로그인 사용자면 허용.
+       의견 등록 등 상태에 영향 없는 갱신은 이 문서와 관련 있는 사람(기안자·
+       결재라인·관리자)이면 허용 — "로그인만 하면 허용"이었을 때는 이
+       문서와 무관한 사용자도 문서번호(no)만 알면 status/line을 뺀
+       title·attachments·comments 등을 마음대로 덮어쓸 수 있었습니다
+       (읽기는 관련자로 좁혀 있었는데 쓰기만 그 제한이 빠져 있던 불일치).
 
        열람은 기안자·결재라인(approverUids)·관리자만 — 운영 전환 시 전사
        공개 대신 이 문서와 관련 있는 사람만 보도록 좁히기로 한 결정.
@@ -133,15 +137,17 @@ service cloud.firestore {
        authorUid/currentApproverUid 로만 판정됩니다(storage.rules 도 동일
        기준을 씀 — 첨부파일 다운로드만 따로 열려 있으면 이 좁히기가 무의미). */
     match /approvals/{no} {
-      allow read: if isAdmin()
-        || (isSignedIn()
-            && (resource.data.authorUid == request.auth.uid
-                || resource.data.currentApproverUid == request.auth.uid
-                || request.auth.uid in resource.data.get('approverUids', [])));
+      function isApprovalMember() {
+        return resource.data.authorUid == request.auth.uid
+          || resource.data.currentApproverUid == request.auth.uid
+          || request.auth.uid in resource.data.get('approverUids', []);
+      }
+      allow read: if isAdmin() || (isSignedIn() && isApprovalMember());
       allow create: if isSignedIn()
         && request.resource.data.authorUid == request.auth.uid;
       allow update: if isAdmin()
         || (isSignedIn()
+            && isApprovalMember()
             && (
               (request.resource.data.status == resource.data.status
                 && request.resource.data.line == resource.data.line)
