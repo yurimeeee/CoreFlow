@@ -31,6 +31,7 @@ import {
 } from "firebase/storage";
 import { cn } from "@/lib/utils";
 import { firebaseStorage, isFirebaseConfigured } from "@/lib/firebase";
+import { LEAVE_TYPES_COUNTED } from "@/lib/groupware/firestore";
 import { getGoogleDriveSession, uploadFileToDrive } from "@/lib/googleDrive";
 import {
   EXPENSE_ROWS,
@@ -183,6 +184,14 @@ function DraftPageClient() {
         86_400_000,
     ) + 1,
   );
+  // /attendance의 빠른 연차 신청 모달(LeaveRequestModal)과 동일 기준으로 잔여
+  // 연차 부족을 검사합니다 — LEAVE_TYPES_COUNTED(연차/반차)에 속하지 않는
+  // 경조·병가는 잔여 연차를 차감하지 않으므로 검사 대상에서 제외합니다.
+  const leaveOverBalance =
+    form === "휴가신청서" &&
+    LEAVE_TYPES_COUNTED.includes(leaveKind) &&
+    leaveKind !== "반차" &&
+    leaveDays > leaveBalance.remaining;
   const [reportKind, setReportKind] = React.useState("주간");
   const [shift, setShift] = React.useState("08:00 – 17:00");
   const [text, setText] = React.useState<Record<string, string>>({});
@@ -411,13 +420,26 @@ function DraftPageClient() {
 
   const canSave = title.trim().length > 0 && saving === null;
 
+  const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+
   const uploadAttachments = async (files: FileList | null) => {
     if (!files?.length) return;
+    // 안내 문구("파일당 최대 20MB")만 있고 실제로는 검증하지 않으면 큰
+    // 파일이 Storage 업로드를 오래 붙든 채로 조용히 실패하거나 그대로
+    // 올라가버립니다 — 업로드 전에 걸러 즉시 알려줍니다.
+    const oversized = Array.from(files).filter((f) => f.size > MAX_ATTACHMENT_BYTES);
+    const valid = Array.from(files).filter((f) => f.size <= MAX_ATTACHMENT_BYTES);
+    if (oversized.length) {
+      setSaveError(
+        `${oversized.map((f) => f.name).join(", ")} — 파일당 최대 20MB까지 첨부할 수 있습니다.`,
+      );
+    }
+    if (!valid.length) return;
     const no = savedNo ?? genNo();
     setSavedNo(no);
     setUploading(true);
     try {
-      for (const file of Array.from(files)) {
+      for (const file of valid) {
         const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         let url = "";
         if (isFirebaseConfigured) {
@@ -454,6 +476,10 @@ function DraftPageClient() {
     setSaveError(null);
     if (mode === "submit" && approvers.length === 0) {
       setSaveError("결재자를 1명 이상 지정해주세요.");
+      return;
+    }
+    if (mode === "submit" && leaveOverBalance) {
+      setSaveError("잔여 연차가 부족합니다. 휴가 기간을 조정해주세요.");
       return;
     }
     setSaving(mode);
@@ -840,13 +866,35 @@ function DraftPageClient() {
                 </div>
                 <div className="flex-[1_1_160px]">
                   <div className={labelCls}>신청 일수 / 잔여</div>
-                  <div className="flex h-9.5 items-baseline gap-1.5 rounded-[9px] border border-[#e0e7ff] bg-[#f5f6ff] px-3">
-                    <span className="text-[15px] font-semibold tabular-nums text-[#3730a3]">
+                  <div
+                    className={cn(
+                      "flex h-9.5 items-baseline gap-1.5 rounded-[9px] border px-3",
+                      leaveOverBalance
+                        ? "border-[#fecaca] bg-[#fef2f2]"
+                        : "border-[#e0e7ff] bg-[#f5f6ff]",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "text-[15px] font-semibold tabular-nums",
+                        leaveOverBalance ? "text-[#b91c1c]" : "text-[#3730a3]",
+                      )}
+                    >
                       {leaveKind === "반차" ? 0.5 : leaveDays}일
                     </span>
-                    <span className="text-[11.5px] text-[#6366f1]">
+                    <span
+                      className={cn(
+                        "text-[11.5px]",
+                        leaveOverBalance ? "text-[#b91c1c]" : "text-[#6366f1]",
+                      )}
+                    >
                       잔여 {leaveBalance.remaining}일
                     </span>
+                    {leaveOverBalance && (
+                      <span className="ml-auto text-[11.5px] font-semibold text-[#b91c1c]">
+                        잔여 연차 부족
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
