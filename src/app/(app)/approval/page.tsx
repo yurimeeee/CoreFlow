@@ -74,11 +74,26 @@ export default function ApprovalPage() {
   const cutoff =
     period.days > 0 && now ? now.getTime() - period.days * 86_400_000 : 0;
   const rows = data
-    .filter((r) =>
-      BUCKETS[tab] === "pending"
-        ? r.bucket === "pending" && isPendingApprover(r, me)
-        : r.bucket === BUCKETS[tab],
-    )
+    .filter((r) => {
+      const bucket = BUCKETS[tab];
+      if (bucket === "pending") {
+        if (r.bucket !== "pending") return false;
+        if (isPendingApprover(r, me)) return true;
+        // 내 차례가 지나갔거나 이미 처리한 문서도 결재선에 있었다면 계속
+        // 보여야 합니다 — bucket/currentApproverUid만 보면 다음 결재자
+        // 차례로 넘어간 순간 이 문서가 어느 탭에서도 보이지 않게 됩니다.
+        return (
+          !!me.uid && r.authorUid !== me.uid && (r.approverUids ?? []).includes(me.uid)
+        );
+      }
+      if (bucket === "drafted") {
+        // "기안 문서" 탭 = 내가 작성한 문서 전체(임시저장·상신·진행중·완료·반려).
+        // bucket은 기안 시점에 한 번 정해지면 승인/반려돼도 바뀌지 않으므로
+        // bucket으로만 걸러내면 상신한 순간 이 탭에서 사라져버립니다.
+        return !!me.uid && r.authorUid === me.uid;
+      }
+      return r.bucket === bucket;
+    })
     .filter((r) => !cutoff || (now ? parseDocDate(r.date, now) : 0) >= cutoff)
     .sort((a, b) => a.order - b.order);
 
@@ -160,7 +175,7 @@ export default function ApprovalPage() {
               periodIdx > 0
                 ? "기간 필터를 넓혀 보세요."
                 : [
-                    "현재 내 차례로 넘어온 문서가 없습니다. 새 문서를 기안해 보세요.",
+                    "내가 결재선에 포함된 문서가 없습니다. 결재 차례가 되거나 결재에 참여하면 이곳에 표시됩니다.",
                     "임시저장 중이거나 상신한 문서가 여기에 표시됩니다.",
                     "내가 참조자로 지정된 문서가 여기에 표시됩니다.",
                   ][tab]

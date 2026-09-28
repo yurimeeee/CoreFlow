@@ -96,7 +96,7 @@ export const APPROVAL_STATS: {
   { label: "반려", value: 0, color: "#94a3b8", bg: "#fef2f2", icon: "CircleX" },
 ];
 
-export const APPROVAL_TABS = ["대기 문서", "기안 문서", "참조 문서"];
+export const APPROVAL_TABS = ["결재 문서", "기안 문서", "참조 문서"];
 
 export type ApprovalRow = {
   no: string; type: string; title: string; author: string; date: string; approver: string; status: string;
