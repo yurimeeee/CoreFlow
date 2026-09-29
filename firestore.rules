@@ -300,8 +300,13 @@ service cloud.firestore {
 
     /* ---------------- invites/{inviteId} ---------------- */
     match /invites/{inviteId} {
-      // 초대 토큰 검증을 위해 미인증 조회 허용 (토큰은 사실상 비밀값)
-      allow get, list: if true;
+      // 초대 토큰 검증을 위해 미인증 조회 허용 (토큰은 사실상 비밀값).
+      // list는 반드시 limit(1) 쿼리만 — 그렇지 않으면 where 없이 컬렉션을
+      // 통째로 훑는 요청까지 통과해 이메일·role·teamId 등 초대 대기자
+      // 정보 전체가 로그인 없이 유출됩니다. useInvite.ts는 이미
+      // where("token","==",token).limit(1)만 쓰므로 정상 동작엔 영향 없음.
+      allow get: if true;
+      allow list: if request.query.limit <= 1;
 
       // 생성/삭제는 관리자만
       allow create, delete: if isAdmin();
