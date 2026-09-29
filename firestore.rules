@@ -203,8 +203,14 @@ service cloud.firestore {
         || (isSignedIn()
             && resource.data.uid == request.auth.uid
             && request.resource.data.uid == resource.data.uid);
+      // 삭제(신청 취소)는 아직 '대기' 상태일 때만 — 이미 '승인'된 문서까지
+      // 본인이 지울 수 있으면 연차 잔여 계산(calculateLeaveBalance)이 존재
+      // 하는 문서만 합산하므로, 실제로 휴가를 쓰고도 관리자 승인/감사 기록
+      // 없이 그 사용 내역을 조용히 지워 잔여를 복구할 수 있었습니다.
       allow delete: if isAdmin()
-        || (isSignedIn() && resource.data.uid == request.auth.uid);
+        || (isSignedIn()
+            && resource.data.uid == request.auth.uid
+            && resource.data.status == '대기');
     }
 
     /* ---------------- sessions/{id} (접속 기기 세션) ----------------
