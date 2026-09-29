@@ -143,16 +143,30 @@ service cloud.firestore {
           || request.auth.uid in resource.data.get('approverUids', []);
       }
       allow read: if isAdmin() || (isSignedIn() && isApprovalMember());
+      // status는 반드시 'Waiting'으로만 생성 가능 — 그렇지 않으면 기안자가
+      // 처음부터 status:'Approved'로 문서를 만들어 결재선을 거치지 않고
+      // 곧바로 isApprovedLeaveApproval()을 통과시킬 수 있었습니다(leaves
+      // 승인 문서를 자기 자신에게 발급). currentApproverUid도 기안자 본인일
+      // 수 없게 막아 처음부터 "내가 내 결재자"로 셀프 승인 루트를 여는 것도
+      // 차단합니다.
       allow create: if isSignedIn()
-        && request.resource.data.authorUid == request.auth.uid;
+        && request.resource.data.authorUid == request.auth.uid
+        && request.resource.data.status == 'Waiting'
+        && request.resource.data.get('currentApproverUid', null) != request.auth.uid;
       allow update: if isAdmin()
         || (isSignedIn()
             && isApprovalMember()
             && (
               (request.resource.data.status == resource.data.status
                 && request.resource.data.line == resource.data.line)
+              // currentApproverUid 본인이어도 그게 기안자 자신이면 이 경로로
+              // status/line을 바꿀 수 없습니다 — 위 create 제약과 별개로,
+              // 어떤 경로(예: status/line은 그대로 둔 채 currentApproverUid만
+              // 먼저 자기 자신으로 바꾸는 선행 update)로든 currentApproverUid가
+              // 기안자 본인과 같아지면 그 즉시 셀프 승인 창구가 막힙니다.
               || (resource.data.currentApproverUid != null
-                  && resource.data.currentApproverUid == request.auth.uid)
+                  && resource.data.currentApproverUid == request.auth.uid
+                  && resource.data.currentApproverUid != resource.data.authorUid)
             ));
       allow delete: if isAdmin()
         || (isSignedIn() && resource.data.authorUid == request.auth.uid);
@@ -181,7 +195,15 @@ service cloud.firestore {
         || (isSignedIn()
             && request.resource.data.status == '승인'
             && isApprovedLeaveApproval(id, request.resource.data.uid));
-      allow update, delete: if isAdmin()
+      // update는 소유자 본인 + 수정 후에도 uid가 그대로 본인이어야 함 —
+      // 그렇지 않으면 본인 소유 문서를 만든 뒤 uid를 다른 직원으로 바꿔치기해
+      // 그 사람 연차 잔여를 근거 없이 깎을 수 있었습니다(피해자가 자기 연차
+      // 내역을 조회할 때 uid==본인 조건으로 이 위조 문서가 그대로 잡힘).
+      allow update: if isAdmin()
+        || (isSignedIn()
+            && resource.data.uid == request.auth.uid
+            && request.resource.data.uid == resource.data.uid);
+      allow delete: if isAdmin()
         || (isSignedIn() && resource.data.uid == request.auth.uid);
     }
 
