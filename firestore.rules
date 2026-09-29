@@ -60,15 +60,20 @@ service cloud.firestore {
             && uid.matches('^placeholder-.*')
             && request.resource.data.status == 'PLACEHOLDER');
 
-      // 본인은 프로필 일부만 수정 — 상태/권한/사번/팀/상사 변경은 관리자만
-      // (가계정 편집도 이 update 경로로 처리되며 isAdmin() 이 커버합니다)
+      // 본인은 프로필 일부만 수정 — 상태/권한/사번/팀/상사/이메일 변경은
+      // 관리자만 (가계정 편집도 이 update 경로로 처리되며 isAdmin() 이
+      // 커버합니다). email은 create 시 auth 토큰과 일치하도록 고정되므로
+      // update에서도 그대로 유지되게 막지 않으면, 본인 계정으로 로그인한
+      // 채 users 문서의 email만 바꿔 조직도·설정 화면에 다른 사람 이메일로
+      // 표시되게 할 수 있었습니다.
       allow update: if isAdmin()
         || (isSignedIn() && request.auth.uid == uid
             && request.resource.data.role == resource.data.role
             && request.resource.data.status == resource.data.status
             && request.resource.data.employeeId == resource.data.employeeId
             && request.resource.data.teamId == resource.data.teamId
-            && request.resource.data.managerId == resource.data.managerId);
+            && request.resource.data.managerId == resource.data.managerId
+            && request.resource.data.email == resource.data.email);
 
       allow delete: if isAdmin();
     }
@@ -227,7 +232,14 @@ service cloud.firestore {
         && (resource.data.uid == request.auth.uid || isAdmin());
       allow create: if isSignedIn()
         && request.resource.data.uid == request.auth.uid;
-      allow update, delete: if isSignedIn()
+      // delete는 uid만 확인하면 되지만(문서 자체가 사라지므로), update는
+      // 수정 후에도 uid가 그대로여야 함 — 아니면 본인 세션 문서의 uid를
+      // 다른 사람으로 바꿔치기해 그 사람 기기 목록에 가짜 세션을 끼워
+      // 넣을 수 있었습니다.
+      allow update: if isSignedIn()
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == resource.data.uid;
+      allow delete: if isSignedIn()
         && resource.data.uid == request.auth.uid;
     }
 
@@ -237,8 +249,14 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn()
         && request.resource.data.owner == request.auth.uid;
-      // 생성자 본인 또는 관리자만 수정·삭제
-      allow update, delete: if isAdmin()
+      // 생성자 본인 또는 관리자만 수정·삭제. update는 수정 후에도 owner가
+      // 그대로여야 함 — 아니면 본인 일정의 owner를 다른 사람으로 바꿔
+      // 소유권을 강제로 떠넘길 수 있었습니다.
+      allow update: if isAdmin()
+        || (isSignedIn()
+            && resource.data.owner == request.auth.uid
+            && request.resource.data.owner == resource.data.owner);
+      allow delete: if isAdmin()
         || (isSignedIn() && resource.data.owner == request.auth.uid);
     }
 
