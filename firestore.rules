@@ -49,7 +49,13 @@ service cloud.firestore {
           && request.resource.data.teamId
              == get(/databases/$(database)/documents/invites/$(request.resource.data.inviteId)).data.teamId
           && request.resource.data.managerId
-             == get(/databases/$(database)/documents/invites/$(request.resource.data.inviteId)).data.managerId)
+             == get(/databases/$(database)/documents/invites/$(request.resource.data.inviteId)).data.managerId
+          // role도 teamId·managerId와 동일하게 초대장 값과 일치해야 합니다 —
+          // 이 검증이 없으면 가입 시 role:'SUPER_ADMIN'을 직접 써 넣어
+          // 스스로 최고 관리자 권한을 획득할 수 있었습니다(update 규칙은
+          // role 불변을 강제하지만 create 시점엔 아무 제약이 없었음).
+          && request.resource.data.role
+             == get(/databases/$(database)/documents/invites/$(request.resource.data.inviteId)).data.role)
         || (isAdmin()
             && uid.matches('^placeholder-.*')
             && request.resource.data.status == 'PLACEHOLDER');
