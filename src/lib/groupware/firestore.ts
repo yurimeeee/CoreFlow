@@ -46,6 +46,10 @@ export const noticeCommentsPath = (noticeId: string) =>
 export const taskCommentsPath = (taskId: string) =>
   `${COL.tasks}/${taskId}/comments`;
 
+/** approvals/{no}/comments 서브컬렉션 경로 */
+export const approvalCommentsPath = (no: string) =>
+  `${COL.approvals}/${no}/comments`;
+
 /** chats/{id}/messages 서브컬렉션 경로 */
 export const chatMessagesPath = (chatId: string) =>
   `${COL.chats}/${chatId}/messages`;
@@ -174,16 +178,6 @@ export interface ApprovalDoc {
   line?: { kind: string; name: string; role: string; state: string; at: string; done: boolean; uid?: string }[];
   meta?: { label: string; value: string }[];
   rows?: { date: string; desc: string; amount: number; receipt: string }[];
-  comments?: {
-    id: string;
-    /** 작성자 uid — 본인 의견만 수정/삭제 가능 판단에 사용(레거시 의견엔 없음) */
-    uid?: string;
-    name: string;
-    role: string;
-    at: string;
-    body: string;
-    edited?: boolean;
-  }[];
   attachments?: { name: string; size: string; url: string; kind: string }[];
   reason?: string;
   /**
@@ -283,6 +277,21 @@ export interface NoticeCommentDoc {
  *  Task 카드에는 댓글 수를 별도로 집계하지 않음(칸반 카드마다 실시간 구독을
  *  거는 것을 피하기 위함) — 댓글은 Task 상세 모달을 열었을 때만 구독합니다. */
 export interface TaskCommentDoc {
+  id: string;
+  uid: string;
+  author: string;
+  role: string;
+  body: string;
+  at: string; // yyyy.mm.dd HH:MM
+  order: number;
+  edited?: boolean;
+}
+
+/** 결재 의견 — approvals/{no}/comments 서브컬렉션. NoticeCommentDoc/TaskCommentDoc과
+ *  동일한 형태 — 예전엔 approvals 문서의 comments 배열 필드였으나, 배열 원소
+ *  단위로는 작성자만 수정/삭제하도록 보안 규칙을 걸 수 없어(결재선에 있는
+ *  아무나 남의 의견을 고치거나 지울 수 있었음) 서브컬렉션으로 분리. */
+export interface ApprovalCommentDoc {
   id: string;
   uid: string;
   author: string;
@@ -490,9 +499,9 @@ export function buildSeed(): SeedDoc[] {
             line: detail.line,
             meta: detail.meta,
             rows: detail.rows,
-            // 시드 의견엔 uid가 없어(작성자 미상) 어차피 수정/삭제 버튼은
-            // 뜨지 않지만, comments 필드 타입엔 id가 필요합니다.
-            comments: detail.comments.map((c, ci) => ({ id: `seed-${r.no}-${ci}`, ...c })),
+            // 시드 의견(SEED_APPROVAL_DETAIL.comments)은 이제 comments
+            // 서브컬렉션 몫이라 여기서는 approvals 문서 자체에 심지 않습니다
+            // — notices/tasks 시드도 댓글 서브컬렉션은 채우지 않는 것과 동일.
             reason: detail.reason,
           }
         : {

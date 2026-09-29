@@ -181,6 +181,29 @@ service cloud.firestore {
             ));
       allow delete: if isAdmin()
         || (isSignedIn() && resource.data.authorUid == request.auth.uid);
+
+      /* 결재 의견 — approvals/{no}/comments/{cid} (notices/tasks 댓글과 동일
+         패턴으로 분리). 예전엔 comments가 approvals 문서의 배열 필드라
+         "이 문서와 관련 있는 사람이면 쓰기 허용"으로만 막아뒀던 탓에,
+         결재선에 있는 아무나(작성자 아닌 사람 포함) 배열째로 덮어써 남의
+         의견을 고치거나 지울 수 있었습니다 — 배열 원소 단위 소유권 검증이
+         규칙 문법상 불가능했기 때문. 서브컬렉션으로 옮겨 uid로 원소 단위
+         권한을 검증합니다. */
+      match /comments/{cid} {
+        function isParentMember() {
+          let ap = get(/databases/$(database)/documents/approvals/$(no)).data;
+          return ap.authorUid == request.auth.uid
+            || ap.currentApproverUid == request.auth.uid
+            || request.auth.uid in ap.get('approverUids', []);
+        }
+        allow read: if isSignedIn() && (isAdmin() || isParentMember());
+        allow create: if isSignedIn()
+          && (isAdmin() || isParentMember())
+          && request.resource.data.uid == request.auth.uid;
+        allow update: if isSignedIn() && resource.data.uid == request.auth.uid;
+        allow delete: if isSignedIn()
+          && (resource.data.uid == request.auth.uid || isAdmin());
+      }
     }
     match /bookings/{id} {
       allow read, write: if isSignedIn();

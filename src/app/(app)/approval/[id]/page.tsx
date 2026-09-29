@@ -21,6 +21,7 @@ import {
 import { toast } from "sonner";
 import {
   isPendingApprover,
+  useApprovalComments,
   useApprovalDoc,
   useCurrentUser,
   useWorkspace,
@@ -42,15 +43,9 @@ export default function ApprovalDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const no = decodeURIComponent(params.id ?? "EX-2026-0912");
-  const {
-    doc,
-    loading,
-    setStatus,
-    addComment,
-    updateComment,
-    removeComment,
-    cancelApproval,
-  } = useApprovalDoc(no);
+  const { doc, loading, setStatus, cancelApproval } = useApprovalDoc(no);
+  const { comments, addComment, updateComment, removeComment } =
+    useApprovalComments(no);
   const { data: workspace } = useWorkspace();
   const me = useCurrentUser();
   const { profile } = useAuthUser();
@@ -534,29 +529,29 @@ export default function ApprovalDetailPage() {
             <div>
               <div className="mb-2.5 text-[13px] font-semibold">
                 결재 의견
-                {doc.comments && doc.comments.length > 0 && (
+                {comments.length > 0 && (
                   <span className="ml-1.5 text-[11.5px] font-medium text-muted-foreground">
-                    {doc.comments.length}
+                    {comments.length}
                   </span>
                 )}
               </div>
               <div className="flex flex-col gap-2">
-                {(doc.comments ?? []).map((c, i) => {
+                {comments.map((c) => {
                   const mine = !!me.uid && c.uid === me.uid;
                   const canDelete = mine || isAdmin;
                   const editing = editingId === c.id;
                   return (
                     <div
-                      key={c.id || `${c.name}-${i}`}
+                      key={c.id}
                       className="flex gap-2.5 rounded-[10px] border border-border p-3"
                     >
-                      <span style={avatarStyle(c.name.charAt(0), 30)}>
-                        {c.name.charAt(0)}
+                      <span style={avatarStyle(c.author.charAt(0), 30)}>
+                        {c.author.charAt(0)}
                       </span>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5">
                           <span className="text-[12.5px] font-semibold">
-                            {c.name}
+                            {c.author}
                           </span>
                           <span className="text-[11px] text-muted-foreground">
                             {c.role}
@@ -625,7 +620,7 @@ export default function ApprovalDetailPage() {
                     </div>
                   );
                 })}
-                {(doc.comments ?? []).length === 0 && (
+                {comments.length === 0 && (
                   <p className="rounded-[10px] border border-dashed border-border px-3 py-4 text-center text-[12px] text-muted-foreground">
                     아직 등록된 의견이 없습니다
                   </p>

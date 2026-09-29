@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import {
-  arrayUnion,
   collection,
   deleteDoc,
   deleteField,
@@ -49,12 +48,14 @@ import {
   COL,
   EVENT_CATEGORIES,
   TASK_COLUMNS,
+  approvalCommentsPath,
   buildSeed,
   calculateLeaveBalance,
   chatMessagesPath,
   dmChatId,
   noticeCommentsPath,
   taskCommentsPath,
+  type ApprovalCommentDoc,
   type ApprovalDoc,
   type AttendanceDoc,
   type BookingDoc,
@@ -1035,68 +1036,6 @@ export function useApprovalDoc(no: string) {
     [no, me, document],
   );
 
-  /** 결재 의견(코멘트) 추가 — comments 배열에 append */
-  const addComment = React.useCallback(
-    async (body: string) => {
-      const text = body.trim();
-      if (!text) return;
-      const now = new Date();
-      const pad = (n: number) => String(n).padStart(2, "0");
-      const comment = {
-        id: String(now.getTime()),
-        name: me.name,
-        role: me.role || "결재자",
-        at: `${now.getFullYear()}.${pad(now.getMonth() + 1)}.${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`,
-        body: text,
-        // Firestore는 literal undefined 필드를 거부하므로 uid가 없을 때는
-        // 키 자체를 넣지 않습니다.
-        ...(me.uid ? { uid: me.uid } : {}),
-      };
-      setRemote((r) =>
-        r ? { ...r, comments: [...(r.comments ?? []), comment] } : r,
-      );
-      if (isFirebaseConfigured) {
-        await updateDoc(doc(firebaseDb(), COL.approvals, no), {
-          comments: arrayUnion(comment),
-        });
-      }
-    },
-    [no, me.name, me.role, me.uid],
-  );
-
-  /**
-   * 의견은 배열 필드라 서브컬렉션처럼 개별 update가 안 되므로, 전체
-   * comments 배열을 고쳐서 통째로 다시 씁니다. 본인 의견만 — UI에서도
-   * uid가 일치할 때만 수정 버튼을 보여줍니다.
-   */
-  const updateComment = React.useCallback(
-    async (commentId: string, body: string) => {
-      const text = body.trim();
-      if (!text || !document) return;
-      const next = (document.comments ?? []).map((c) =>
-        c.id === commentId ? { ...c, body: text, edited: true } : c,
-      );
-      setRemote((r) => (r ? { ...r, comments: next } : r));
-      if (isFirebaseConfigured) {
-        await updateDoc(doc(firebaseDb(), COL.approvals, no), { comments: next });
-      }
-    },
-    [no, document],
-  );
-
-  /** 본인 의견 또는 관리자만 — 버튼 노출은 화면에서 판단 */
-  const removeComment = React.useCallback(
-    async (commentId: string) => {
-      if (!document) return;
-      const next = (document.comments ?? []).filter((c) => c.id !== commentId);
-      setRemote((r) => (r ? { ...r, comments: next } : r));
-      if (isFirebaseConfigured) {
-        await updateDoc(doc(firebaseDb(), COL.approvals, no), { comments: next });
-      }
-    },
-    [no, document],
-  );
-
   /**
    * 기안 취소 — 아직 승인/반려로 완결되지 않은 문서를 기안자 본인이 삭제해
    * 상신을 철회합니다(임시저장 상태도 포함). 완결된 문서는 leaves 반영 등
@@ -1119,11 +1058,101 @@ export function useApprovalDoc(no: string) {
     doc: document,
     loading,
     setStatus,
+    cancelApproval,
+    myUid: me.uid,
+  };
+}
+
+/** 결재 의견 — approvals/{no}/comments 서브컬렉션. tasks/notices 댓글과 동일
+ *  패턴 — 문서 상세를 열었을 때만(no가 있을 때만) 구독합니다. */
+export function useApprovalComments(no: string) {
+  const me = useCurrentUser();
+  const { authUser, profile } = useAuthUser();
+  const isAdmin = profile?.role === "ADMIN" || profile?.role === "SUPER_ADMIN";
+  const [data, setData] = React.useState<ApprovalCommentDoc[]>([]);
+  const [loading, setLoading] = React.useState(isFirebaseConfigured);
+  const [added, setAdded] = React.useState<ApprovalCommentDoc[]>([]);
+
+  React.useEffect(() => {
+    if (!isFirebaseConfigured || !no) return;
+    const q = query(
+      collection(firebaseDb(), approvalCommentsPath(no)),
+      orderBy("order"),
+    );
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setData(
+          snap.docs.map((d) => ({ id: d.id, ...d.data() }) as ApprovalCommentDoc),
+        );
+        setLoading(false);
+      },
+      () => setLoading(false),
+    );
+    return unsub;
+  }, [no]);
+
+  const comments = React.useMemo(() => {
+    const extra = added.filter((a) => !data.some((d) => d.id === a.id));
+    return [...data, ...extra].sort((a, b) => a.order - b.order);
+  }, [data, added]);
+
+  const addComment = React.useCallback(
+    async (body: string) => {
+      const text = body.trim();
+      if (!text) return;
+      const id = String(Date.now());
+      const now = new Date();
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const at = `${now.getFullYear()}.${pad(now.getMonth() + 1)}.${pad(
+        now.getDate(),
+      )} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+      const payload: Omit<ApprovalCommentDoc, "id"> = {
+        uid: authUser?.uid ?? "local",
+        author: me.name,
+        role: me.role || "결재자",
+        body: text,
+        at,
+        order: now.getTime(),
+      };
+      setAdded((p) => [...p, { id, ...payload }]);
+      if (isFirebaseConfigured) {
+        await setDoc(doc(firebaseDb(), approvalCommentsPath(no), id), payload);
+      }
+    },
+    [no, me.name, me.role, authUser?.uid],
+  );
+
+  /** 본인 의견만 — Firestore 규칙도 uid == 본인만 허용 */
+  const updateComment = React.useCallback(
+    async (commentId: string, body: string) => {
+      const text = body.trim();
+      if (!text || !isFirebaseConfigured) return;
+      await updateDoc(doc(firebaseDb(), approvalCommentsPath(no), commentId), {
+        body: text,
+        edited: true,
+      });
+    },
+    [no],
+  );
+
+  /** 본인 의견 또는 관리자만 — Firestore 규칙에서 함께 검증 */
+  const removeComment = React.useCallback(
+    async (commentId: string) => {
+      if (!isFirebaseConfigured) return;
+      await deleteDoc(doc(firebaseDb(), approvalCommentsPath(no), commentId));
+    },
+    [no],
+  );
+
+  return {
+    comments,
+    loading,
     addComment,
     updateComment,
     removeComment,
-    cancelApproval,
-    myUid: me.uid,
+    myUid: authUser?.uid ?? null,
+    isAdmin,
   };
 }
 
