@@ -33,6 +33,7 @@ import { clearTwoFactorVerified } from "@/lib/twoFactorSession";
 import { generateBackupCodes, hashBackupCode } from "@/lib/totp";
 import { notifyJandi, notifySlack } from "@/lib/integrations/notify";
 import { createGoogleCalendarEvent } from "@/lib/googleCalendar";
+import { localDateStr } from "@/lib/utils";
 import type { UserDoc } from "@/types/user";
 import {
   APPROVAL_ROWS,
@@ -1301,7 +1302,7 @@ export function useBookings() {
         to: input.to,
         title: input.title,
         who: me.name,
-        date: now.toISOString().slice(0, 10),
+        date: localDateStr(now),
         purpose: input.purpose ?? "",
         attendees: input.attendees ?? [],
         video: input.video ?? false,
@@ -1545,7 +1546,7 @@ export function useAttendance() {
           doc(firebaseDb(), COL.attendance, uid),
           {
             ...patch,
-            date: new Date().toISOString().slice(0, 10),
+            date: localDateStr(),
           },
           { merge: true },
         );

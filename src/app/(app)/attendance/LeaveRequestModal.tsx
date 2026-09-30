@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Palmtree, Timer, X } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, localDateStr } from "@/lib/utils";
 import { LEAVE_TYPES_COUNTED } from "@/lib/groupware/firestore";
 
 type Submit = {
@@ -31,12 +31,8 @@ export function LeaveRequestModal({
 }) {
   const overtime = mode === "overtime";
   const [kind, setKind] = React.useState(overtime ? "초과근무" : "연차");
-  const [start, setStart] = React.useState(() =>
-    new Date().toISOString().slice(0, 10),
-  );
-  const [end, setEnd] = React.useState(() =>
-    new Date().toISOString().slice(0, 10),
-  );
+  const [start, setStart] = React.useState(() => localDateStr());
+  const [end, setEnd] = React.useState(() => localDateStr());
   const [hours, setHours] = React.useState("2");
   const [reason, setReason] = React.useState("");
   const [saving, setSaving] = React.useState(false);

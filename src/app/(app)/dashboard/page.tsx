@@ -14,7 +14,7 @@ import {
   Megaphone,
   SquareKanban,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, localDateStr } from "@/lib/utils";
 import { RESOURCES, slotLabel } from "@/lib/groupware/data";
 import { ddayStyle, pill } from "@/lib/groupware/ui";
 import { useNow } from "@/lib/groupware/use-now";
@@ -49,7 +49,7 @@ export default function DashboardPage() {
     "프로젝트 랩탑": "#f59e0b",
     빔프로젝터: "#6366f1",
   };
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateStr();
   const schedule = bookings
     .filter((b) => b.date === today)
     .sort((a, b) => a.from - b.from)

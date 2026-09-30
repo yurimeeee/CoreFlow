@@ -29,7 +29,7 @@ import {
   ref as storageRef,
   uploadBytes,
 } from "firebase/storage";
-import { cn } from "@/lib/utils";
+import { cn, localDateStr } from "@/lib/utils";
 import { firebaseStorage, isFirebaseConfigured } from "@/lib/firebase";
 import { LEAVE_TYPES_COUNTED } from "@/lib/groupware/firestore";
 import { getGoogleDriveSession, uploadFileToDrive } from "@/lib/googleDrive";
@@ -171,12 +171,8 @@ function DraftPageClient() {
   const [sec, setSec] = React.useState("일반");
   const [retention, setRetention] = React.useState("5년");
   const [leaveKind, setLeaveKind] = React.useState("연차");
-  const [leaveStart, setLeaveStart] = React.useState(() =>
-    new Date().toISOString().slice(0, 10),
-  );
-  const [leaveEnd, setLeaveEnd] = React.useState(() =>
-    new Date().toISOString().slice(0, 10),
-  );
+  const [leaveStart, setLeaveStart] = React.useState(() => localDateStr());
+  const [leaveEnd, setLeaveEnd] = React.useState(() => localDateStr());
   const leaveDays = Math.max(
     1,
     Math.round(

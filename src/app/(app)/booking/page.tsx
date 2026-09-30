@@ -14,7 +14,7 @@ import {
   Video,
   X,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, localDateStr } from "@/lib/utils";
 import {
   BOOK_PROVIDERS,
   BOOK_PURPOSES,
@@ -76,7 +76,7 @@ export default function BookingPage() {
   const [cancelling, setCancelling] = React.useState(false);
 
   const today = new Date();
-  const todayStr = today.toISOString().slice(0, 10);
+  const todayStr = localDateStr(today);
   const days = ["일", "월", "화", "수", "목", "금", "토"];
 
   // 타임라인은 "오늘" 하루만 보여주므로, 다른 날짜의 예약이 슬롯을 계속
