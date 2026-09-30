@@ -330,9 +330,20 @@ service cloud.firestore {
                 && chatId == dmId(
                      request.resource.data.memberIds[0],
                      request.resource.data.memberIds[1])));
+      // readAt(사용자별 안읽음 판정용 열람 시각 맵)은 본인 키만 추가/변경
+      // 가능 — 그렇지 않으면 방 멤버 아무나 남의 readAt을 대신 바꿔(안읽음
+      // 배지를 조작) 또는 lastMessageSenderId를 자신이 아닌 값으로 위조해
+      // (실제 메시지 문서 없이 채팅 목록의 마지막 메시지 미리보기를 조작)
+      // 방을 어지럽힐 수 있었습니다.
       allow update: if isSignedIn()
         && request.auth.uid in resource.data.memberIds
-        && request.resource.data.memberIds.hasAll(resource.data.memberIds);
+        && request.resource.data.memberIds.hasAll(resource.data.memberIds)
+        && request.resource.data.get('readAt', {})
+             .diff(resource.data.get('readAt', {}))
+             .affectedKeys().hasOnly([request.auth.uid])
+        && (request.resource.data.get('lastMessageSenderId', null)
+              == resource.data.get('lastMessageSenderId', null)
+            || request.resource.data.get('lastMessageSenderId', null) == request.auth.uid);
       allow delete: if false;
 
       /* chats/{chatId}/messages/{messageId} */
