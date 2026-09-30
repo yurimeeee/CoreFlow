@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import {
+  arrayUnion,
   collection,
   deleteDoc,
   deleteField,
@@ -54,6 +55,7 @@ import {
   calculateLeaveBalance,
   chatMessagesPath,
   dmChatId,
+  isNoticeUnread,
   noticeCommentsPath,
   taskCommentsPath,
   type ApprovalCommentDoc,
@@ -160,7 +162,6 @@ const NOTICE_FALLBACK: NoticeDoc[] = [
     date: p.date.slice(5),
     views: Number(p.views),
     attach: true,
-    unread: true,
     pinned: true,
     body: p.body,
     order: i,
@@ -198,7 +199,6 @@ export function useNotices() {
         date,
         views: 0,
         attach: false,
-        unread: !draft,
         pinned: input.pinned,
         comments: 0,
         status: draft ? "draft" : "published",
@@ -234,7 +234,11 @@ export function useNotices() {
         body: input.body,
         pinned: input.pinned,
         status: draft ? "draft" : "published",
-        ...(draft ? {} : { unread: true }),
+        // 게시(또는 게시된 글 재수정) 시 읽음 기록을 비워 모두에게 다시
+        // "안 읽음"으로 보이게 합니다 — 예전엔 문서당 하나뿐인 unread 필드를
+        // true로 되돌리는 방식이었는데, 이제는 사용자별 readByUids라 빈
+        // 배열로 리셋하는 것이 동일한 효과입니다.
+        ...(draft ? {} : { readByUids: [] }),
       };
       await updateDoc(doc(firebaseDb(), COL.notices, id), patch);
       if (announce) {
@@ -254,14 +258,16 @@ export function useNotices() {
 export function useNoticeDoc(id: string) {
   const state = useGwCollection<NoticeDoc>(COL.notices, NOTICE_FALLBACK);
   const doc_ = state.data.find((n) => n.id === id) ?? null;
+  const { authUser } = useAuthUser();
+  const uid = authUser?.uid ?? null;
 
   React.useEffect(() => {
-    if (!isFirebaseConfigured || !id) return;
+    if (!isFirebaseConfigured || !id || !uid) return;
     updateDoc(doc(firebaseDb(), COL.notices, id), {
       views: increment(1),
-      unread: false,
+      readByUids: arrayUnion(uid),
     }).catch(() => {});
-  }, [id]);
+  }, [id, uid]);
 
   return { notice: doc_, loading: state.loading };
 }
@@ -2466,7 +2472,7 @@ export function useNotifications(): Notification[] {
       .sort(byRecency);
 
     const no = notices
-      .filter((n) => n.unread)
+      .filter((n) => isNoticeUnread(n, me.uid))
       .map((n) => ({
         id: `no-${n.id}`,
         cat: "공지" as const,

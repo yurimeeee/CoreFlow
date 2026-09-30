@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { cn, localDateStr } from "@/lib/utils";
 import { RESOURCES, slotLabel } from "@/lib/groupware/data";
+import { isNoticeUnread } from "@/lib/groupware/firestore";
 import { ddayStyle, pill } from "@/lib/groupware/ui";
 import { useNow } from "@/lib/groupware/use-now";
 import {
@@ -73,7 +74,9 @@ export default function DashboardPage() {
   ).length;
   const approvedCount = approvals.filter((a) => a.status === "Approved").length;
 
-  const rollNotices = notices.filter((n) => n.pinned || n.unread).slice(0, 3);
+  const rollNotices = notices
+    .filter((n) => n.pinned || isNoticeUnread(n, me.uid))
+    .slice(0, 3);
   const listNotices = notices.filter((n) => !n.pinned).slice(0, 4);
   const tasks = allTasks
     .filter((t) => t.colKey !== "done")
@@ -300,9 +303,11 @@ export default function DashboardPage() {
               >
                 <span
                   className="size-[5px] shrink-0 rounded-full"
-                  style={{ background: n.unread ? "#4f46e5" : "#cbd5e1" }}
+                  style={{
+                    background: isNoticeUnread(n, me.uid) ? "#4f46e5" : "#cbd5e1",
+                  }}
                 />
-                {n.unread && (
+                {isNoticeUnread(n, me.uid) && (
                   <span
                     className="whitespace-nowrap rounded-[5px] px-1.5 py-0.5 text-[10px] font-bold text-primary"
                     style={{ background: "#eef2ff" }}

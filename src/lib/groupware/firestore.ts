@@ -124,7 +124,6 @@ export interface NoticeDoc {
   date: string;
   views: number;
   attach: boolean;
-  unread: boolean;
   pinned: boolean;
   body?: string;
   order: number;
@@ -132,6 +131,13 @@ export interface NoticeDoc {
   status?: "draft" | "published";
   /** 댓글 수 (notices/{id}/comments 서브컬렉션과 동기, increment 로 관리) */
   comments?: number;
+  /**
+   * 이 공지를 열어본 적 있는 uid 목록 — "안 읽음"은 uid 하나당 값이 아니라
+   * 문서당 boolean 필드 하나(구 unread)였을 때, 누구 한 명만 열어봐도 그
+   * 즉시 회사 전체에게 "읽음"으로 바뀌는 문제가 있어 사용자별로 바꿨습니다.
+   * isNoticeUnread()로 "나에게" 안 읽은 상태인지 판정합니다.
+   */
+  readByUids?: string[];
   /* 필독 카드 스타일 (pinned 전용) */
   icon?: string;
   accent?: string;
@@ -139,6 +145,17 @@ export interface NoticeDoc {
   bg?: string;
   border?: string;
   chip?: [string, string];
+}
+
+/** 로그인한 사용자 기준 이 공지가 "안 읽음"인지 — readByUids에 내 uid가
+ *  없으면 안 읽은 것으로 봅니다. uid가 없는(로그인 전/데모) 경우는 항상
+ *  안 읽음으로 취급합니다. */
+export function isNoticeUnread(
+  n: Pick<NoticeDoc, "readByUids">,
+  uid: string | null,
+): boolean {
+  if (!uid) return true;
+  return !(n.readByUids ?? []).includes(uid);
 }
 
 export interface ApprovalDoc {
@@ -448,7 +465,6 @@ export function buildSeed(): SeedDoc[] {
         date: p.date.slice(5),
         views: Number(p.views),
         attach: true,
-        unread: true,
         pinned: true,
         body: p.body,
         order: i,

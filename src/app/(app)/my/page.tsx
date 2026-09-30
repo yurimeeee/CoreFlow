@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { RESOURCES } from "@/lib/groupware/data";
+import { isNoticeUnread } from "@/lib/groupware/firestore";
 import {
   isPendingApprover,
   useApprovals,
@@ -54,7 +55,7 @@ export default function MyWorkPage() {
         t.colKey !== "done",
     )
     .sort((a, b) => a.order - b.order);
-  const unreadNotices = notices.filter((n) => n.unread);
+  const unreadNotices = notices.filter((n) => isNoticeUnread(n, me.uid));
 
   const resName = (key: string) =>
     RESOURCES.find((r) => r.key === key)?.name ?? key;

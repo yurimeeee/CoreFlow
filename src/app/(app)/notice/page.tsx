@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
 import { NOTICE_CATEGORIES, NOTICE_CAT_COLORS } from "@/lib/groupware/data";
 import { pill } from "@/lib/groupware/ui";
 import { useCurrentUser, useNotices } from "@/lib/groupware/hooks";
-import type { NoticeDoc } from "@/lib/groupware/firestore";
+import { isNoticeUnread, type NoticeDoc } from "@/lib/groupware/firestore";
 import { GwCard, PageHeader } from "@/components/app/primitives";
 import { EmptyState } from "@/components/app/EmptyState";
 import { COMPOSE_CATEGORIES, ComposeModal, type ComposeState } from "./ComposeModal";
@@ -66,8 +66,8 @@ export default function NoticePage() {
       <PageHeader
         title="사내 공지사항"
         desc={
-          data.some((n) => n.unread)
-            ? `전사 공지와 부서 공지를 확인하세요 · 미확인 ${data.filter((n) => n.unread).length}건`
+          data.some((n) => isNoticeUnread(n, me.uid))
+            ? `전사 공지와 부서 공지를 확인하세요 · 미확인 ${data.filter((n) => isNoticeUnread(n, me.uid)).length}건`
             : "전사 공지와 부서 공지를 확인하세요"
         }
         actions={
@@ -318,12 +318,16 @@ export default function NoticePage() {
                 <div className="flex min-w-[220px] flex-1 items-center gap-1.5 pr-3.5">
                   <span
                     className="size-1.5 shrink-0 rounded-full"
-                    style={{ background: n.unread ? "#e11d48" : "transparent" }}
+                    style={{
+                      background: isNoticeUnread(n, me.uid)
+                        ? "#e11d48"
+                        : "transparent",
+                    }}
                   />
                   <span
                     className={cn(
                       "flex-1 truncate",
-                      n.unread
+                      isNoticeUnread(n, me.uid)
                         ? "font-semibold text-foreground"
                         : "text-secondary-foreground",
                     )}

@@ -99,7 +99,14 @@ service cloud.firestore {
             && request.resource.data.body == resource.data.body
             && request.resource.data.cat == resource.data.cat
             && request.resource.data.pinned == resource.data.pinned
-            && request.resource.data.status == resource.data.status)
+            && request.resource.data.status == resource.data.status
+            // readByUids(사용자별 읽음 기록)는 본인 uid를 추가하는 것만
+            // 허용 — 그렇지 않으면 열람한 아무나가 남의 uid를 넣어(안
+            // 읽었는데 읽음 처리) 또는 빼서(다시 안읽음으로) 남의 열람
+            // 상태를 조작할 수 있습니다.
+            && request.resource.data.get('readByUids', []).hasAll(resource.data.get('readByUids', []))
+            && resource.data.get('readByUids', []).concat([request.auth.uid])
+                 .hasAll(request.resource.data.get('readByUids', [])))
           || resource.data.authorUid == request.auth.uid
         );
       allow delete: if isSignedIn()
