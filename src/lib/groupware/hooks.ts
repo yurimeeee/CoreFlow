@@ -12,6 +12,7 @@ import {
   onSnapshot,
   orderBy,
   query,
+  type Query,
   serverTimestamp,
   setDoc,
   updateDoc,
@@ -175,8 +176,90 @@ const NOTICE_FALLBACK: NoticeDoc[] = [
   ...NOTICE_ALL.map((n, i) => ({ ...n, id: `n-${i}`, pinned: false, order: i })),
 ];
 
+/**
+ * notices 컬렉션 구독 — 관리자는 전체, 일반 사용자는 "게시된 공지 +
+ * 본인이 작성한 공지(임시저장 포함)"만 구독합니다.
+ *
+ * firestore.rules의 notices read 규칙이 draft는 작성자 본인/관리자만
+ * 보이도록 좁혀져 있어(예전엔 "로그인만 하면 허용"이라 다른 사람의 임시
+ * 저장 공지도 전역 검색·URL 직접 접속으로 열람 가능했음), where 없이
+ * 컬렉션 전체를 구독하면 draft 문서가 하나라도 있는 순간 list 쿼리
+ * 자체가 거부됩니다(approvals와 동일한 이유 — hooks.ts의
+ * useApprovalCollection 주석 참고). 그래서 where로 범위를 증명할 수
+ * 있는 쿼리 두 개로 나눠 구독합니다.
+ */
+function useNoticeCollection(): { data: NoticeDoc[]; loading: boolean } {
+  const { authUser, profile, loading: authLoading } = useAuthUser();
+  const isAdmin = profile?.role === "ADMIN" || profile?.role === "SUPER_ADMIN";
+  const uid = authUser?.uid ?? null;
+
+  const [state, setState] = React.useState<{ data: NoticeDoc[]; loading: boolean }>({
+    data: NOTICE_FALLBACK,
+    loading: isFirebaseConfigured,
+  });
+
+  React.useEffect(() => {
+    if (!isFirebaseConfigured) return;
+    if (authLoading || !uid) return;
+
+    if (isAdmin) {
+      const q = query(collection(firebaseDb(), COL.notices), orderBy("order"));
+      return onSnapshot(
+        q,
+        (snap) => {
+          setState(
+            snap.empty
+              ? { data: NOTICE_FALLBACK, loading: false }
+              : {
+                  data: snap.docs.map((d) => ({ id: d.id, ...d.data() }) as NoticeDoc),
+                  loading: false,
+                },
+          );
+        },
+        () => setState({ data: NOTICE_FALLBACK, loading: false }),
+      );
+    }
+
+    type SliceKey = "published" | "authored";
+    const slices: Record<SliceKey, NoticeDoc[]> = { published: [], authored: [] };
+    const loaded: Record<SliceKey, boolean> = { published: false, authored: false };
+
+    const emit = () => {
+      if (!loaded.published || !loaded.authored) return;
+      const merged = new Map<string, NoticeDoc>();
+      for (const list of Object.values(slices)) {
+        for (const d of list) merged.set(d.id, d);
+      }
+      const list = Array.from(merged.values()).sort((a, b) => a.order - b.order);
+      setState(list.length ? { data: list, loading: false } : { data: NOTICE_FALLBACK, loading: false });
+    };
+
+    const subscribe = (key: SliceKey, q: Query) =>
+      onSnapshot(
+        q,
+        (snap) => {
+          slices[key] = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as NoticeDoc);
+          loaded[key] = true;
+          emit();
+        },
+        () => {
+          loaded[key] = true;
+          emit();
+        },
+      );
+
+    const unsubs = [
+      subscribe("published", query(collection(firebaseDb(), COL.notices), where("status", "!=", "draft"))),
+      subscribe("authored", query(collection(firebaseDb(), COL.notices), where("authorUid", "==", uid))),
+    ];
+    return () => unsubs.forEach((u) => u());
+  }, [isAdmin, uid, authLoading]);
+
+  return state;
+}
+
 export function useNotices() {
-  const state = useGwCollection<NoticeDoc>(COL.notices, NOTICE_FALLBACK);
+  const state = useNoticeCollection();
   const me = useCurrentUser();
 
   /** draft=true면 임시저장(본인에게만 보이고 전사 알림도 안 나감) */
@@ -255,11 +338,37 @@ export function useNotices() {
   return { ...state, addNotice, updateNotice };
 }
 
+/**
+ * 공지 1건 구독 — approvals의 useApprovalDoc과 동일하게 단건 문서를 직접
+ * 구독합니다(목록 전체를 받아와 find하지 않음). draft인 남의 공지는
+ * firestore.rules가 단건 조회에서도 막으므로, 전체를 받아올 필요가
+ * 없을뿐더러 받아와서도 안 됩니다.
+ */
 export function useNoticeDoc(id: string) {
-  const state = useGwCollection<NoticeDoc>(COL.notices, NOTICE_FALLBACK);
-  const doc_ = state.data.find((n) => n.id === id) ?? null;
   const { authUser } = useAuthUser();
   const uid = authUser?.uid ?? null;
+  const [remote, setRemote] = React.useState<NoticeDoc | null | undefined>(() =>
+    isFirebaseConfigured ? undefined : (NOTICE_FALLBACK.find((n) => n.id === id) ?? null),
+  );
+
+  React.useEffect(() => {
+    if (!isFirebaseConfigured || !id) return;
+    const unsub = onSnapshot(
+      doc(firebaseDb(), COL.notices, id),
+      (snap) =>
+        setRemote(snap.exists() ? ({ id: snap.id, ...snap.data() } as NoticeDoc) : null),
+      () => setRemote(null),
+    );
+    return () => {
+      unsub();
+      setRemote(undefined);
+    };
+  }, [id]);
+
+  const fallback = NOTICE_FALLBACK.find((n) => n.id === id) ?? null;
+  const notice =
+    remote === undefined ? (isFirebaseConfigured ? null : fallback) : (remote ?? fallback);
+  const loading = isFirebaseConfigured && remote === undefined;
 
   React.useEffect(() => {
     if (!isFirebaseConfigured || !id || !uid) return;
@@ -269,7 +378,7 @@ export function useNoticeDoc(id: string) {
     }).catch(() => {});
   }, [id, uid]);
 
-  return { notice: doc_, loading: state.loading };
+  return { notice, loading };
 }
 
 /** 공지 댓글 — notices/{id}/comments 서브컬렉션 */

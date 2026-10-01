@@ -85,10 +85,19 @@ service cloud.firestore {
     }
 
     /* ---------------- 그룹웨어 공용 컬렉션 ----------------
-       데모 특성상 로그인 사용자면 읽기/쓰기를 허용합니다.
+       데모 특성상 로그인 사용자면 쓰기를 허용합니다.
        운영에서는 notices 쓰기를 isAdmin() 으로 좁히세요. */
     match /notices/{id} {
-      allow read: if isSignedIn();
+      // draft(임시저장)는 작성자 본인 또는 관리자만 — 예전엔 "로그인만
+      // 하면 허용"이라 다른 사람의 임시저장 공지도 전역 검색·URL 직접
+      // 접속으로 읽을 수 있었습니다. status 필드 자체가 없는 문서는(이제
+      // addNotice/buildSeed가 항상 채우므로 정상 경로로는 생기지 않음)
+      // 작성자·관리자가 아니면 보이지 않습니다(열림 실패 쪽으로 안전하게
+      // 막힘) — useNoticeCollection의 where("status","!=","draft") 쿼리와
+      // 짝을 맞추기 위해 .get() 기본값을 쓰지 않습니다.
+      allow read: if isAdmin()
+        || (isSignedIn() && resource.data.status != 'draft')
+        || (isSignedIn() && resource.data.authorUid == request.auth.uid);
       allow create: if isSignedIn();
       // 조회수 증가(views/unread) 처럼 본문 필드가 그대로인 갱신은 열람한
       // 아무나 보낼 수 있어야 하므로 허용하고, cat/title/body/pinned 같은

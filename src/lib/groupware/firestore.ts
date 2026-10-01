@@ -127,7 +127,13 @@ export interface NoticeDoc {
   pinned: boolean;
   body?: string;
   order: number;
-  /** "draft"면 임시저장(작성자 본인에게만 노출) — 값이 없으면 게시된 것으로 취급(레거시) */
+  /**
+   * "draft"면 임시저장 — firestore.rules가 작성자 본인/관리자 외에는
+   * draft 문서 자체를 읽지 못하도록 막습니다(쿼리가 where("status","!=",
+   * "draft")로 좁혀져 있어, 이 필드가 아예 없는 문서는 비작성자에게
+   * 보이지 않습니다 — 새 공지는 항상 명시적으로 채워야 함, addNotice/
+   * buildSeed 참고). 값이 없으면 UI 상으로는 게시된 것으로 표시됩니다(레거시).
+   */
   status?: "draft" | "published";
   /** 댓글 수 (notices/{id}/comments 서브컬렉션과 동기, increment 로 관리) */
   comments?: number;
@@ -468,6 +474,7 @@ export function buildSeed(): SeedDoc[] {
         pinned: true,
         body: p.body,
         order: i,
+        status: "published",
         icon: p.icon,
         accent: p.accent,
         titleColor: p.titleColor,
@@ -481,7 +488,14 @@ export function buildSeed(): SeedDoc[] {
     out.push({
       collection: COL.notices,
       id: `n-${i}`,
-      data: { ...n, pinned: false, order: 10 + i } satisfies Omit<NoticeDoc, "id">,
+      // status를 명시적으로 채워야 합니다 — notices read 규칙이 draft가
+      // 아닌 공지만 비작성자에게 보여주는데, 그 판정은 status 필드가
+      // 실제로 존재해야만 동작합니다(where("status","!=","draft") 쿼리는
+      // 필드 자체가 없는 문서를 결과에서 제외합니다).
+      data: { ...n, pinned: false, order: 10 + i, status: "published" } satisfies Omit<
+        NoticeDoc,
+        "id"
+      >,
     });
   });
 
