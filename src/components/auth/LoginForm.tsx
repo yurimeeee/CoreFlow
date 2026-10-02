@@ -9,7 +9,7 @@ import { ArrowRight, Eye, EyeOff, KeyRound, Loader2, LogIn, ShieldCheck } from "
 import { firebaseAuth, firebaseDb, isFirebaseConfigured } from "@/lib/firebase";
 import { hashBackupCode, verifyTotp } from "@/lib/totp";
 import { isTwoFactorVerified, markTwoFactorVerified } from "@/lib/twoFactorSession";
-import type { UserDoc } from "@/types/user";
+import type { UserDoc, UserSecretsDoc } from "@/types/user";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field } from "@/components/signup/Field";
@@ -20,16 +20,23 @@ interface TwoFactorRequirement {
   backupHashes: string[];
 }
 
-/** 로그인 직후 users/{uid} 를 확인해 2FA 필요 여부를 판단합니다. */
+/**
+ * 로그인 직후 users/{uid} 를 확인해 2FA 필요 여부를 판단하고, 켜져 있으면
+ * userSecrets/{uid}에서 실제 비밀값을 읽습니다. 비밀값은 users 문서가
+ * 아니라 본인만 read 가능한 별도 컬렉션에 있으므로(firestore.rules), 이
+ * 두 번째 조회는 반드시 signInWithEmailAndPassword가 이미 성공한 뒤 —
+ * 즉 request.auth.uid가 이 uid와 같아진 뒤에만 호출해야 합니다.
+ */
 async function loadTwoFactorRequirement(
   uid: string,
 ): Promise<TwoFactorRequirement | null> {
   const snap = await getDoc(doc(firebaseDb(), "users", uid));
   const gw = snap.exists() ? (snap.data() as UserDoc).gwSettings : undefined;
-  if (gw?.twoFA && gw?.twoFASecret) {
-    return { uid, secret: gw.twoFASecret, backupHashes: gw.twoFABackupCodeHashes ?? [] };
-  }
-  return null;
+  if (!gw?.twoFA) return null;
+  const secretSnap = await getDoc(doc(firebaseDb(), "userSecrets", uid));
+  if (!secretSnap.exists()) return null;
+  const secrets = secretSnap.data() as UserSecretsDoc;
+  return { uid, secret: secrets.secret, backupHashes: secrets.backupCodeHashes ?? [] };
 }
 
 function mapError(err: unknown): string {

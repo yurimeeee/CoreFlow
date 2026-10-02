@@ -5,7 +5,6 @@ import {
   arrayUnion,
   collection,
   deleteDoc,
-  deleteField,
   doc,
   getDoc,
   increment,
@@ -17,6 +16,7 @@ import {
   setDoc,
   updateDoc,
   where,
+  writeBatch,
 } from "firebase/firestore";
 import {
   getDownloadURL,
@@ -36,7 +36,7 @@ import { generateBackupCodes, hashBackupCode } from "@/lib/totp";
 import { notifyJandi, notifySlack } from "@/lib/integrations/notify";
 import { createGoogleCalendarEvent } from "@/lib/googleCalendar";
 import { localDateStr } from "@/lib/utils";
-import type { UserDoc } from "@/types/user";
+import type { UserDoc, UserSecretsDoc } from "@/types/user";
 import {
   APPROVAL_ROWS,
   ATT_ROWS,
@@ -1903,37 +1903,72 @@ export function useGwSettings() {
 /*  2FA (TOTP) 등록 · 해제 · 백업 코드                                   */
 /* ------------------------------------------------------------------ */
 
+/**
+ * userSecrets/{uid}를 본인 세션에서만 구독합니다 — 비밀키를 users 문서
+ * 바깥에 두는 것 자체가 이번 수정의 핵심이라, 다른 훅과 달리 여기서는
+ * uid가 바로 request.auth.uid(본인)일 때만 구독을 엽니다.
+ */
+function useTwoFactorSecrets(uid: string | null) {
+  const [secrets, setSecrets] = React.useState<UserSecretsDoc | null>(null);
+
+  React.useEffect(() => {
+    if (!isFirebaseConfigured || !uid) return;
+    const unsub = onSnapshot(
+      doc(firebaseDb(), COL.userSecrets, uid),
+      (snap) => setSecrets(snap.exists() ? (snap.data() as UserSecretsDoc) : null),
+      () => setSecrets(null),
+    );
+    return () => {
+      unsub();
+      setSecrets(null);
+    };
+  }, [uid]);
+
+  return secrets;
+}
+
 export function useTwoFactor() {
   const { authUser, profile } = useAuthUser();
-  const gw = profile?.gwSettings;
-  const secret = gw?.twoFASecret ?? null;
-  const backupHashes = gw?.twoFABackupCodeHashes ?? [];
+  const uid = authUser?.uid ?? null;
+  const secrets = useTwoFactorSecrets(uid);
+  const secret = secrets?.secret ?? null;
+  const backupHashes = secrets?.backupCodeHashes ?? [];
   const backupCount = backupHashes.length;
-  const enabled = !!gw?.twoFA && !!secret;
+  const enabled = !!profile?.gwSettings?.twoFA && !!secret;
 
-  /** QR 스캔 후 코드 확인까지 끝난 시크릿을 등록하고 백업 코드를 발급합니다. */
+  /**
+   * QR 스캔 후 코드 확인까지 끝난 시크릿을 등록하고 백업 코드를 발급합니다.
+   * users/{uid}(켜짐 여부만) · userSecrets/{uid}(실제 비밀값) 두 문서를
+   * 배치로 함께 씁니다 — 중간에 하나만 반영돼 "켜짐인데 비밀키가 없는"
+   * 상태가 되는 것을 방지합니다.
+   */
   const enroll = React.useCallback(
     async (secretToSave: string, backupCodes: string[]) => {
       if (!isFirebaseConfigured || !authUser) return;
       const hashes = await Promise.all(backupCodes.map(hashBackupCode));
-      await updateDoc(doc(firebaseDb(), COL.users, authUser.uid), {
+      const batch = writeBatch(firebaseDb());
+      batch.update(doc(firebaseDb(), COL.users, authUser.uid), {
         "gwSettings.twoFA": true,
-        "gwSettings.twoFASecret": secretToSave,
-        "gwSettings.twoFABackupCodeHashes": hashes,
         updatedAt: new Date(),
       });
+      batch.set(doc(firebaseDb(), COL.userSecrets, authUser.uid), {
+        secret: secretToSave,
+        backupCodeHashes: hashes,
+      } satisfies UserSecretsDoc);
+      await batch.commit();
     },
     [authUser],
   );
 
   const disable = React.useCallback(async () => {
     if (!isFirebaseConfigured || !authUser) return;
-    await updateDoc(doc(firebaseDb(), COL.users, authUser.uid), {
+    const batch = writeBatch(firebaseDb());
+    batch.update(doc(firebaseDb(), COL.users, authUser.uid), {
       "gwSettings.twoFA": false,
-      "gwSettings.twoFASecret": deleteField(),
-      "gwSettings.twoFABackupCodeHashes": deleteField(),
       updatedAt: new Date(),
     });
+    batch.delete(doc(firebaseDb(), COL.userSecrets, authUser.uid));
+    await batch.commit();
     clearTwoFactorVerified(authUser.uid);
   }, [authUser]);
 
@@ -1944,9 +1979,8 @@ export function useTwoFactor() {
     if (!isFirebaseConfigured || !authUser || !secret) return null;
     const codes = generateBackupCodes();
     const hashes = await Promise.all(codes.map(hashBackupCode));
-    await updateDoc(doc(firebaseDb(), COL.users, authUser.uid), {
-      "gwSettings.twoFABackupCodeHashes": hashes,
-      updatedAt: new Date(),
+    await updateDoc(doc(firebaseDb(), COL.userSecrets, authUser.uid), {
+      backupCodeHashes: hashes,
     });
     return codes;
   }, [authUser, secret]);

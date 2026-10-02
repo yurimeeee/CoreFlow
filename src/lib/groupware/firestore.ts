@@ -34,6 +34,7 @@ export const COL = {
   events: "events",
   sessions: "sessions",
   users: "users",
+  userSecrets: "userSecrets",
   workspace: "workspace",
   chats: "chats",
 } as const;

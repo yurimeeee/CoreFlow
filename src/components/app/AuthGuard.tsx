@@ -20,11 +20,11 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { authUser, profile, loading } = useAuthUser();
 
+  // 실제 비밀키는 users/{uid}가 아니라 본인만 읽을 수 있는 userSecrets/{uid}에
+  // 있어 여기서는 조회하지 않습니다 — enroll()이 항상 두 문서를 함께 쓰므로
+  // (useTwoFactor 참고) gwSettings.twoFA가 true면 비밀키도 반드시 존재합니다.
   const needsTwoFactor =
-    !!authUser &&
-    !!profile?.gwSettings?.twoFA &&
-    !!profile?.gwSettings?.twoFASecret &&
-    !isTwoFactorVerified(authUser.uid);
+    !!authUser && !!profile?.gwSettings?.twoFA && !isTwoFactorVerified(authUser.uid);
 
   const allowed = !isFirebaseConfigured || (!!authUser && !needsTwoFactor);
 

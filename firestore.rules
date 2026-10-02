@@ -78,6 +78,20 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    /* ---------------- userSecrets/{uid} (2FA 비밀키 · 백업코드 해시) ----------------
+       TOTP는 서버 없이 클라이언트에서 검증하므로 비밀키를 평문으로 둘 수밖에
+       없는데(totp.ts 참고), 예전엔 이 값이 users/{uid} 안에 있었습니다.
+       users는 조직도·결재자 검색용 사내 디렉터리라 로그인한 누구나 조회
+       가능해서(get, list: isSignedIn()), 다른 직원이 피해자의 users 문서를
+       그냥 읽어 TOTP 비밀키를 그대로 가져가 2FA를 완전히 우회할 수
+       있었습니다. 본인만 read/write 가능한 이 컬렉션으로 분리해 막습니다.
+       관리자도 예외 없이 열람 불가(비밀값은 관리자도 볼 이유가 없음) —
+       계정 접근이 막히면 users 삭제처럼 관리자가 users 문서 자체를 정리하는
+       경로로 처리합니다. */
+    match /userSecrets/{uid} {
+      allow read, write: if isSignedIn() && request.auth.uid == uid;
+    }
+
     /* ---------------- teams/{id} (부서/팀 편제) ---------------- */
     match /teams/{id} {
       allow read: if isSignedIn();

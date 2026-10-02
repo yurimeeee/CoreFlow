@@ -57,16 +57,19 @@ export interface UserDoc {
   role: UserRole;
   status: UserStatus;
 
-  /* 그룹웨어 개인 설정 (알림 토글 · 연동 · 2FA · 언어/타임존) */
+  /* 그룹웨어 개인 설정 (알림 토글 · 연동 · 2FA 여부 · 언어/타임존) */
   gwSettings?: {
     toggles?: Record<string, boolean>;
     integrations?: Record<string, boolean>;
-    /** 2FA 활성화 여부 — twoFASecret 이 등록되어 있을 때만 true 가 유효합니다. */
+    /**
+     * 2FA 활성화 여부만 — 실제 비밀키는 users/{uid}가 아니라 본인만
+     * read/write 가능한 userSecrets/{uid}에 둡니다. users 컬렉션은
+     * 조직도·결재자 검색용 사내 디렉터리라 로그인한 누구나 조회 가능한데,
+     * 여기 비밀키까지 같이 두면 다른 직원이 그 값을 읽어 피해자의 2FA를
+     * 그대로 우회할 수 있었습니다(twoFASecret이 users 문서 안에 있던
+     * 이전 설계의 문제).
+     */
     twoFA?: boolean;
-    /** TOTP 비밀키 (base32). 앱에서 검증하므로 클라이언트에 노출됩니다. */
-    twoFASecret?: string;
-    /** 백업 코드는 평문이 아닌 SHA-256 해시로만 저장합니다. */
-    twoFABackupCodeHashes?: string[];
     lang?: string;
     tz?: string;
   };
@@ -75,6 +78,19 @@ export interface UserDoc {
   inviteId?: string | null;
   createdAt: Timestamp | Date;
   updatedAt: Timestamp | Date;
+}
+
+/**
+ * userSecrets/{uid} — 2FA TOTP 비밀키·백업 코드 해시. 본인만 read/write
+ * 가능한 별도 컬렉션(firestore.rules 참고). twoFA 켜짐 여부 자체는 이
+ * 문서가 아니라 UserDoc.gwSettings.twoFA에 있습니다(그건 비밀값이
+ * 아니라 "켜짐/꺼짐"만 나타내므로 여기 둘 필요가 없습니다).
+ */
+export interface UserSecretsDoc {
+  /** TOTP 비밀키 (base32). 앱에서 검증하므로 본인 클라이언트에는 노출됩니다. */
+  secret: string;
+  /** 백업 코드는 평문이 아닌 SHA-256 해시로만 저장합니다. */
+  backupCodeHashes: string[];
 }
 
 /* ------------------------------------------------------------------ */
