@@ -285,10 +285,16 @@ service cloud.firestore {
       // 그렇지 않으면 본인 소유 문서를 만든 뒤 uid를 다른 직원으로 바꿔치기해
       // 그 사람 연차 잔여를 근거 없이 깎을 수 있었습니다(피해자가 자기 연차
       // 내역을 조회할 때 uid==본인 조건으로 이 위조 문서가 그대로 잡힘).
+      // 또한 본인 수정은 아직 '대기'인 신청을 '대기' 그대로 고치는 것만 —
+      // status 제약이 없을 땐 본인이 '대기'→'승인'으로 바꿔 셀프 승인하거나,
+      // 이미 승인된 연차의 days를 0으로 고쳐(아래 delete 제한과 같은 효과를
+      // update로) 잔여를 복구할 수 있었습니다. 승인/반려는 관리자 경로뿐.
       allow update: if isAdmin()
         || (isSignedIn()
             && resource.data.uid == request.auth.uid
-            && request.resource.data.uid == resource.data.uid);
+            && request.resource.data.uid == resource.data.uid
+            && resource.data.status == '대기'
+            && request.resource.data.status == '대기');
       // 삭제(신청 취소)는 아직 '대기' 상태일 때만 — 이미 '승인'된 문서까지
       // 본인이 지울 수 있으면 연차 잔여 계산(calculateLeaveBalance)이 존재
       // 하는 문서만 합산하므로, 실제로 휴가를 쓰고도 관리자 승인/감사 기록
