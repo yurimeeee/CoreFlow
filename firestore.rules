@@ -393,11 +393,17 @@ service cloud.firestore {
       // 생성/삭제는 관리자만
       allow create, delete: if isAdmin();
 
-      // 가입 완료 처리: 초대된 이메일의 당사자가 status 를 COMPLETED 로만 변경
+      // 가입 완료 처리: 초대된 이메일의 당사자가 status 를 COMPLETED 로만 변경.
+      // 바꿀 수 있는 필드도 완료 표시 3개로 한정 — 그렇지 않으면 같은 요청에
+      // role:'SUPER_ADMIN'(또는 teamId·managerId)을 끼워 초대장 자체를 고친
+      // 뒤, "role이 초대장 값과 같아야 한다"는 users create 규칙을 그대로
+      // 통과해 스스로 최고 관리자로 가입할 수 있었습니다.
       allow update: if isAdmin()
         || (isSignedIn()
             && resource.data.status != 'COMPLETED'
             && request.auth.token.email == resource.data.email
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['status', 'completedUid', 'completedAt'])
             && request.resource.data.status == 'COMPLETED'
             && request.resource.data.completedUid == request.auth.uid);
     }
