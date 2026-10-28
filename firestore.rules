@@ -181,10 +181,14 @@ service cloud.firestore {
         allow read: if isSignedIn();
         allow create: if isSignedIn()
           && request.resource.data.uid == request.auth.uid;
-        // 수정은 작성자 본인만. 삭제는 작성자 본인이거나 관리자/최상위
+        // 수정은 작성자 본인만, 수정 후에도 uid는 그대로여야 합니다(공지·
+        // Task·결재 댓글, 채팅 메시지 senderId 모두 동일) — 그렇지 않으면 내
+        // 댓글을 고치면서 uid를 다른 직원으로 바꿔 그 사람이 쓴 것처럼 만들 수
+        // 있었습니다. 삭제는 작성자 본인이거나 관리자/최상위
         // 관리자(admin/super_admin)도 가능 — 타인 댓글을 정리할 수 있도록.
         allow update: if isSignedIn()
-          && resource.data.uid == request.auth.uid;
+          && resource.data.uid == request.auth.uid
+          && request.resource.data.uid == resource.data.uid;
         allow delete: if isSignedIn()
           && (resource.data.uid == request.auth.uid || isAdmin());
       }
@@ -198,7 +202,8 @@ service cloud.firestore {
         allow create: if isSignedIn()
           && request.resource.data.uid == request.auth.uid;
         allow update: if isSignedIn()
-          && resource.data.uid == request.auth.uid;
+          && resource.data.uid == request.auth.uid
+          && request.resource.data.uid == resource.data.uid;
         allow delete: if isSignedIn()
           && (resource.data.uid == request.auth.uid || isAdmin());
       }
@@ -307,7 +312,9 @@ service cloud.firestore {
         allow create: if isSignedIn()
           && (isAdmin() || isParentMember())
           && request.resource.data.uid == request.auth.uid;
-        allow update: if isSignedIn() && resource.data.uid == request.auth.uid;
+        allow update: if isSignedIn()
+          && resource.data.uid == request.auth.uid
+          && request.resource.data.uid == resource.data.uid;
         allow delete: if isSignedIn()
           && (resource.data.uid == request.auth.uid || isAdmin());
       }
@@ -459,7 +466,10 @@ service cloud.firestore {
         allow create: if isSignedIn()
           && request.resource.data.senderId == request.auth.uid
           && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.memberIds;
-        allow update, delete: if isSignedIn() && resource.data.senderId == request.auth.uid;
+        allow update: if isSignedIn()
+          && resource.data.senderId == request.auth.uid
+          && request.resource.data.senderId == resource.data.senderId;
+        allow delete: if isSignedIn() && resource.data.senderId == request.auth.uid;
       }
     }
 
