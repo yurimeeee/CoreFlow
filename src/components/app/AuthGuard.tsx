@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { Clock, Loader2, ShieldOff } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { isFirebaseConfigured } from "@/lib/firebase";
 import { useAuthUser } from "@/hooks/useAuthUser";
 import { isTwoFactorVerified } from "@/lib/twoFactorSession";
@@ -14,11 +15,14 @@ import { isTwoFactorVerified } from "@/lib/twoFactorSession";
  * - 2FA 등록되어 있지만 이번 세션에서 아직 코드 확인을 안 함: /login 으로
  *   되돌려 보내 코드 입력을 다시 요구 (LoginForm 이 currentUser 를 보고
  *   비밀번호 입력 없이 바로 2FA 단계를 띄워줍니다)
+ * - 로그인은 됐지만 구성원(users 문서 status == ACTIVE)이 아님: 안내 화면.
+ *   Firestore 규칙이 공용 데이터를 ACTIVE 구성원에게만 열어 주므로, 그대로
+ *   앱을 렌더하면 모든 화면이 권한 오류로 비어 보입니다.
  */
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { authUser, profile, loading } = useAuthUser();
+  const { authUser, profile, loading, logout } = useAuthUser();
 
   // 실제 비밀키는 users/{uid}가 아니라 본인만 읽을 수 있는 userSecrets/{uid}에
   // 있어 여기서는 조회하지 않습니다 — enroll()이 항상 두 문서를 함께 쓰므로
@@ -43,5 +47,44 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     );
   }
 
+  if (isFirebaseConfigured && profile?.status !== "ACTIVE") {
+    return <NotMember status={profile?.status ?? null} onLogout={logout} />;
+  }
+
   return allowed ? <>{children}</> : null;
+}
+
+function NotMember({
+  status,
+  onLogout,
+}: {
+  status: string | null;
+  onLogout: () => Promise<void>;
+}) {
+  const pending = status === "PENDING";
+  const Icon = pending ? Clock : ShieldOff;
+  return (
+    <div className="flex min-h-dvh items-center justify-center bg-background px-4">
+      <div className="flex max-w-sm flex-col items-center text-center">
+        <div className="flex size-12 items-center justify-center rounded-full bg-secondary text-secondary-foreground">
+          <Icon className="size-6" />
+        </div>
+        <h2 className="mt-5 text-xl font-bold tracking-[-0.02em]">
+          {pending
+            ? "관리자 승인을 기다리고 있습니다"
+            : status === "SUSPENDED"
+              ? "사용이 중지된 계정입니다"
+              : "워크스페이스 구성원이 아닙니다"}
+        </h2>
+        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+          {pending
+            ? "승인이 완료되면 바로 이용할 수 있습니다. 승인 후 다시 로그인해 주세요."
+            : "초대받은 계정으로 로그인했는지 확인하거나 관리자에게 문의해 주세요."}
+        </p>
+        <Button variant="outline" className="mt-6" onClick={() => onLogout()}>
+          로그아웃
+        </Button>
+      </div>
+    </div>
+  );
 }

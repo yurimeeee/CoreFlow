@@ -38,7 +38,10 @@ export function useAuthUser() {
         return;
       }
 
-      setState((s) => ({ ...s, authUser: user }));
+      // 프로필 스냅샷이 도착하기 전까지는 loading 으로 둡니다 — 로그아웃
+      // 상태(loading:false)에서 로그인하면 profile:null 이 잠깐 "프로필 없음"
+      // 으로 보여, AuthGuard 가 구성원 아님 화면을 깜빡 띄우게 됩니다.
+      setState((s) => ({ ...s, authUser: user, loading: true }));
       unsubProfile = onSnapshot(
         doc(firebaseDb(), "users", user.uid),
         (snap) => {
