@@ -207,8 +207,30 @@ service cloud.firestore {
           && (resource.data.uid == request.auth.uid || isAdmin());
       }
     }
+    /* ---------------- tasks/{id} (칸반) ----------------
+       예전엔 로그인만 하면 누구 카드든 수정·삭제할 수 있었습니다.
+       - 생성: createdBy == 본인 (시드 데이터처럼 createdBy 없는 카드는 관리자만)
+       - 내용·진행 상태 수정: 만든 사람·담당자(assigneeId)·관리자
+       - 다른 구성원: 칸반 드래그가 같은 컬럼 카드들의 order 를 다시 매기므로
+         order 만 변경 가능
+       - 삭제: 만든 사람·관리자
+       createdBy 가 없는 기존 카드는 담당자·관리자만 수정, 관리자만 삭제. */
     match /tasks/{id} {
-      allow read, write: if isMember();
+      function isTaskOwner() {
+        return resource.data.get('createdBy', null) == request.auth.uid
+          || resource.data.get('assigneeId', null) == request.auth.uid;
+      }
+      allow read: if isMember();
+      allow create: if isMember()
+        && (request.resource.data.get('createdBy', null) == request.auth.uid
+            || (isAdmin() && !('createdBy' in request.resource.data)));
+      allow update: if isAdmin()
+        || (isMember()
+            && request.resource.data.get('createdBy', null) == resource.data.get('createdBy', null)
+            && (isTaskOwner()
+                || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['order'])));
+      allow delete: if isAdmin()
+        || (isMember() && resource.data.get('createdBy', null) == request.auth.uid);
 
       /* Task 댓글 — tasks/{id}/comments/{cid} (notices/{id}/comments 와 동일 정책) */
       match /comments/{cid} {
@@ -333,8 +355,21 @@ service cloud.firestore {
           && (resource.data.uid == request.auth.uid || isAdmin());
       }
     }
+    /* ---------------- bookings/{id} (회의실·자원 예약) ----------------
+       예전엔 로그인만 하면 남의 예약도 지울 수 있었습니다. 예약자 uid
+       (ownerUid)로 소유를 판정합니다 — ownerUid 가 없는 기존 예약·시드
+       데이터는 관리자만 수정·취소할 수 있습니다. */
     match /bookings/{id} {
-      allow read, write: if isMember();
+      allow read: if isMember();
+      allow create: if isMember()
+        && (request.resource.data.get('ownerUid', null) == request.auth.uid
+            || (isAdmin() && !('ownerUid' in request.resource.data)));
+      allow update: if isAdmin()
+        || (isMember()
+            && resource.data.get('ownerUid', null) == request.auth.uid
+            && request.resource.data.ownerUid == resource.data.ownerUid);
+      allow delete: if isAdmin()
+        || (isMember() && resource.data.get('ownerUid', null) == request.auth.uid);
     }
     match /attendance/{uid} {
       // 본인 출퇴근 문서만

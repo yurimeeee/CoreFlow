@@ -572,13 +572,14 @@ export function useTasks() {
         done: 0,
         total: 3,
         order,
+        ...(me.uid ? { createdBy: me.uid } : {}),
       };
       setAdded((p) => [...p, { id, ...payload }]);
       if (isFirebaseConfigured) {
         await setDoc(doc(firebaseDb(), COL.tasks, id), payload);
       }
     },
-    [me.name, data],
+    [me.name, me.uid, data],
   );
 
   const saveTask = React.useCallback(async (id: string, input: TaskInput) => {
@@ -1443,6 +1444,7 @@ export function useBookings() {
         provider: input.provider ?? "",
         meetingUrl: input.video ? (input.meetingUrl ?? "").trim() : "",
         order: input.from,
+        ...(me.uid ? { ownerUid: me.uid } : {}),
       };
       setAdded((p) => [...p, { id, ...payload }]);
       if (isFirebaseConfigured) {
@@ -1450,7 +1452,7 @@ export function useBookings() {
       }
       return id;
     },
-    [me.name],
+    [me.name, me.uid],
   );
 
   const removeBooking = React.useCallback(async (id: string) => {

@@ -813,7 +813,9 @@ export default function BookingPage() {
               >
                 닫기
               </button>
-              {viewBooking.who === me.name && (
+              {/* 취소는 예약자 본인만(firestore.rules) — 이름(who)은 동명이인을
+                  구분 못 하므로 uid 로 판정합니다. */}
+              {!!me.uid && viewBooking.ownerUid === me.uid && (
                 <button
                   onClick={async () => {
                     if (cancelling) return;

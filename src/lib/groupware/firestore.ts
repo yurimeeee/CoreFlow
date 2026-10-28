@@ -100,6 +100,12 @@ export interface TaskDoc {
   assigneeId?: string | null;
   /** 담당자 선택 시점의 소속 팀 id 스냅샷 — 팀 필터에 사용 */
   teamId?: string | null;
+  /**
+   * 만든 사람 uid — firestore.rules 가 내용 수정은 만든 사람·담당자·관리자,
+   * 삭제는 만든 사람·관리자만 허용하는 근거입니다(다른 구성원은 칸반 정렬용
+   * order 만 바꿀 수 있음). 이 필드 도입 전 문서·시드 데이터엔 없습니다.
+   */
+  createdBy?: string;
 }
 
 /** Task 뱃지/카테고리로 고를 수 있는 프리셋 (자유 입력도 허용) */
@@ -241,6 +247,12 @@ export interface BookingDoc {
    */
   meetingUrl?: string;
   order: number; // 정렬용 = from
+  /**
+   * 예약자 uid — 취소(삭제)는 예약자 본인·관리자만(firestore.rules). who 는
+   * 표시용 이름이라 동명이인을 구분할 수 없습니다. 이 필드 도입 전 예약엔
+   * 없으며, 그런 예약은 관리자만 취소할 수 있습니다.
+   */
+  ownerUid?: string;
 }
 
 /** 부서/팀 편제 — parentId 로 본부(최상위) - 팀 2단 계층을 구성 */
