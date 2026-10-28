@@ -1,14 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import {
-  collection,
-  getDocs,
-  limit,
-  query,
-  Timestamp,
-  where,
-} from "firebase/firestore";
+import { doc, getDoc, Timestamp } from "firebase/firestore";
 import { firebaseDb, isFirebaseConfigured } from "@/lib/firebase";
 import type { InviteDoc } from "@/types/user";
 
@@ -69,16 +62,21 @@ async function resolveInvite(
     };
   }
 
-  try {
-    const snap = await getDocs(
-      query(
-        collection(firebaseDb(), "invites"),
-        where("token", "==", token),
-        limit(1),
-      ),
-    );
+  // "/"가 섞인 토큰은 doc()이 다른 경로로 해석하거나 예외를 던지므로 미리 거릅니다.
+  if (token.includes("/")) {
+    return {
+      status: "not-found",
+      invite: null,
+      error: "유효하지 않은 초대 링크입니다. 관리자에게 문의해 주세요.",
+    };
+  }
 
-    if (snap.empty) {
+  try {
+    // 초대장 문서 id == 토큰(admin/invite 참고). 보안 규칙이 비로그인
+    // list 를 막으므로 where 쿼리 대신 문서를 직접 get 합니다.
+    const snap = await getDoc(doc(firebaseDb(), "invites", token));
+
+    if (!snap.exists()) {
       return {
         status: "not-found",
         invite: null,
@@ -86,7 +84,7 @@ async function resolveInvite(
       };
     }
 
-    const invite = mapInvite(snap.docs[0].id, snap.docs[0].data());
+    const invite = mapInvite(snap.id, snap.data());
 
     if (invite.status === "COMPLETED") {
       return {

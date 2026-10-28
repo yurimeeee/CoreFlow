@@ -41,10 +41,20 @@ service cloud.firestore {
       // 가입 시: 본인 uid 로만 문서 생성, 권한은 스스로 승격 불가. teamId·
       // managerId 는 초대장에 관리자가 미리 박아둔 값과 일치해야만 통과
       // (본인이 스스로 팀/상사를 임의로 지정해 배정을 우회하는 것 방지).
+      // 참조하는 초대장은 반드시 "내 이메일로 발급된, 아직 쓰지 않은, 만료
+      // 전" 초대장이어야 합니다 — 이 검증이 없으면 남의(예: ADMIN) 초대장
+      // id만 알아도 그걸 inviteId로 걸어 그 role로 가입할 수 있었습니다.
+      // (get()은 같은 배치의 invites COMPLETED 갱신 "이전" 상태를 봅니다.)
       allow create: if (isSignedIn()
           && request.auth.uid == uid
           && request.resource.data.uid == uid
           && request.resource.data.email == request.auth.token.email
+          && get(/databases/$(database)/documents/invites/$(request.resource.data.inviteId)).data.email
+             == request.auth.token.email
+          && get(/databases/$(database)/documents/invites/$(request.resource.data.inviteId)).data.status
+             != 'COMPLETED'
+          && get(/databases/$(database)/documents/invites/$(request.resource.data.inviteId)).data.expiresAt
+             > request.time
           && request.resource.data.status in ['PENDING', 'ACTIVE']
           && request.resource.data.teamId
              == get(/databases/$(database)/documents/invites/$(request.resource.data.inviteId)).data.teamId
@@ -382,13 +392,15 @@ service cloud.firestore {
 
     /* ---------------- invites/{inviteId} ---------------- */
     match /invites/{inviteId} {
-      // 초대 토큰 검증을 위해 미인증 조회 허용 (토큰은 사실상 비밀값).
-      // list는 반드시 limit(1) 쿼리만 — 그렇지 않으면 where 없이 컬렉션을
-      // 통째로 훑는 요청까지 통과해 이메일·role·teamId 등 초대 대기자
-      // 정보 전체가 로그인 없이 유출됩니다. useInvite.ts는 이미
-      // where("token","==",token).limit(1)만 쓰므로 정상 동작엔 영향 없음.
+      // 초대장 문서 id == 토큰(사실상 비밀값)이라, 가입 화면은 토큰을 아는
+      // 사람만 그 문서 하나를 get 할 수 있습니다. list는 관리자만 — 예전엔
+      // "limit(1) 쿼리면 비로그인도 허용"이었는데, 규칙은 where 조건 값을
+      // 강제할 수 없어 limit(1)+startAfter로 한 장씩 페이지를 넘기면 초대장
+      // 전체(이메일·role·토큰)를 로그인 없이 훑을 수 있었습니다. 토큰을
+      // 얻으면 그 이메일로 Auth 계정을 만들어(이메일 소유 확인 없음) 해당
+      // role로 가입하는 것까지 가능했습니다.
       allow get: if true;
-      allow list: if request.query.limit <= 1;
+      allow list: if isAdmin();
 
       // 생성/삭제는 관리자만
       allow create, delete: if isAdmin();

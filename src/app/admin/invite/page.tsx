@@ -4,12 +4,7 @@ import * as React from "react";
 import { Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import {
-  addDoc,
-  collection,
-  serverTimestamp,
-  Timestamp,
-} from "firebase/firestore";
+import { doc, serverTimestamp, setDoc, Timestamp } from "firebase/firestore";
 import { Copy, Link2, Loader2, Send, Sparkles } from "lucide-react";
 import { firebaseAuth, firebaseDb, isFirebaseConfigured } from "@/lib/firebase";
 import { useAuthUser } from "@/hooks/useAuthUser";
@@ -99,7 +94,11 @@ function AdminInviteClient() {
         new Date(Date.now() + form.expiresInDays * 86_400_000),
       );
       const teamName = teams.find((t) => t.id === teamIdValue)?.name ?? "";
-      await addDoc(collection(firebaseDb(), "invites"), {
+      // 토큰 자체를 문서 id로 씁니다 — 가입 화면은 getDoc(invites/{token})
+      // 한 번으로 조회하고, 보안 규칙은 비로그인 list 를 전면 차단합니다
+      // (where 없는 limit(1)+startAfter 페이지 넘기기로 초대장 전체가
+      // 토큰째 유출되던 문제 방지).
+      await setDoc(doc(firebaseDb(), "invites", token), {
         token,
         email: form.email.trim().toLowerCase(),
         employeeId: form.employeeId.trim(),
