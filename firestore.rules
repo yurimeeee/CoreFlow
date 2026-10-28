@@ -55,7 +55,19 @@ service cloud.firestore {
              != 'COMPLETED'
           && get(/databases/$(database)/documents/invites/$(request.resource.data.inviteId)).data.expiresAt
              > request.time
-          && request.resource.data.status in ['PENDING', 'ACTIVE']
+          // 승인 필요 초대면 PENDING, 아니면 ACTIVE 로만 — 예전엔 둘 중
+          // 아무거나 허용돼 관리자 승인이 필요한 초대도 ACTIVE 로 곧장
+          // 가입해 승인 절차를 건너뛸 수 있었습니다.
+          && request.resource.data.status
+             == (get(/databases/$(database)/documents/invites/$(request.resource.data.inviteId)).data.get('requireApproval', false) == true
+                 ? 'PENDING' : 'ACTIVE')
+          // 사번·직급도 초대장 값 그대로 — 본인 update 규칙이 employeeId 를
+          // 고정하는데 create 때 임의 사번(혹은 '대표' 같은 직급)을 넣으면
+          // 그 값이 그대로 굳어버립니다.
+          && request.resource.data.employeeId
+             == get(/databases/$(database)/documents/invites/$(request.resource.data.inviteId)).data.employeeId
+          && request.resource.data.position
+             == get(/databases/$(database)/documents/invites/$(request.resource.data.inviteId)).data.position
           && request.resource.data.teamId
              == get(/databases/$(database)/documents/invites/$(request.resource.data.inviteId)).data.teamId
           && request.resource.data.managerId
