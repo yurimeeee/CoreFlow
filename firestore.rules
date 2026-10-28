@@ -134,17 +134,28 @@ service cloud.firestore {
       allow read: if isAdmin()
         || (isSignedIn() && resource.data.status != 'draft')
         || (isSignedIn() && resource.data.authorUid == request.auth.uid);
-      allow create: if isSignedIn();
-      // 조회수 증가(views/unread) 처럼 본문 필드가 그대로인 갱신은 열람한
-      // 아무나 보낼 수 있어야 하므로 허용하고, cat/title/body/pinned 같은
-      // 실제 내용 수정·삭제는 예외 없이 작성자 본인만 가능(관리자도 불가).
+      // authorUid는 반드시 본인 — 예전엔 검사가 없어 남의 uid를 authorUid로
+      // 넣어 그 사람 이름으로 공지를 올릴 수 있었습니다. authorUid가 아예
+      // 없는 문서(/admin/seed 의 데모 공지)는 관리자만 생성할 수 있습니다.
+      allow create: if isSignedIn()
+        && (request.resource.data.get('authorUid', null) == request.auth.uid
+            || (isAdmin() && !('authorUid' in request.resource.data)));
+      // 작성자가 아닌 사람은 열람·댓글이 남기는 카운터만 갱신 가능: 조회수
+      // +1, 댓글 수 ±1, 본인 uid를 readByUids에 추가. 예전엔 "title/body/
+      // cat/pinned/status가 그대로면 허용"이라 나머지 필드(authorUid 포함)는
+      // 아무나 바꿀 수 있었고, authorUid를 자기 uid로 바꾸는 순간 그 공지의
+      // 작성자가 되어 내용 수정·삭제까지 전부 가능했습니다. 실제 내용
+      // 수정·삭제는 예외 없이 작성자 본인만 가능(관리자도 불가).
       allow update: if isSignedIn()
         && (
-          (request.resource.data.title == resource.data.title
-            && request.resource.data.body == resource.data.body
-            && request.resource.data.cat == resource.data.cat
-            && request.resource.data.pinned == resource.data.pinned
-            && request.resource.data.status == resource.data.status
+          (request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['views', 'comments', 'readByUids'])
+            && request.resource.data.get('views', 0) in
+                 [resource.data.get('views', 0), resource.data.get('views', 0) + 1]
+            && request.resource.data.get('comments', 0) in
+                 [resource.data.get('comments', 0) - 1,
+                  resource.data.get('comments', 0),
+                  resource.data.get('comments', 0) + 1]
             // readByUids(사용자별 읽음 기록)는 본인 uid를 추가하는 것만
             // 허용 — 그렇지 않으면 열람한 아무나가 남의 uid를 넣어(안
             // 읽었는데 읽음 처리) 또는 빼서(다시 안읽음으로) 남의 열람
@@ -152,7 +163,8 @@ service cloud.firestore {
             && request.resource.data.get('readByUids', []).hasAll(resource.data.get('readByUids', []))
             && resource.data.get('readByUids', []).concat([request.auth.uid])
                  .hasAll(request.resource.data.get('readByUids', [])))
-          || resource.data.authorUid == request.auth.uid
+          || (resource.data.get('authorUid', null) == request.auth.uid
+              && request.resource.data.authorUid == resource.data.authorUid)
         );
       allow delete: if isSignedIn()
         && resource.data.authorUid == request.auth.uid;
