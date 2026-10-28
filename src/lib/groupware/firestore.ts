@@ -194,6 +194,16 @@ export interface ApprovalDoc {
    */
   approverUids?: string[];
   /**
+   * 결재 순서 — line 에서 기안 단계를 뺀 결재 단계 uid 를 순서 그대로(중복
+   * 제거 없이, uid 없는 단계는 "") 담습니다. step 은 지금 결재 차례인 단계의
+   * 이 배열 내 인덱스. firestore.rules 가 "다음 결재자는 approverSeq[step+1]
+   * 이어야 하고, 최종 승인은 마지막 단계만 가능"을 검증하는 근거입니다 —
+   * line 은 객체 배열이라 규칙에서 순서를 따라갈 수 없습니다. 이 필드가
+   * 생기기 전 문서는 값이 없습니다.
+   */
+  approverSeq?: string[];
+  step?: number;
+  /**
    * 휴가신청서(type "휴가")의 구조화된 신청 내역 — 승인 완료 시 이 값을
    * 근거로 leaves/{no} 문서를 생성해 실제 연차 잔여에 반영합니다.
    */

@@ -967,6 +967,12 @@ export function useApprovals() {
       const approverUids = Array.from(
         new Set((input.line ?? []).map((l) => l.uid).filter((u): u is string => !!u)),
       );
+      // 결재 순서 검증(firestore.rules)용 — 기안을 뺀 결재 단계 uid 를 순서
+      // 그대로. 인덱스가 line 의 결재 단계와 1:1 로 맞아야 하므로 uid 가
+      // 없는 단계도 빼지 않고 "" 로 둡니다.
+      const approverSeq = (input.line ?? [])
+        .filter((l) => l.kind !== "기안")
+        .map((l) => l.uid ?? "");
       const payload: ApprovalDoc = {
         no: input.no,
         type: input.type,
@@ -977,6 +983,8 @@ export function useApprovals() {
         status: input.status,
         bucket: input.bucket,
         currentApproverUid: firstApproverUid,
+        approverSeq,
+        step: 0,
         order: -now.getTime(), // 최신 문서가 위로
         // Firestore setDoc은 값이 literal undefined인 필드가 있으면 그 자리에서
         // 예외를 던지므로(ignoreUndefinedProperties 미설정), me.uid가 없을 때
@@ -1112,8 +1120,18 @@ export function useApprovalDoc(no: string) {
       const nextApproverUid =
         status === "Rejected" || isLastStep ? null : (nextLine[stepIndex + 1]?.uid ?? null);
 
+      // 다음 결재자로 넘길 때만 step 을 한 칸 올립니다(승인 완결·반려 시엔
+      // 그대로) — firestore.rules 가 approverSeq[step+1] 과 다음 결재자
+      // uid 가 같은지 검증합니다. approverSeq 가 없는 구 문서엔 쓰지 않습니다.
+      const stepPatch =
+        nextStatus === "In Progress" && document.approverSeq
+          ? { step: (document.step ?? 0) + 1 }
+          : {};
+
       setRemote((r) =>
-        r ? { ...r, status: nextStatus, line: nextLine, currentApproverUid: nextApproverUid } : r,
+        r
+          ? { ...r, status: nextStatus, line: nextLine, currentApproverUid: nextApproverUid, ...stepPatch }
+          : r,
       );
       if (isFirebaseConfigured) {
         // 결재 문서를 먼저 확정한 뒤 연차 반영 — leaves 생성 규칙이 이 문서의
@@ -1122,6 +1140,7 @@ export function useApprovalDoc(no: string) {
           status: nextStatus,
           line: nextLine,
           currentApproverUid: nextApproverUid,
+          ...stepPatch,
         });
         // 휴가신청서가 최종 승인되면 실제 연차 잔여(leaves 컬렉션 기반 balance)에서
         // 차감되도록 leaves/{no} 문서를 생성합니다 — 같은 문서번호를 id로 써서

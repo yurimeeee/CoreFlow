@@ -23,11 +23,18 @@ service cloud.firestore {
        uid 본인일 때만 true — leaves/{id}(문서번호를 그대로 id로 재사용) 승인
        생성을 이 사실에 근거해서만 허용하기 위한 헬퍼. 결재자(제3자)가 본인이
        아닌 uid 로 leaves 문서를 만드는 유일한 합법 경로입니다. */
-    function isApprovedLeaveApproval(id, uid) {
+    // 생성하려는 leaves 문서(d)의 기간·일수·종류도 결재 문서의 leaveRequest와
+    // 같아야 합니다 — 그렇지 않으면 1일짜리로 승인받은 뒤 leaves 문서는
+    // 10일로 만들어도 통과했습니다.
+    function isApprovedLeaveApproval(id, d) {
       let ap = get(/databases/$(database)/documents/approvals/$(id));
       return ap.data.status == 'Approved'
         && ap.data.type == '휴가'
-        && ap.data.authorUid == uid;
+        && ap.data.authorUid == d.uid
+        && d.kind == ap.data.leaveRequest.kind
+        && d.start == ap.data.leaveRequest.start
+        && d.end == ap.data.leaveRequest.end
+        && d.days == ap.data.leaveRequest.days;
     }
 
     /* ---------------- users/{uid} ----------------
@@ -197,14 +204,18 @@ service cloud.firestore {
       }
     }
     /* ---------------- approvals/{no} (전자결재) ----------------
-       승인/반려로 status·line 이 바뀌는 요청은 반드시 "현재 결재 차례"인
-       사람(currentApproverUid)만 보낼 수 있습니다 — 기안자 본인이거나
-       자기 차례가 아닌 사용자가 임의로 승인/반려하는 것을 서버에서 차단.
-       의견 등록 등 상태에 영향 없는 갱신은 이 문서와 관련 있는 사람(기안자·
-       결재라인·관리자)이면 허용 — "로그인만 하면 허용"이었을 때는 이
-       문서와 무관한 사용자도 문서번호(no)만 알면 status/line을 뺀
-       title·attachments·comments 등을 마음대로 덮어쓸 수 있었습니다
-       (읽기는 관련자로 좁혀 있었는데 쓰기만 그 제한이 빠져 있던 불일치).
+       쓰기 경로는 세 가지뿐입니다.
+       1) 기안자: 임시저장(bucket 'drafted') 상태인 동안만 내용을 고치거나
+          상신할 수 있습니다. 상신 순간(=결재 차례가 생기는 순간)에는 결재
+          순서(approverSeq/step)가 올바른지 검증합니다.
+       2) 현재 결재자(currentApproverUid): 결재 진행 필드(status·line·
+          currentApproverUid·step)만 바꿀 수 있고, 다음 결재자는 반드시
+          approverSeq[step+1], 최종 승인은 마지막 단계에서만 가능합니다.
+       3) 관리자.
+       예전엔 "status·line이 그대로면 관련자 누구나 아무 필드나 수정"이라
+       기안자가 currentApproverUid를 원하는 동료로 바꿔 결재선을 우회하거나
+       type·leaveRequest를 고칠 수 있었고, 현재 결재자는 곧장
+       status:'Approved'를 써서 뒤 결재자를 모두 건너뛸 수 있었습니다.
 
        열람은 기안자·결재라인(approverUids)·관리자만 — 운영 전환 시 전사
        공개 대신 이 문서와 관련 있는 사람만 보도록 좁히기로 한 결정.
@@ -217,32 +228,64 @@ service cloud.firestore {
           || resource.data.currentApproverUid == request.auth.uid
           || request.auth.uid in resource.data.get('approverUids', []);
       }
+
+      // 기안자가 쓰는 문서(생성 또는 임시저장 수정)의 공통 조건. status는
+      // 반드시 'Waiting' — 그렇지 않으면 처음부터 status:'Approved'로 문서를
+      // 만들어 곧바로 isApprovedLeaveApproval()을 통과시킬 수 있었습니다.
+      // 상신(bucket != 'drafted')이면 결재 순서가 올바라야 하고, 기안자
+      // 본인은 결재선 어느 단계에도 들어갈 수 없습니다(셀프 승인 차단).
+      function isValidAuthorWrite(d) {
+        return d.authorUid == request.auth.uid
+          && d.status == 'Waiting'
+          && d.get('currentApproverUid', null) != request.auth.uid
+          && (d.bucket == 'drafted'
+              || (d.approverSeq is list
+                  && d.approverSeq.size() > 0
+                  && !(request.auth.uid in d.approverSeq)
+                  && d.step == 0
+                  && d.currentApproverUid == d.approverSeq[0]
+                  && d.currentApproverUid != ''));
+      }
+
+      // 현재 결재자의 승인/반려가 결재 순서를 지키는지. approverSeq가 없는
+      // 구 문서는 순서를 검증할 근거가 없어 상태 값만 확인합니다.
+      function isValidTransition() {
+        let next = request.resource.data;
+        let seq = resource.data.get('approverSeq', null);
+        return !('approverSeq' in resource.data)
+            ? next.status in ['In Progress', 'Approved', 'Rejected']
+            : ((next.status == 'Rejected'
+                && next.currentApproverUid == null
+                && next.get('step', 0) == resource.data.get('step', 0))
+              || (next.status == 'Approved'
+                && resource.data.step == seq.size() - 1
+                && next.currentApproverUid == null
+                && next.step == resource.data.step)
+              || (next.status == 'In Progress'
+                && resource.data.step < seq.size() - 1
+                && next.step == resource.data.step + 1
+                && next.currentApproverUid == seq[resource.data.step + 1]
+                && next.currentApproverUid != ''));
+      }
+
       allow read: if isAdmin() || (isSignedIn() && isApprovalMember());
-      // status는 반드시 'Waiting'으로만 생성 가능 — 그렇지 않으면 기안자가
-      // 처음부터 status:'Approved'로 문서를 만들어 결재선을 거치지 않고
-      // 곧바로 isApprovedLeaveApproval()을 통과시킬 수 있었습니다(leaves
-      // 승인 문서를 자기 자신에게 발급). currentApproverUid도 기안자 본인일
-      // 수 없게 막아 처음부터 "내가 내 결재자"로 셀프 승인 루트를 여는 것도
-      // 차단합니다.
-      allow create: if isSignedIn()
-        && request.resource.data.authorUid == request.auth.uid
-        && request.resource.data.status == 'Waiting'
-        && request.resource.data.get('currentApproverUid', null) != request.auth.uid;
+      allow create: if isSignedIn() && isValidAuthorWrite(request.resource.data);
       allow update: if isAdmin()
         || (isSignedIn()
-            && isApprovalMember()
-            && (
-              (request.resource.data.status == resource.data.status
-                && request.resource.data.line == resource.data.line)
-              // currentApproverUid 본인이어도 그게 기안자 자신이면 이 경로로
-              // status/line을 바꿀 수 없습니다 — 위 create 제약과 별개로,
-              // 어떤 경로(예: status/line은 그대로 둔 채 currentApproverUid만
-              // 먼저 자기 자신으로 바꾸는 선행 update)로든 currentApproverUid가
-              // 기안자 본인과 같아지면 그 즉시 셀프 승인 창구가 막힙니다.
-              || (resource.data.currentApproverUid != null
-                  && resource.data.currentApproverUid == request.auth.uid
-                  && resource.data.currentApproverUid != resource.data.authorUid)
-            ));
+            && resource.data.authorUid == request.auth.uid
+            && resource.data.bucket == 'drafted'
+            && isValidAuthorWrite(request.resource.data))
+        // currentApproverUid 본인이어도 그게 기안자 자신이면 결재할 수
+        // 없습니다. 임시저장 문서도 currentApproverUid가 채워져 있지만 아직
+        // 상신 전이라 결재 대상이 아닙니다.
+        || (isSignedIn()
+            && resource.data.bucket != 'drafted'
+            && resource.data.status in ['Waiting', 'In Progress']
+            && resource.data.currentApproverUid == request.auth.uid
+            && resource.data.currentApproverUid != resource.data.authorUid
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['status', 'line', 'currentApproverUid', 'step'])
+            && isValidTransition());
       allow delete: if isAdmin()
         || (isSignedIn() && resource.data.authorUid == request.auth.uid);
 
@@ -292,7 +335,7 @@ service cloud.firestore {
             && request.resource.data.status == '대기')
         || (isSignedIn()
             && request.resource.data.status == '승인'
-            && isApprovedLeaveApproval(id, request.resource.data.uid));
+            && isApprovedLeaveApproval(id, request.resource.data));
       // update는 소유자 본인 + 수정 후에도 uid가 그대로 본인이어야 함 —
       // 그렇지 않으면 본인 소유 문서를 만든 뒤 uid를 다른 직원으로 바꿔치기해
       // 그 사람 연차 잔여를 근거 없이 깎을 수 있었습니다(피해자가 자기 연차
