@@ -438,11 +438,15 @@ function DraftPageClient() {
       for (const file of valid) {
         const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         let url = "";
-        if (isFirebaseConfigured) {
+        if (isFirebaseConfigured && me.uid) {
+          // approvals/{no}/{업로더 uid}/{파일} — storage.rules 가 결재 문서가
+          // 생기기 전엔 업로더 본인 폴더만 읽고 쓰게 합니다. 파일명의 "/" 등은
+          // 경로를 쪼개므로 안전한 문자로 바꿉니다(원본 이름은 name 에 보존).
+          const safeName = file.name.replace(/[/\\?%*:|"<>]/g, "_");
           const snap = await uploadBytes(
             storageRef(
               firebaseStorage(),
-              `approvals/${no}/${Date.now()}-${file.name}`,
+              `approvals/${no}/${me.uid}/${Date.now()}-${safeName}`,
             ),
             file,
             { contentType: file.type || "application/octet-stream" },
