@@ -1,5 +1,5 @@
 import type { RulesTestEnvironment } from "@firebase/rules-unit-testing";
-import { deleteDoc, doc, setDoc, updateDoc } from "firebase/firestore";
+import { arrayRemove, deleteDoc, deleteField, doc, setDoc, updateDoc } from "firebase/firestore";
 import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
 import { assertFails, assertSucceeds, createEnv, db, member, members, seed } from "./helpers";
 
@@ -93,5 +93,51 @@ describe("bookings", () => {
 
   it("ownerUid 없는 기존 예약은 관리자만 취소할 수 있다", async () => {
     await assertFails(deleteDoc(doc(db(env, "me"), "bookings", "legacy")));
+  });
+});
+
+describe("채팅방 나가기", () => {
+  beforeEach(async () => {
+    await seed(env, {
+      "chats/g1": { type: "group", memberIds: ["me", "v", "other"], readAt: {} },
+      "chats/me_v": { type: "dm", memberIds: ["me", "v"], readAt: {} },
+    });
+  });
+
+  it("그룹방에서 본인은 나갈 수 있다", async () => {
+    await assertSucceeds(
+      updateDoc(doc(db(env, "me"), "chats", "g1"), { memberIds: ["v", "other"], lastMessageSenderId: "me" }),
+    );
+  });
+
+  it("leaveGroupChat 과 같은 순서(안내 메시지 → 본인 제거)로 나갈 수 있다", async () => {
+    const d = db(env, "me");
+    await assertSucceeds(
+      setDoc(doc(d, "chats/g1/messages", "sys"), {
+        chatId: "g1",
+        senderId: "me",
+        senderName: "나",
+        type: "system",
+        text: "나님이 나갔습니다.",
+        createdAt: 1,
+      }),
+    );
+    await assertSucceeds(
+      updateDoc(doc(d, "chats", "g1"), {
+        memberIds: arrayRemove("me"),
+        lastMessage: "나님이 나갔습니다.",
+        lastMessageAt: 1,
+        lastMessageSenderId: "me",
+        "readAt.me": deleteField(),
+      }),
+    );
+  });
+
+  it("남을 그룹방에서 뺄 수 없다", async () => {
+    await assertFails(updateDoc(doc(db(env, "me"), "chats", "g1"), { memberIds: ["me", "other"] }));
+  });
+
+  it("1:1 방은 나갈 수 없다", async () => {
+    await assertFails(updateDoc(doc(db(env, "me"), "chats", "me_v"), { memberIds: ["v"] }));
   });
 });

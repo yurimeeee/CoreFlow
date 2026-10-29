@@ -519,9 +519,14 @@ service cloud.firestore {
       // 배지를 조작) 또는 lastMessageSenderId를 자신이 아닌 값으로 위조해
       // (실제 메시지 문서 없이 채팅 목록의 마지막 메시지 미리보기를 조작)
       // 방을 어지럽힐 수 있었습니다.
+      // memberIds 축소는 그룹방에서 "본인 하나만 빠지는" 나가기만 허용 —
+      // 남을 강제로 빼는 것은 여전히 불가. 1:1 방은 id 가 두 uid 로 고정돼
+      // 있어 나가기를 허용하지 않습니다.
       allow update: if isMember()
         && request.auth.uid in resource.data.memberIds
-        && request.resource.data.memberIds.hasAll(resource.data.memberIds)
+        && (request.resource.data.memberIds.hasAll(resource.data.memberIds)
+            || (resource.data.type == 'group'
+                && request.resource.data.memberIds == resource.data.memberIds.removeAll([request.auth.uid])))
         && request.resource.data.get('readAt', {})
              .diff(resource.data.get('readAt', {}))
              .affectedKeys().hasOnly([request.auth.uid])

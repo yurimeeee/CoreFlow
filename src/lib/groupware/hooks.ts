@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import {
+  arrayRemove,
   arrayUnion,
   collection,
   deleteDoc,
@@ -2555,6 +2556,34 @@ export async function createGroupChat(
   };
   await setDoc(ref, payload);
   return ref.id;
+}
+
+/**
+ * 그룹 채팅방 나가기 — 남은 멤버에게 안내 메시지를 남긴 뒤 memberIds 에서
+ * 본인만 뺍니다(firestore.rules 는 그룹방에서 "본인 하나만 빠지는" 축소만
+ * 허용). 안내 메시지는 멤버여야 쓸 수 있으므로 반드시 먼저 보냅니다.
+ * 1:1 방은 id 가 두 uid 로 고정돼 있어 나가기를 지원하지 않습니다.
+ */
+export async function leaveGroupChat(chatId: string, me: { uid: string; name: string }) {
+  if (!isFirebaseConfigured) return;
+  const now = Date.now();
+  const text = `${me.name}님이 나갔습니다.`;
+  const message: Omit<ChatMessageDoc, "id"> = {
+    chatId,
+    senderId: me.uid,
+    senderName: me.name,
+    type: "system",
+    text,
+    createdAt: now,
+  };
+  await setDoc(doc(firebaseDb(), chatMessagesPath(chatId), crypto.randomUUID()), message);
+  await updateDoc(doc(firebaseDb(), COL.chats, chatId), {
+    memberIds: arrayRemove(me.uid),
+    lastMessage: text,
+    lastMessageAt: now,
+    lastMessageSenderId: me.uid,
+    [`readAt.${me.uid}`]: deleteField(),
+  });
 }
 
 /** 대화방 하나의 메시지 — 실시간 구독 + 낙관적 전송(텍스트/파일) */

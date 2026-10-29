@@ -455,7 +455,8 @@ export interface ChatMessageDoc {
   chatId: string;
   senderId: string;
   senderName: string;
-  type: "text" | "image" | "file";
+  /** system = "OO님이 나갔습니다" 같은 안내(말풍선 없이 가운데 표시) */
+  type: "text" | "image" | "file" | "system";
   text?: string;
   fileUrl?: string;
   fileName?: string;

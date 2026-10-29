@@ -2,19 +2,25 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Download,
   File as FileIcon,
   Loader2,
+  LogOut,
   Paperclip,
   Send,
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { useChatMessages, useChats, useCurrentUser } from "@/lib/groupware/hooks";
+import {
+  leaveGroupChat,
+  useChatMessages,
+  useChats,
+  useCurrentUser,
+} from "@/lib/groupware/hooks";
 import { CHAT_FILE_MAX_MB, type ChatMessageDoc } from "@/lib/groupware/firestore";
 import { avatarStyle } from "@/lib/groupware/ui";
 import { GwCard } from "@/components/app/primitives";
@@ -55,7 +61,8 @@ function buildThreadRows(messages: ChatMessageDoc[], isGroup: boolean, myUid: st
     const showDay = day !== prevDay;
     const showSender = !mine && isGroup && prevSender !== m.senderId;
     prevDay = day;
-    prevSender = m.senderId;
+    // 안내(system) 메시지 다음에는 발신자 이름을 다시 보여줍니다.
+    prevSender = m.type === "system" ? null : m.senderId;
     return { message: m, showDay, showSender };
   });
 }
@@ -68,6 +75,21 @@ export default function ChatThreadPage() {
   const chat = chats.find((c) => c.id === chatId) ?? null;
   const { messages, loading: msgLoading, sendText, sendFile, markRead } =
     useChatMessages(chatId);
+
+  const router = useRouter();
+  const [leaving, setLeaving] = React.useState(false);
+  const leave = async () => {
+    if (!chat || !me.uid || leaving) return;
+    if (!window.confirm("이 채팅방에서 나갈까요? 나가면 대화 내용을 더 볼 수 없습니다.")) return;
+    setLeaving(true);
+    try {
+      await leaveGroupChat(chat.id, { uid: me.uid, name: me.name });
+      router.replace("/chat");
+    } catch {
+      toast.error("채팅방을 나가지 못했습니다. 다시 시도해주세요.");
+      setLeaving(false);
+    }
+  };
 
   const [draft, setDraft] = React.useState("");
   const [uploading, setUploading] = React.useState(false);
@@ -160,6 +182,18 @@ export default function ChatThreadPage() {
                 </div>
               )}
             </div>
+            {chat.type === "group" && (
+              <button
+                type="button"
+                onClick={leave}
+                disabled={leaving}
+                title="채팅방 나가기"
+                aria-label="채팅방 나가기"
+                className="flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary disabled:opacity-50"
+              >
+                {leaving ? <Loader2 className="size-4 animate-spin" /> : <LogOut className="size-4" />}
+              </button>
+            )}
           </>
         )}
       </div>
@@ -175,6 +209,21 @@ export default function ChatThreadPage() {
         {rows.map(({ message: m, showDay, showSender }) => {
           const mine = m.senderId === me.uid;
           const unread = unreadCountFor(m);
+
+          if (m.type === "system") {
+            return (
+              <React.Fragment key={m.id}>
+                {showDay && (
+                  <div className="my-3 flex justify-center">
+                    <span className="rounded-full bg-[#f1f5f9] px-3 py-1 text-[10.5px] font-semibold text-muted-foreground">
+                      {dayLabel(m.createdAt)}
+                    </span>
+                  </div>
+                )}
+                <p className="my-2 text-center text-[11.5px] text-muted-foreground">{m.text}</p>
+              </React.Fragment>
+            );
+          }
 
           return (
             <React.Fragment key={m.id}>
