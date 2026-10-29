@@ -15,6 +15,7 @@ import {
   type Query,
   serverTimestamp,
   setDoc,
+  type Timestamp,
   updateDoc,
   where,
   writeBatch,
@@ -1662,8 +1663,12 @@ export function useAttendance() {
     const unsub = onSnapshot(
       doc(firebaseDb(), COL.attendance, uid),
       (snap) => {
+        // serverTimestamp() 가 아직 서버에서 확정되기 전(방금 출근 버튼을 누른
+        // 직후)에도 null 대신 로컬 추정 시각이 보이도록 "estimate".
         setRemote(
-          snap.exists() ? ({ uid, ...snap.data() } as AttendanceDoc) : null,
+          snap.exists()
+            ? ({ uid, ...snap.data({ serverTimestamps: "estimate" }) } as AttendanceDoc)
+            : null,
         );
       },
       () => setRemote(null),
@@ -1674,16 +1679,36 @@ export function useAttendance() {
     };
   }, [uid]);
 
-  const cur = remote ?? { ...ATT_DEFAULT, ...local };
+  // inTs/outTs(서버 시각)가 있으면 표시 문자열을 그 값으로 계산합니다 —
+  // inAt/outAt 문자열은 클라이언트가 임의로 쓸 수 있던 구 필드라 신뢰하지 않음.
+  const fmt = (ts: Timestamp | null | undefined, legacy: string | undefined) => {
+    if (ts) {
+      const d = ts.toDate();
+      return `${two(d.getHours())}:${two(d.getMinutes())}`;
+    }
+    return ts === null ? "--:--" : (legacy ?? "--:--");
+  };
+  const cur = remote
+    ? { ...remote, inAt: fmt(remote.inTs, remote.inAt), outAt: fmt(remote.outTs, remote.outAt) }
+    : { ...ATT_DEFAULT, ...local };
 
+  /** 출퇴근 시각은 서버 시각으로만 기록합니다(firestore.rules 가 inTs/outTs == request.time 강제). */
   const write = React.useCallback(
-    async (patch: Partial<AttendanceDoc>) => {
-      setLocal((p) => ({ ...p, ...patch }));
+    async (kind: "in" | "out") => {
+      const d = new Date();
+      const hhmm = `${two(d.getHours())}:${two(d.getMinutes())}`;
+      setLocal((p) =>
+        kind === "in"
+          ? { ...p, working: true, inAt: hhmm, outAt: "--:--" }
+          : { ...p, working: false, outAt: hhmm },
+      );
       if (isFirebaseConfigured && uid) {
         await setDoc(
           doc(firebaseDb(), COL.attendance, uid),
           {
-            ...patch,
+            ...(kind === "in"
+              ? { working: true, inTs: serverTimestamp(), outTs: null }
+              : { working: false, outTs: serverTimestamp() }),
             date: localDateStr(),
           },
           { merge: true },
@@ -1693,22 +1718,8 @@ export function useAttendance() {
     [uid],
   );
 
-  const checkIn = React.useCallback(() => {
-    const d = new Date();
-    return write({
-      working: true,
-      inAt: `${two(d.getHours())}:${two(d.getMinutes())}`,
-      outAt: "--:--",
-    });
-  }, [write]);
-
-  const checkOut = React.useCallback(() => {
-    const d = new Date();
-    return write({
-      working: false,
-      outAt: `${two(d.getHours())}:${two(d.getMinutes())}`,
-    });
-  }, [write]);
+  const checkIn = React.useCallback(() => write("in"), [write]);
+  const checkOut = React.useCallback(() => write("out"), [write]);
 
   return {
     working: cur.working,

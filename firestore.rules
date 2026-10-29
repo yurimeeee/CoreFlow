@@ -371,9 +371,22 @@ service cloud.firestore {
       allow delete: if isAdmin()
         || (isMember() && resource.data.get('ownerUid', null) == request.auth.uid);
     }
+    /* ---------------- attendance/{uid} (본인 출퇴근) ----------------
+       출근·퇴근 시각(inTs/outTs)은 서버 시각(serverTimestamp → request.time)
+       으로만 기록할 수 있습니다. 예전엔 클라이언트가 "HH:MM" 문자열(inAt/
+       outAt)을 직접 써서, 개발자 도구로 지각한 출근을 "09:00"으로 바꿔
+       저장할 수 있었습니다. 바꿀 수 있는 필드도 출퇴근 기록용으로 한정합니다
+       (주간 근무시간·이력 같은 집계 필드는 본인이 쓸 수 없음). */
     match /attendance/{uid} {
-      // 본인 출퇴근 문서만
-      allow read, write: if isMember() && request.auth.uid == uid;
+      function isValidAttendanceWrite() {
+        let d = request.resource.data;
+        let changed = resource == null ? d.keys() : d.diff(resource.data).affectedKeys();
+        return changed.hasOnly(['working', 'date', 'inTs', 'outTs'])
+          && (!changed.hasAny(['inTs']) || d.inTs == request.time)
+          && (!changed.hasAny(['outTs']) || d.outTs == null || d.outTs == request.time);
+      }
+      allow read: if isMember() && request.auth.uid == uid;
+      allow create, update: if isMember() && request.auth.uid == uid && isValidAttendanceWrite();
     }
 
     /* ---------------- leaves/{id} (연차·초과근무 신청) ----------------

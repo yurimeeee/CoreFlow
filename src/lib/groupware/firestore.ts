@@ -12,6 +12,7 @@
  *                        가계정(아직 미입사)은 users/{placeholder-<random>} 로 존재(status: "PLACEHOLDER")
  *   workspace/main      회사(워크스페이스) 기본 정보 — 관리자만 쓰기
  */
+import type { Timestamp } from "firebase/firestore";
 import {
   SEED_APPROVAL_DETAIL,
   SEED_APPROVAL_ROWS,
@@ -268,8 +269,17 @@ export interface TeamDoc {
 export interface AttendanceDoc {
   uid: string;
   working: boolean;
+  /**
+   * 화면 표시용 HH:MM — 서버 시각(inTs/outTs)이 있으면 그 값으로 다시
+   * 계산합니다(useAttendance). 예전엔 클라이언트가 이 문자열을 직접 써서
+   * 개발자 도구로 출근 시각을 "09:00"으로 바꿔 저장할 수 있었기 때문에,
+   * 이제 이 필드는 inTs/outTs 도입 전 문서에서만 읽습니다.
+   */
   inAt: string;
   outAt: string;
+  /** 출근·퇴근 시각 — serverTimestamp() 로만 기록(firestore.rules 가 request.time 강제) */
+  inTs?: Timestamp | null;
+  outTs?: Timestamp | null;
   date: string; // yyyy-mm-dd (마지막 기록일)
   weekWorked: number;
   history: { day: string; in: string; out: string; hours: string; pct: number; type: string; color: string }[];
