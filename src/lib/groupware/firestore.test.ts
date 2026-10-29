@@ -4,6 +4,7 @@ import {
   calculateLeaveBalance,
   chatMessagesPath,
   dmChatId,
+  losesBookingRace,
   noticeCommentsPath,
 } from "./firestore";
 
@@ -82,5 +83,42 @@ describe("calculateLeaveBalance", () => {
       10,
     );
     expect(balance).toEqual({ total: 10, used: 4, remaining: 6 });
+  });
+});
+
+describe("losesBookingRace", () => {
+  const b = (id: string, from: number, to: number, res = "r1") => ({
+    id,
+    res,
+    date: "2026-10-29",
+    from,
+    to,
+  });
+
+  it("먼저 저장된 예약과 겹치면 내 예약이 진다", () => {
+    expect(losesBookingRace(b("200", 2, 4), [b("100", 3, 5)])).toBe(true);
+  });
+
+  it("나중에 저장된 예약과 겹치면 내 예약이 남는다", () => {
+    expect(losesBookingRace(b("100", 3, 5), [b("200", 2, 4)])).toBe(false);
+  });
+
+  it("경합한 두 쪽 중 정확히 한쪽만 진다", () => {
+    const x = b("150", 1, 3);
+    const y = b("150", 2, 4);
+    const yy = { ...y, id: "150a" };
+    expect(losesBookingRace(x, [yy]) !== losesBookingRace(yy, [x])).toBe(true);
+  });
+
+  it("끝과 시작이 맞닿기만 하면 겹치지 않는다", () => {
+    expect(losesBookingRace(b("200", 4, 6), [b("100", 2, 4)])).toBe(false);
+  });
+
+  it("다른 자원이나 자기 자신은 무시한다", () => {
+    expect(losesBookingRace(b("200", 2, 4), [b("100", 2, 4, "r2"), b("200", 2, 4)])).toBe(false);
+  });
+
+  it("숫자가 아닌 id(시드)는 항상 먼저 저장된 것으로 본다", () => {
+    expect(losesBookingRace(b("200", 2, 4), [b("seed-1", 3, 5)])).toBe(true);
   });
 });

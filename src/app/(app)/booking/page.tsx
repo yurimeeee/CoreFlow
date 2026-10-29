@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { toast } from "sonner";
 import {
   Car,
   Check,
@@ -197,6 +198,9 @@ export default function BookingPage() {
         provider: bookVideoOn ? bookProvider : "",
         meetingUrl: bookMeetingUrl,
       });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "예약하지 못했습니다. 다시 시도해주세요.");
+      return;
     } finally {
       setSaving(false);
     }
@@ -823,6 +827,8 @@ export default function BookingPage() {
                     try {
                       await removeBooking(viewBooking.id);
                       setViewBooking(null);
+                    } catch {
+                      toast.error("예약을 취소하지 못했습니다. 다시 시도해주세요.");
                     } finally {
                       setCancelling(false);
                     }

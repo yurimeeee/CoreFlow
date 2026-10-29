@@ -42,6 +42,26 @@ export const COL = {
   chats: "chats",
 } as const;
 
+/**
+ * 방금 저장한 예약(mine)이 같은 자원·날짜의 다른 예약과 겹치고, 그쪽이
+ * 먼저 저장됐다면 true — 내 예약을 되돌려야 한다는 뜻입니다(useBookings).
+ * 예약 id 는 저장 시각(Date.now 문자열)이라 숫자가 작을수록 먼저 저장된
+ * 것이고, 같으면 id 문자열로 순서를 정해 경합한 두 클라이언트가 항상 같은
+ * 결론을 내게 합니다. 숫자가 아닌 id(시드 데이터)는 항상 먼저로 봅니다.
+ */
+export function losesBookingRace(
+  mine: Pick<BookingDoc, "id" | "res" | "date" | "from" | "to">,
+  others: Pick<BookingDoc, "id" | "res" | "date" | "from" | "to">[],
+): boolean {
+  const myNo = Number(mine.id);
+  return others.some((b) => {
+    if (b.id === mine.id || b.res !== mine.res || b.date !== mine.date) return false;
+    if (!(b.from < mine.to && b.to > mine.from)) return false;
+    const no = Number(b.id);
+    return Number.isNaN(no) || no < myNo || (no === myNo && b.id < mine.id);
+  });
+}
+
 /** notices/{id}/comments 서브컬렉션 경로 */
 export const noticeCommentsPath = (noticeId: string) =>
   `${COL.notices}/${noticeId}/comments`;

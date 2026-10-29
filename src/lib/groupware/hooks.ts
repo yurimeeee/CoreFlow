@@ -8,6 +8,7 @@ import {
   deleteField,
   doc,
   getDoc,
+  getDocs,
   increment,
   onSnapshot,
   orderBy,
@@ -59,6 +60,7 @@ import {
   chatMessagesPath,
   dmChatId,
   isNoticeUnread,
+  losesBookingRace,
   noticeCommentsPath,
   taskCommentsPath,
   type ApprovalCommentDoc,
@@ -1452,6 +1454,24 @@ export function useBookings() {
       setAdded((p) => [...p, { id, ...payload }]);
       if (isFirebaseConfigured) {
         await setDoc(doc(firebaseDb(), COL.bookings, id), payload);
+        // 화면의 겹침 검사는 실시간 목록 기준이라, 두 사람이 거의 동시에 같은
+        // 시간을 누르면 둘 다 통과해 중복 예약이 생깁니다. 저장 직후 같은
+        // 자원·날짜 예약을 다시 조회해 겹치는 예약이 있으면 먼저 저장된 쪽
+        // (id = 저장 시각)을 남기고 내 예약을 되돌립니다 — 경합한 두 클라이언트가
+        // 같은 기준으로 판정하므로 정확히 한쪽만 남습니다.
+        const snap = await getDocs(
+          query(
+            collection(firebaseDb(), COL.bookings),
+            where("res", "==", payload.res),
+            where("date", "==", payload.date),
+          ),
+        );
+        const others = snap.docs.map((d) => ({ ...(d.data() as BookingDoc), id: d.id }));
+        if (losesBookingRace({ id, ...payload }, others)) {
+          setAdded((p) => p.filter((b) => b.id !== id));
+          await deleteDoc(doc(firebaseDb(), COL.bookings, id)).catch(() => {});
+          throw new Error("방금 다른 사람이 같은 시간을 예약했습니다. 다른 시간을 선택해 주세요.");
+        }
       }
       return id;
     },
