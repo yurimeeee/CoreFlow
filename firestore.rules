@@ -458,6 +458,15 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    /* ---------------- integrationSecrets/{id} (Slack·Jandi 웹훅 URL) ----------------
+       예전엔 웹훅 URL이 workspace/main(구성원 전체 열람)에 있어, 아무 직원이나
+       URL을 가져가 회사 채널에 공지를 사칭한 메시지를 보낼 수 있었습니다(URL을
+       바꾸기 전까지는 퇴사 후에도). 관리자만 읽고 쓰며, 알림 발송은 서버
+       라우트가 Admin SDK로 읽습니다(/api/integrations/notify). */
+    match /integrationSecrets/{id} {
+      allow read, write: if isAdmin();
+    }
+
     /* ---------------- chats/{chatId} (사내 메신저) ----------------
        읽기/쓰기 모두 그 방의 멤버(memberIds)만 가능. 생성 시 멤버 목록에
        본인 uid가 반드시 포함돼야 하고, memberIds는 이후 늘어날 수만

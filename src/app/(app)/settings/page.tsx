@@ -52,6 +52,7 @@ import {
   useSessions,
   useTeams,
   useTwoFactor,
+  useIntegrationSecrets,
   useWorkspace,
 } from "@/lib/groupware/hooks";
 import { avatarStyle, pill } from "@/lib/groupware/ui";
@@ -177,6 +178,7 @@ export default function SettingsPage() {
     null,
   );
   const isAdmin = profile?.role === "ADMIN" || profile?.role === "SUPER_ADMIN";
+  const { data: secrets, saveUrl: saveWebhookUrl } = useIntegrationSecrets(workspace, isAdmin);
   const isAdminTab = tab === "company" || tab === "members" || tab === "integration";
   const activeTab: Tab = isAdminTab && !isAdmin ? "profile" : tab;
 
@@ -922,7 +924,12 @@ export default function SettingsPage() {
                   bg="#f5f3ff"
                   color="#6d28d9"
                   value={workspace.integrations?.slack}
-                  onSave={(patch) => saveWorkspace({ "integrations.slack": patch })}
+                  savedUrl={secrets.slack?.webhookUrl ?? ""}
+                  onSaveUrl={async (url, on) => {
+                    await saveWebhookUrl("slack", url);
+                    await saveWorkspace({ "integrations.slack.on": on });
+                  }}
+                  onToggle={(on) => saveWorkspace({ "integrations.slack.on": on })}
                   helpHref="https://api.slack.com/messaging/webhooks"
                 />
                 <WebhookIntegrationCard
@@ -933,7 +940,12 @@ export default function SettingsPage() {
                   bg="#ecfeff"
                   color="#0e7490"
                   value={workspace.integrations?.jandi}
-                  onSave={(patch) => saveWorkspace({ "integrations.jandi": patch })}
+                  savedUrl={secrets.jandi?.webhookUrl ?? ""}
+                  onSaveUrl={async (url, on) => {
+                    await saveWebhookUrl("jandi", url);
+                    await saveWorkspace({ "integrations.jandi.on": on });
+                  }}
+                  onToggle={(on) => saveWorkspace({ "integrations.jandi.on": on })}
                   helpHref="https://www.jandi.com/connect"
                 />
                 <GoogleCalendarConnect />

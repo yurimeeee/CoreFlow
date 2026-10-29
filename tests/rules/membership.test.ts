@@ -65,3 +65,23 @@ describe("Storage 프로필 이미지", () => {
     await assertSucceeds(getBytes(ref(env.authenticatedContext("m").storage(), "users/m/profile.png")));
   });
 });
+
+describe("integrationSecrets (웹훅 URL)", () => {
+  beforeEach(async () => {
+    await seed(env, {
+      ...member("admin", "ADMIN"),
+      "integrationSecrets/main": { slack: { webhookUrl: "https://hooks.slack.com/x" } },
+    });
+  });
+
+  it("일반 구성원은 읽을 수 없다", async () => {
+    await assertFails(getDoc(doc(db(env, "m"), "integrationSecrets", "main")));
+  });
+
+  it("관리자는 읽고 쓸 수 있다", async () => {
+    await assertSucceeds(getDoc(doc(db(env, "admin"), "integrationSecrets", "main")));
+    await assertSucceeds(
+      setDoc(doc(db(env, "admin"), "integrationSecrets", "main"), { jandi: { webhookUrl: "https://wh.jandi.com/x" } }),
+    );
+  });
+});

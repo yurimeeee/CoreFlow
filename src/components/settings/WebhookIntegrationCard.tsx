@@ -14,6 +14,8 @@ const fieldInput =
 /**
  * Slack / Jandi Incoming Webhook 연동 카드.
  * URL 저장 → on/off 토글 → 테스트 메시지 발송까지 실제로 동작합니다.
+ * URL(savedUrl)은 관리자 전용 integrationSecrets/main 에, on/off(value.on)는
+ * workspace/main 에 따로 저장됩니다 — URL이 구성원 전체에 노출되지 않도록.
  */
 export function WebhookIntegrationCard({
   service,
@@ -23,7 +25,9 @@ export function WebhookIntegrationCard({
   bg,
   color,
   value,
-  onSave,
+  savedUrl,
+  onSaveUrl,
+  onToggle,
   helpHref,
 }: {
   service: "slack" | "jandi";
@@ -33,10 +37,11 @@ export function WebhookIntegrationCard({
   bg: string;
   color: string;
   value: WorkspaceWebhookIntegration | undefined;
-  onSave: (patch: WorkspaceWebhookIntegration) => Promise<void>;
+  savedUrl: string;
+  onSaveUrl: (url: string, on: boolean) => Promise<void>;
+  onToggle: (on: boolean) => Promise<void>;
   helpHref: string;
 }) {
-  const savedUrl = value?.webhookUrl ?? "";
   const [url, setUrl] = React.useState(savedUrl);
   const [saving, setSaving] = React.useState(false);
   const [testing, setTesting] = React.useState(false);
@@ -58,7 +63,7 @@ export function WebhookIntegrationCard({
     setSaving(true);
     try {
       const trimmed = url.trim();
-      await onSave({ webhookUrl: trimmed, on: trimmed ? (value?.on ?? true) : false });
+      await onSaveUrl(trimmed, trimmed ? (value?.on ?? true) : false);
     } catch {
       toast.error("연동 설정을 저장하지 못했습니다. 다시 시도해주세요.");
     } finally {
@@ -70,7 +75,7 @@ export function WebhookIntegrationCard({
     if (!savedUrl) return;
     setSaving(true);
     try {
-      await onSave({ webhookUrl: savedUrl, on: !on });
+      await onToggle(!on);
     } catch {
       toast.error("연동 상태를 변경하지 못했습니다. 다시 시도해주세요.");
     } finally {

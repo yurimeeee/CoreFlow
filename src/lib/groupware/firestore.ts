@@ -36,6 +36,8 @@ export const COL = {
   users: "users",
   userSecrets: "userSecrets",
   workspace: "workspace",
+  /** 관리자 전용 — Slack/Jandi 웹훅 URL (integrationSecrets/main) */
+  integrationSecrets: "integrationSecrets",
   chats: "chats",
 } as const;
 
@@ -435,7 +437,18 @@ export interface ChatMessageDoc {
 /** Slack/Jandi 등 Incoming Webhook 기반 연동의 공통 설정 */
 export interface WorkspaceWebhookIntegration {
   on: boolean;
+  /**
+   * 예전엔 웹훅 URL을 여기(workspace/main, 구성원 전체 열람 가능)에 뒀습니다.
+   * 이제는 관리자 전용 integrationSecrets/main 에 두고, 이 필드는 관리자가
+   * 설정 화면을 열 때 그쪽으로 옮긴 뒤 지웁니다(useIntegrationSecrets).
+   */
   webhookUrl?: string;
+}
+
+/** integrationSecrets/main — 관리자만 읽고 쓰며, 알림 발송은 서버 라우트가 읽습니다. */
+export interface IntegrationSecretsDoc {
+  slack?: { webhookUrl: string };
+  jandi?: { webhookUrl: string };
 }
 
 export interface WorkspaceDoc {

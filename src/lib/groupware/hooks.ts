@@ -5,6 +5,7 @@ import {
   arrayUnion,
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDoc,
   increment,
@@ -66,6 +67,7 @@ import {
   type ChatDoc,
   type ChatMessageDoc,
   type EventDoc,
+  type IntegrationSecretsDoc,
   type LeaveDoc,
   type NoticeCommentDoc,
   type NoticeDoc,
@@ -2321,6 +2323,62 @@ export function useWorkspace() {
   );
 
   return { data, loading, save };
+}
+
+/**
+ * Slack/Jandi 웹훅 URL — 관리자 전용 integrationSecrets/main. 알림 발송은
+ * 서버 라우트(/api/integrations/notify)가 이 문서를 직접 읽습니다.
+ *
+ * 예전 버전은 URL을 구성원 전체가 읽는 workspace/main.integrations.*.webhookUrl
+ * 에 저장했으므로, 관리자가 설정 화면을 열면 남아 있는 값을 이 문서로
+ * 옮기고 workspace 쪽 필드는 지웁니다(한 번만 일어나는 이전 작업).
+ */
+export function useIntegrationSecrets(workspace: WorkspaceDoc, enabled: boolean) {
+  const [data, setData] = React.useState<IntegrationSecretsDoc>({});
+
+  React.useEffect(() => {
+    if (!isFirebaseConfigured || !enabled) return;
+    return onSnapshot(
+      doc(firebaseDb(), COL.integrationSecrets, "main"),
+      (snap) => setData((snap.data() as IntegrationSecretsDoc | undefined) ?? {}),
+      () => setData({}),
+    );
+  }, [enabled]);
+
+  const legacySlack = workspace.integrations?.slack?.webhookUrl;
+  const legacyJandi = workspace.integrations?.jandi?.webhookUrl;
+  React.useEffect(() => {
+    if (!isFirebaseConfigured || !enabled) return;
+    const legacy = { slack: legacySlack, jandi: legacyJandi };
+    for (const key of ["slack", "jandi"] as const) {
+      const url = legacy[key];
+      if (!url) continue;
+      (async () => {
+        await setDoc(
+          doc(firebaseDb(), COL.integrationSecrets, "main"),
+          { [key]: { webhookUrl: url } },
+          { merge: true },
+        );
+        await updateDoc(doc(firebaseDb(), COL.workspace, "main"), {
+          [`integrations.${key}.webhookUrl`]: deleteField(),
+        });
+      })().catch(() => {});
+    }
+  }, [enabled, legacySlack, legacyJandi]);
+
+  const saveUrl = React.useCallback(
+    async (key: "slack" | "jandi", webhookUrl: string) => {
+      if (!isFirebaseConfigured) return;
+      await setDoc(
+        doc(firebaseDb(), COL.integrationSecrets, "main"),
+        { [key]: { webhookUrl } },
+        { merge: true },
+      );
+    },
+    [],
+  );
+
+  return { data, saveUrl };
 }
 
 /* ------------------------------------------------------------------ */
