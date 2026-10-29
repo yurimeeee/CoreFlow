@@ -7,11 +7,9 @@ import { useSearchParams } from "next/navigation";
 import { doc, serverTimestamp, setDoc, Timestamp } from "firebase/firestore";
 import { Copy, Link2, Loader2, Send, Sparkles } from "lucide-react";
 import { firebaseAuth, firebaseDb, isFirebaseConfigured } from "@/lib/firebase";
-import { useAuthUser } from "@/hooks/useAuthUser";
 import { useOrgPeople, useTeams } from "@/lib/groupware/hooks";
 import { PositionSelect } from "@/components/app/PositionSelect";
 import { AuthShell } from "@/components/layout/AuthShell";
-import { Forbidden } from "@/components/app/Forbidden";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,7 +35,6 @@ export default function AdminInvitePage() {
 }
 
 function AdminInviteClient() {
-  const { profile } = useAuthUser();
   const { teams } = useTeams();
   const { people } = useOrgPeople();
   const searchParams = useSearchParams();
@@ -123,32 +120,6 @@ function AdminInviteClient() {
       setLoading(false);
     }
   };
-
-  if (isFirebaseConfigured && profile?.role === "MEMBER") {
-    return (
-      <Forbidden
-        title="관리자 전용 화면입니다"
-        desc="초대 링크 발급은 관리자 권한이 필요합니다. 권한이 필요하면 워크스페이스 관리자에게 상향을 요청하세요."
-        requestLabel="관리자 권한 요청하기"
-        rows={[
-          {
-            tint: ["#f1f5f9", "#64748b"],
-            label: "내 역할",
-            value: `${profile.name} · Member`,
-            state: "현재",
-            statePill: ["#f1f5f9", "#475569"],
-          },
-          {
-            tint: ["#fef2f2", "#dc2626"],
-            label: "필요 권한",
-            value: "Admin 이상 · 멤버 초대",
-            state: "미충족",
-            statePill: ["#fef2f2", "#b91c1c"],
-          },
-        ]}
-      />
-    );
-  }
 
   return (
     <AuthShell
