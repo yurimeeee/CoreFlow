@@ -194,7 +194,7 @@ export default function DashboardPage() {
             </div>
             <div className="mt-1.5 flex justify-between text-[11px] text-muted-foreground">
               <span>주 {LIMIT}시간 기준</span>
-              <span>잔여 {LIMIT - weekWorked}시간</span>
+              <span>잔여 {Math.round((LIMIT - weekWorked) * 10) / 10}시간</span>
             </div>
           </div>
         </GwCard>

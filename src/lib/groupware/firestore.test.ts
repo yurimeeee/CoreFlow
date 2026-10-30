@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   ANNUAL_LEAVE_TOTAL,
+  buildAttendanceRows,
   calculateLeaveBalance,
   chatMessagesPath,
   dmChatId,
   exceedsLeaveBalance,
   losesBookingRace,
   noticeCommentsPath,
+  weekStartStr,
 } from "./firestore";
 
 describe("dmChatId", () => {
@@ -142,5 +144,45 @@ describe("exceedsLeaveBalance", () => {
 
   it("잔여 연차를 차감하지 않는 종류는 검사하지 않는다", () => {
     expect(exceedsLeaveBalance(l("t", "병가", 30, "대기"), [l("a", "연차", 15)])).toBe(false);
+  });
+});
+
+describe("buildAttendanceRows", () => {
+  // 2026-10-29 는 목요일 → 그 주 월요일은 10-26
+  const now = new Date(2026, 9, 29, 15, 0);
+  const at = (d: number, h: number, m = 0) => new Date(2026, 9, d, h, m);
+
+  it("주 시작은 월요일", () => {
+    expect(weekStartStr(now)).toBe("2026-10-26");
+    expect(weekStartStr(new Date(2026, 10, 1))).toBe("2026-10-26"); // 일요일
+  });
+
+  it("휴게시간을 빼고 지각·연장을 판정하며 이번 주만 합산한다", () => {
+    const { rows, weekWorked } = buildAttendanceRows(
+      [
+        { date: "2026-10-23", inAt: at(23, 9), outAt: at(23, 18) }, // 지난주 8h
+        { date: "2026-10-27", inAt: at(27, 8, 50), outAt: at(27, 17, 50) }, // 8h 정상
+        { date: "2026-10-28", inAt: at(28, 9, 30), outAt: at(28, 21, 30) }, // 11h 연장
+        { date: "2026-10-29", inAt: at(29, 9, 10), outAt: null }, // 퇴근 전, 5.83h-0.5
+      ],
+      now,
+    );
+    expect(rows.map((r) => [r.day, r.hours, r.type])).toEqual([
+      ["10.29 (목)", "5.3h", "지각"],
+      ["10.28 (수)", "11h", "연장"],
+      ["10.27 (화)", "8h", "정상"],
+      ["10.23 (금)", "8h", "정상"],
+    ]);
+    expect(rows[0].out).toBe("--:--");
+    expect(weekWorked).toBe(24.3);
+  });
+
+  it("퇴근을 안 찍은 지난 날은 근무시간을 계산하지 않는다", () => {
+    const { rows, weekWorked } = buildAttendanceRows(
+      [{ date: "2026-10-27", inAt: at(27, 9), outAt: null }],
+      now,
+    );
+    expect(rows[0].hours).toBe("-");
+    expect(weekWorked).toBe(0);
   });
 });

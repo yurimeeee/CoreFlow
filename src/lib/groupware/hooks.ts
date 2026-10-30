@@ -56,6 +56,8 @@ import {
   EVENT_CATEGORIES,
   TASK_COLUMNS,
   approvalCommentsPath,
+  attendanceDaysPath,
+  buildAttendanceRows,
   buildSeed,
   calculateLeaveBalance,
   exceedsLeaveBalance,
@@ -67,6 +69,7 @@ import {
   taskCommentsPath,
   type ApprovalCommentDoc,
   type ApprovalDoc,
+  type AttendanceDayDoc,
   type AttendanceDoc,
   type BookingDoc,
   type ChatDoc,
@@ -82,6 +85,7 @@ import {
   type TeamDoc,
   type WorkspaceDoc,
 } from "./firestore";
+import { useNow } from "./use-now";
 
 const two = (n: number) => String(n).padStart(2, "0");
 
@@ -1714,6 +1718,47 @@ export function useAttendance() {
     ? { ...remote, inAt: fmt(remote.inTs, remote.inAt), outAt: fmt(remote.outTs, remote.outAt) }
     : { ...ATT_DEFAULT, ...local };
 
+  // 일별 기록(attendance/{uid}/days) — 지난 4주치를 구독해 이력·주간 근무시간을 계산
+  const [days, setDays] = React.useState<AttendanceDayDoc[] | null>(null);
+  React.useEffect(() => {
+    if (!isFirebaseConfigured || !uid) return;
+    const since = new Date();
+    since.setDate(since.getDate() - 28);
+    const q = query(
+      collection(firebaseDb(), attendanceDaysPath(uid)),
+      where("date", ">=", localDateStr(since)),
+    );
+    const unsub = onSnapshot(
+      q,
+      (snap) =>
+        setDays(
+          snap.docs.map((d) => d.data({ serverTimestamps: "estimate" }) as AttendanceDayDoc),
+        ),
+      () => setDays(null),
+    );
+    return () => {
+      unsub();
+      setDays(null);
+    };
+  }, [uid]);
+  // 퇴근 전 오늘 근무시간이 흘러가도록 분 단위로만 다시 계산
+  const minute = Math.floor((useNow()?.getTime() ?? 0) / 60_000);
+  const daily = React.useMemo(
+    () =>
+      days && days.length && minute
+        ? buildAttendanceRows(
+            days.map((d) => ({
+              date: d.date,
+              inAt: d.inTs?.toDate() ?? null,
+              outAt: d.outTs?.toDate() ?? null,
+            })),
+            new Date(minute * 60_000),
+          )
+        : null,
+    [days, minute],
+  );
+  const today = days?.find((d) => d.date === localDateStr());
+
   /** 출퇴근 시각은 서버 시각으로만 기록합니다(firestore.rules 가 inTs/outTs == request.time 강제). */
   const write = React.useCallback(
     async (kind: "in" | "out") => {
@@ -1725,19 +1770,40 @@ export function useAttendance() {
           : { ...p, working: false, outAt: hhmm },
       );
       if (isFirebaseConfigured && uid) {
-        await setDoc(
-          doc(firebaseDb(), COL.attendance, uid),
+        const db = firebaseDb();
+        const date = localDateStr();
+        const batch = writeBatch(db);
+        batch.set(
+          doc(db, COL.attendance, uid),
           {
             ...(kind === "in"
               ? { working: true, inTs: serverTimestamp(), outTs: null }
               : { working: false, outTs: serverTimestamp() }),
-            date: localDateStr(),
+            date,
           },
           { merge: true },
         );
+        // 일별 기록: 출근 시각은 그날 첫 출근만 남기고(규칙상 inTs 는 생성 때만),
+        // 다시 출근하면 퇴근 시각만 비웁니다. 퇴근은 자정을 넘겨도 출근한 날짜
+        // 문서에 찍고, 그 문서가 없으면(배포 전에 출근한 경우) 건너뜁니다.
+        if (kind === "in") {
+          batch.set(
+            doc(db, attendanceDaysPath(uid), date),
+            today ? { outTs: null } : { date, inTs: serverTimestamp(), outTs: null },
+            { merge: true },
+          );
+        } else {
+          const openDate = (remote?.working && remote.date) || date;
+          if (days?.some((d) => d.date === openDate)) {
+            batch.update(doc(db, attendanceDaysPath(uid), openDate), {
+              outTs: serverTimestamp(),
+            });
+          }
+        }
+        await batch.commit();
       }
     },
-    [uid],
+    [uid, today, remote, days],
   );
 
   const checkIn = React.useCallback(() => write("in"), [write]);
@@ -1747,8 +1813,8 @@ export function useAttendance() {
     working: cur.working,
     inAt: cur.inAt,
     outAt: cur.outAt,
-    weekWorked: cur.weekWorked ?? 0,
-    history: cur.history ?? ATT_ROWS,
+    weekWorked: daily?.weekWorked ?? cur.weekWorked ?? 0,
+    history: daily?.rows ?? cur.history ?? ATT_ROWS,
     source: remote ? ("firestore" as const) : ("fallback" as const),
     checkIn,
     checkOut,

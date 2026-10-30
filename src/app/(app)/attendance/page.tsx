@@ -297,7 +297,7 @@ export default function AttendancePage() {
                 }
               >
                 {weekWorked > 40
-                  ? `연장근로 ${weekWorked - 40}시간`
+                  ? `연장근로 ${Math.round((weekWorked - 40) * 10) / 10}시간`
                   : "소정근로 내 · 연장 여유 12시간"}
               </span>
               <span className="ml-auto text-[13px] font-semibold tabular-nums">

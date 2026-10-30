@@ -8,6 +8,7 @@
  *   approvals/{no}      전자결재 문서 (id = 문서번호)
  *   bookings/{id}       회의실 · 자원 예약
  *   attendance/{uid}    사용자별 출퇴근 상태 (본인만 읽기/쓰기)
+ *   attendance/{uid}/days/{yyyy-mm-dd}  일별 출퇴근 기록 (본인 쓰기 · 본인/관리자 읽기)
  *   users/{uid}         로그인 사용자 프로필 + gwSettings — 조직도(임직원 디렉토리)의 단일 소스.
  *                        가계정(아직 미입사)은 users/{placeholder-<random>} 로 존재(status: "PLACEHOLDER")
  *   workspace/main      회사(워크스페이스) 기본 정보 — 관리자만 쓰기
@@ -23,6 +24,8 @@ import {
   SEED_NOTICE_PINNED,
   SEED_WORKSPACE,
 } from "./seed-data";
+import { ATT_TYPE_COLORS } from "./data";
+import { localDateStr } from "@/lib/utils";
 
 export const COL = {
   teams: "teams",
@@ -73,6 +76,10 @@ export const taskCommentsPath = (taskId: string) =>
 /** approvals/{no}/comments 서브컬렉션 경로 */
 export const approvalCommentsPath = (no: string) =>
   `${COL.approvals}/${no}/comments`;
+
+/** attendance/{uid}/days 서브컬렉션 경로 (문서 id = yyyy-mm-dd) */
+export const attendanceDaysPath = (uid: string) =>
+  `${COL.attendance}/${uid}/days`;
 
 /** chats/{id}/messages 서브컬렉션 경로 */
 export const chatMessagesPath = (chatId: string) =>
@@ -303,6 +310,64 @@ export interface AttendanceDoc {
   date: string; // yyyy-mm-dd (마지막 기록일)
   weekWorked: number;
   history: { day: string; in: string; out: string; hours: string; pct: number; type: string; color: string }[];
+}
+
+/** attendance/{uid}/days/{date} — 하루 한 건, 시각은 서버 시각만 */
+export interface AttendanceDayDoc {
+  date: string; // yyyy-mm-dd (= 문서 id)
+  inTs: Timestamp | null;
+  outTs: Timestamp | null;
+}
+
+export type AttendanceRow = AttendanceDoc["history"][number];
+
+const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
+
+/** 그 주 월요일(yyyy-mm-dd) — 주간 근무시간 집계 기준 */
+export function weekStartStr(now: Date = new Date()): string {
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return localDateStr(d);
+}
+
+/**
+ * 일별 기록 → 근태 이력 행 · 주간 근무시간.
+ * 근무시간은 휴게시간(4시간 이상 30분, 8시간 이상 1시간)을 뺀 값이고, 아직
+ * 퇴근 전인 오늘은 now 까지로 계산합니다. 09:00 이후 출근은 지각, 실근무 8시간
+ * 초과는 연장으로 표시합니다.
+ */
+export function buildAttendanceRows(
+  days: { inAt: Date | null; outAt: Date | null; date: string }[],
+  now: Date = new Date(),
+): { rows: AttendanceRow[]; weekWorked: number } {
+  const weekStart = weekStartStr(now);
+  const today = localDateStr(now);
+  let weekWorked = 0;
+  const rows = [...days]
+    .filter((d) => d.inAt)
+    .sort((a, b) => (a.date < b.date ? 1 : -1))
+    .map((d) => {
+      const inAt = d.inAt as Date;
+      const end = d.outAt ?? (d.date === today ? now : null);
+      const raw = end ? Math.max(0, (end.getTime() - inAt.getTime()) / 3_600_000) : 0;
+      const hours = Math.round((raw - (raw >= 8 ? 1 : raw >= 4 ? 0.5 : 0)) * 10) / 10;
+      if (d.date >= weekStart) weekWorked += hours;
+      const late = inAt.getHours() * 60 + inAt.getMinutes() > 9 * 60;
+      const type = hours > 8 ? "연장" : late ? "지각" : "정상";
+      const hm = (t: Date) =>
+        `${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
+      const [y, m, dd] = d.date.split("-").map(Number);
+      return {
+        day: `${d.date.slice(5).replace("-", ".")} (${WEEKDAYS[new Date(y, m - 1, dd).getDay()]})`,
+        in: hm(inAt),
+        out: d.outAt ? hm(d.outAt) : "--:--",
+        hours: end ? `${hours}h` : "-",
+        pct: Math.min(100, Math.round((hours / 12) * 100)),
+        type,
+        color: ATT_TYPE_COLORS[type][2],
+      };
+    });
+  return { rows, weekWorked: Math.round(weekWorked * 10) / 10 };
 }
 
 export interface LeaveDoc {

@@ -387,6 +387,29 @@ service cloud.firestore {
       }
       allow read: if isMember() && request.auth.uid == uid;
       allow create, update: if isMember() && request.auth.uid == uid && isValidAttendanceWrite();
+
+      /* 일별 기록 — 문서 id 가 날짜(yyyy-mm-dd). 출근 시각은 생성 때 한 번만
+         서버 시각으로, 퇴근 시각은 서버 시각 또는 null(재출근)만 허용합니다.
+         요청 시각이 그 날짜 근처(시간대 UTC-12~+14, 자정 넘는 퇴근 포함)일 때만
+         쓸 수 있어 지난 날짜 기록을 새로 만들거나 며칠 뒤에 퇴근을 찍지 못합니다. */
+      match /days/{date} {
+        function nearDate() {
+          let day = timestamp.date(int(date[0:4]), int(date[5:7]), int(date[8:10]));
+          return date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+            && request.time > day - duration.value(14, 'h')
+            && request.time < day + duration.value(38, 'h');
+        }
+        allow read: if isMember() && (request.auth.uid == uid || isAdmin());
+        allow create: if isMember() && request.auth.uid == uid && nearDate()
+          && request.resource.data.keys().hasOnly(['date', 'inTs', 'outTs'])
+          && request.resource.data.date == date
+          && request.resource.data.inTs == request.time
+          && request.resource.data.outTs == null;
+        allow update: if isMember() && request.auth.uid == uid && nearDate()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['outTs'])
+          && (request.resource.data.outTs == null
+              || request.resource.data.outTs == request.time);
+      }
     }
 
     /* ---------------- leaves/{id} (연차·초과근무 신청) ----------------
