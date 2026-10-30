@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { toast } from "sonner";
 import {
   CalendarDays,
   Check,
@@ -505,14 +506,22 @@ export default function AttendancePage() {
                 </div>
                 <div className="ml-auto flex gap-1.5">
                   <button
-                    onClick={() => pending.reject(l.id)}
+                    onClick={() =>
+                      pending.reject(l.id).catch((e) =>
+                        toast.error(e instanceof Error ? e.message : "처리에 실패했습니다."),
+                      )
+                    }
                     className="flex h-8 items-center gap-1 rounded-[8px] border border-[#fecaca] bg-card px-2.5 text-[12px] font-semibold text-[#b91c1c] hover:bg-[#fef2f2]"
                   >
                     <X className="size-3.5" />
                     반려
                   </button>
                   <button
-                    onClick={() => pending.approve(l.id)}
+                    onClick={() =>
+                      pending.approve(l.id).catch((e) =>
+                        toast.error(e instanceof Error ? e.message : "처리에 실패했습니다."),
+                      )
+                    }
                     className="flex h-8 items-center gap-1 rounded-[8px] bg-primary px-2.5 text-[12px] font-semibold text-primary-foreground hover:bg-primary-hover"
                   >
                     <Check className="size-3.5" strokeWidth={2.6} />

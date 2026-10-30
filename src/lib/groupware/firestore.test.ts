@@ -4,6 +4,7 @@ import {
   calculateLeaveBalance,
   chatMessagesPath,
   dmChatId,
+  exceedsLeaveBalance,
   losesBookingRace,
   noticeCommentsPath,
 } from "./firestore";
@@ -120,5 +121,26 @@ describe("losesBookingRace", () => {
 
   it("숫자가 아닌 id(시드)는 항상 먼저 저장된 것으로 본다", () => {
     expect(losesBookingRace(b("200", 2, 4), [b("seed-1", 3, 5)])).toBe(true);
+  });
+});
+
+describe("exceedsLeaveBalance", () => {
+  const l = (id: string, kind: string, days: number, status: "대기" | "승인" | "반려" = "승인") =>
+    ({ id, kind, days, status });
+
+  it("나머지 신청을 뺀 잔여보다 많으면 true", () => {
+    const target = l("t", "연차", 3, "대기");
+    expect(exceedsLeaveBalance(target, [l("a", "연차", 13), target])).toBe(true);
+    expect(exceedsLeaveBalance(target, [l("a", "연차", 12), target])).toBe(false);
+  });
+
+  it("다른 대기 신청도 잔여에서 차감하고 반려는 제외한다", () => {
+    const target = l("t", "연차", 5, "대기");
+    expect(exceedsLeaveBalance(target, [l("a", "연차", 11, "대기")])).toBe(true);
+    expect(exceedsLeaveBalance(target, [l("a", "연차", 11, "반려")])).toBe(false);
+  });
+
+  it("잔여 연차를 차감하지 않는 종류는 검사하지 않는다", () => {
+    expect(exceedsLeaveBalance(l("t", "병가", 30, "대기"), [l("a", "연차", 15)])).toBe(false);
   });
 });

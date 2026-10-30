@@ -339,6 +339,21 @@ export function calculateLeaveBalance(
   return { total, used, remaining: Math.max(0, total - used) };
 }
 
+/**
+ * 관리자 승인 직전 검사 — target 을 승인하면 잔여 연차를 넘어서는지.
+ * 신청 화면의 잔여 검사는 클라이언트에서만 이뤄지므로(직접 쓰기로 우회 가능,
+ * 동시에 여러 건 신청 가능) 승인 시점에 그 직원의 나머지 신청으로 다시 계산합니다.
+ */
+export function exceedsLeaveBalance(
+  target: Pick<LeaveDoc, "id" | "kind" | "days">,
+  userLeaves: Pick<LeaveDoc, "id" | "kind" | "status" | "days">[],
+  total: number = ANNUAL_LEAVE_TOTAL,
+): boolean {
+  if (!LEAVE_TYPES_COUNTED.includes(target.kind)) return false;
+  const others = userLeaves.filter((l) => l.id !== target.id);
+  return (target.days || 0) > calculateLeaveBalance(others, total).remaining;
+}
+
 export interface NoticeCommentDoc {
   id: string;
   uid: string;

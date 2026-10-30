@@ -58,6 +58,7 @@ import {
   approvalCommentsPath,
   buildSeed,
   calculateLeaveBalance,
+  exceedsLeaveBalance,
   chatMessagesPath,
   dmChatId,
   isNoticeUnread,
@@ -1867,14 +1868,25 @@ export function usePendingLeaves() {
 
   const decide = React.useCallback(
     async (id: string, status: "승인" | "반려") => {
-      let target: LeaveDoc | undefined;
-      setData((p) => {
-        target = p.find((l) => l.id === id);
-        return p.filter((l) => l.id !== id);
-      });
+      const target = data.find((l) => l.id === id);
       if (isFirebaseConfigured) {
+        if (status === "승인" && target) {
+          const snap = await getDocs(
+            query(collection(firebaseDb(), COL.leaves), where("uid", "==", target.uid)),
+          );
+          const userLeaves = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as LeaveDoc);
+          if (exceedsLeaveBalance(target, userLeaves)) {
+            const { remaining } = calculateLeaveBalance(
+              userLeaves.filter((l) => l.id !== id),
+            );
+            throw new Error(
+              `${target.who}님의 잔여 연차(${remaining}일)보다 신청 일수(${target.days}일)가 많아 승인할 수 없습니다.`,
+            );
+          }
+        }
         await updateDoc(doc(firebaseDb(), COL.leaves, id), { status });
       }
+      setData((p) => p.filter((l) => l.id !== id));
       if (target) {
         notifyJandi(
           `[근태] ${target.who}님의 ${target.kind} 신청이 ${status}되었습니다. (${target.start} ~ ${target.end})`,
@@ -1882,7 +1894,7 @@ export function usePendingLeaves() {
         ).catch(() => {});
       }
     },
-    [],
+    [data],
   );
 
   return {
