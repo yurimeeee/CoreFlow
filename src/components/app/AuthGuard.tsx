@@ -2,9 +2,9 @@
 
 import * as React from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Clock, Loader2, ShieldOff } from "lucide-react";
+import { Clock, Crown, Loader2, ShieldOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { isFirebaseConfigured } from "@/lib/firebase";
+import { firebaseAuth, isFirebaseConfigured } from "@/lib/firebase";
 import { useAuthUser } from "@/hooks/useAuthUser";
 import { isTwoFactorVerified } from "@/lib/twoFactorSession";
 
@@ -81,10 +81,74 @@ function NotMember({
             ? "승인이 완료되면 바로 이용할 수 있습니다. 승인 후 다시 로그인해 주세요."
             : "초대받은 계정으로 로그인했는지 확인하거나 관리자에게 문의해 주세요."}
         </p>
+        {status === null && <BootstrapAdmin />}
         <Button variant="outline" className="mt-6" onClick={() => onLogout()}>
           로그아웃
         </Button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * users 문서가 아예 없는 계정 — 빈 프로젝트의 첫 관리자일 수 있습니다.
+ * 서버(/api/admin/bootstrap)가 BOOTSTRAP_ADMIN_EMAIL 과 일치하고 관리자가
+ * 아직 없다고 답할 때만 버튼을 보여 줍니다. 생성되면 useAuthUser 의 프로필
+ * 구독이 ACTIVE 를 받아 그대로 앱으로 들어갑니다.
+ */
+function BootstrapAdmin() {
+  const [available, setAvailable] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const call = React.useCallback(async (method: "GET" | "POST") => {
+    const token = await firebaseAuth().currentUser?.getIdToken();
+    if (!token) return null;
+    const res = await fetch("/api/admin/bootstrap", {
+      method,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return (await res.json().catch(() => null)) as
+      | { ok: boolean; available?: boolean; error?: string }
+      | null;
+  }, []);
+
+  React.useEffect(() => {
+    let alive = true;
+    call("GET")
+      .then((r) => alive && setAvailable(!!r?.ok && !!r.available))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [call]);
+
+  if (!available) return null;
+
+  const run = async () => {
+    setBusy(true);
+    setError(null);
+    const r = await call("POST").catch(() => null);
+    if (!r?.ok) {
+      setError(
+        r?.error === "already_bootstrapped"
+          ? "이미 관리자가 있습니다. 관리자에게 초대를 요청해 주세요."
+          : "첫 관리자 설정에 실패했습니다.",
+      );
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-6 w-full rounded-[var(--radius-md)] border border-border bg-secondary/60 p-4 text-left">
+      <p className="text-[13px] leading-relaxed text-muted-foreground">
+        아직 관리자가 없는 워크스페이스입니다. 이 계정을 첫 최고 관리자로 설정할 수 있습니다.
+      </p>
+      {error && <p className="mt-2 text-[13px] font-medium text-destructive">{error}</p>}
+      <Button className="mt-3 w-full" onClick={run} disabled={busy}>
+        {busy ? <Loader2 className="animate-spin" /> : <Crown />}
+        첫 관리자로 시작하기
+      </Button>
     </div>
   );
 }

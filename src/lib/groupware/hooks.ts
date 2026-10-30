@@ -2820,32 +2820,6 @@ export async function runSeed(
   const total = seed.length + (admin ? 3 + 4 : 0); // +3 leaves 샘플 +4 events 샘플
   let done = 0;
 
-  // 부트스트랩: 시드 실행자의 users/{uid} 문서가 없으면 SUPER_ADMIN 으로 생성
-  // 이름은 실제 계정(displayName / 이메일 앞부분)에서 가져옵니다.
-  if (admin) {
-    const meRef = doc(db, COL.users, admin.uid);
-    const meSnap = await getDoc(meRef);
-    if (!meSnap.exists()) {
-      const name =
-        admin.name?.trim() ||
-        (admin.email ? admin.email.split("@")[0] : "관리자");
-      await setDoc(meRef, {
-        uid: admin.uid,
-        email: admin.email ?? "",
-        name,
-        departmentId: "",
-        position: "관리자",
-        employeeId: `CF-${admin.uid.slice(0, 6).toUpperCase()}`,
-        joinedAt: new Date(),
-        phone: "",
-        role: "SUPER_ADMIN",
-        status: "ACTIVE",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-    }
-  }
-
   for (const s of seed) {
     await setDoc(doc(db, s.collection, s.id), s.data, { merge: true });
     done += 1;

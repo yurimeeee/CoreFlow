@@ -17,9 +17,13 @@ node --env-file=.env.local scripts/create-demo-user.mjs
 # 2. 개발 서버
 npm run dev
 
-# 3. /login 로그인 → /admin/seed 에서 "시드 실행"
-#    (임직원·공지·Task·전자결재 72개 문서를 Firestore 에 채우고,
-#     실행자 계정을 SUPER_ADMIN 으로 부트스트랩)
+# 3. .env.local 에 FIREBASE_SERVICE_ACCOUNT 와
+#    BOOTSTRAP_ADMIN_EMAIL=demo@coreflow.io 설정 후 /login 로그인
+#    → "첫 관리자로 시작하기" 로 SUPER_ADMIN 부트스트랩
+#    (관리자가 하나라도 있으면 이 버튼은 나타나지 않음)
+
+# 4. /admin/seed 에서 "시드 실행"
+#    (임직원·공지·Task·전자결재 72개 문서를 Firestore 에 채움)
 ```
 
 Firestore 가 비어 있으면 각 화면은 목(mock) 데이터로 폴백하고, 시드 후에는 실시간(onSnapshot) Firestore 데이터로 전환됩니다.
