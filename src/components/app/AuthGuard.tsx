@@ -4,7 +4,8 @@ import * as React from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Clock, Crown, Loader2, ShieldOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { firebaseAuth, isFirebaseConfigured } from "@/lib/firebase";
+import { doc, getDoc } from "firebase/firestore";
+import { firebaseAuth, firebaseDb, isFirebaseConfigured } from "@/lib/firebase";
 import { useAuthUser } from "@/hooks/useAuthUser";
 import { isTwoFactorVerified } from "@/lib/twoFactorSession";
 
@@ -24,22 +25,44 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { authUser, profile, loading, logout } = useAuthUser();
 
-  // 실제 비밀키는 users/{uid}가 아니라 본인만 읽을 수 있는 userSecrets/{uid}에
-  // 있어 여기서는 조회하지 않습니다 — enroll()이 항상 두 문서를 함께 쓰므로
-  // (useTwoFactor 참고) gwSettings.twoFA가 true면 비밀키도 반드시 존재합니다.
-  const needsTwoFactor =
-    !!authUser && !!profile?.gwSettings?.twoFA && !isTwoFactorVerified(authUser.uid);
+  // gwSettings.twoFA만 보면 안 됩니다 — 비밀키를 userSecrets로 옮기기 전에
+  // 2FA를 켠 계정은 twoFA:true인데 userSecrets 문서가 없습니다. LoginForm은
+  // 비밀키가 없으면 2FA 없이 통과시키므로, 여기서 twoFA만 보고 /login 으로
+  // 돌려보내면 두 화면이 서로를 무한히 리다이렉트합니다. 판단 기준을
+  // LoginForm(loadTwoFactorRequirement)과 똑같이 "플래그 + 비밀키 존재"로 맞춥니다.
+  const uid = authUser?.uid ?? null;
+  const twoFAFlag = !!profile?.gwSettings?.twoFA;
+  const [secretCheck, setSecretCheck] = React.useState<{
+    uid: string;
+    exists: boolean;
+  } | null>(null);
+
+  React.useEffect(() => {
+    if (!isFirebaseConfigured || !uid || !twoFAFlag || isTwoFactorVerified(uid)) return;
+    let alive = true;
+    getDoc(doc(firebaseDb(), "userSecrets", uid))
+      .then((snap) => alive && setSecretCheck({ uid, exists: snap.exists() }))
+      // 읽기 실패 시에는 안전하게 2FA가 필요한 쪽으로 둡니다
+      .catch(() => alive && setSecretCheck({ uid, exists: true }));
+    return () => {
+      alive = false;
+    };
+  }, [uid, twoFAFlag]);
+
+  const twoFAPending = !!uid && twoFAFlag && !isTwoFactorVerified(uid);
+  const checkingSecret = twoFAPending && secretCheck?.uid !== uid;
+  const needsTwoFactor = twoFAPending && !checkingSecret && !!secretCheck?.exists;
 
   const allowed = !isFirebaseConfigured || (!!authUser && !needsTwoFactor);
 
   React.useEffect(() => {
-    if (!isFirebaseConfigured || loading) return;
+    if (!isFirebaseConfigured || loading || checkingSecret) return;
     if (!authUser || needsTwoFactor) {
       router.replace(`/login?next=${encodeURIComponent(pathname || "/dashboard")}`);
     }
-  }, [loading, authUser, needsTwoFactor, pathname, router]);
+  }, [loading, checkingSecret, authUser, needsTwoFactor, pathname, router]);
 
-  if (isFirebaseConfigured && (loading || !authUser || needsTwoFactor)) {
+  if (isFirebaseConfigured && (loading || checkingSecret || !authUser || needsTwoFactor)) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-background">
         <Loader2 className="size-6 animate-spin text-primary" />
