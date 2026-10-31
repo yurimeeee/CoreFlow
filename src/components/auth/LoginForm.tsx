@@ -147,8 +147,8 @@ export function LoginForm() {
           // 백업 코드는 1회용 — 폐기 저장에 실패하면 재사용이 가능해지므로
           // 로그인을 진행하지 않고 다시 시도하도록 합니다.
           try {
-            await updateDoc(doc(firebaseDb(), "users", pending.uid), {
-              "gwSettings.twoFABackupCodeHashes": pending.backupHashes.filter(
+            await updateDoc(doc(firebaseDb(), "userSecrets", pending.uid), {
+              backupCodeHashes: pending.backupHashes.filter(
                 (h) => h !== hash,
               ),
             });
