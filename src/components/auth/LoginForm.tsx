@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { FirebaseError } from "firebase/app";
 import { signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
-import { ArrowRight, Eye, EyeOff, KeyRound, Loader2, LogIn, ShieldCheck } from "lucide-react";
+import { Eye, EyeOff, KeyRound, Loader2, LogIn, ShieldCheck } from "lucide-react";
 import { firebaseAuth, firebaseDb, isFirebaseConfigured } from "@/lib/firebase";
 import { hashBackupCode, verifyTotp } from "@/lib/totp";
 import { isTwoFactorVerified, markTwoFactorVerified } from "@/lib/twoFactorSession";
@@ -311,7 +311,6 @@ export function LoginForm() {
       <Button type="submit" className="w-full" disabled={loading}>
         {loading ? <Loader2 className="animate-spin" /> : <LogIn />}
         로그인
-        {!loading && <ArrowRight />}
       </Button>
     </form>
   );
