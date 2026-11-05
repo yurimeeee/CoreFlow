@@ -19,6 +19,8 @@ npm run dev
 
 # 3. .env.local 에 FIREBASE_SERVICE_ACCOUNT 와
 #    BOOTSTRAP_ADMIN_EMAIL=demo@coreflow.io 설정 후 /login 로그인
+#    (부트스트랩은 인증된 이메일만 받습니다 — 1번을 FIREBASE_SERVICE_ACCOUNT
+#     가 있는 상태로 실행하면 데모 계정의 이메일 인증이 자동 완료됩니다)
 #    → "첫 관리자로 시작하기" 로 SUPER_ADMIN 부트스트랩
 #    (관리자가 하나라도 있으면 이 버튼은 나타나지 않음)
 
