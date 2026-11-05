@@ -10,7 +10,7 @@ import { firebaseAdmin } from "@/lib/firebaseAdmin";
  * (/admin/seed 가 본인 문서를 SUPER_ADMIN 으로 쓰려다 규칙에 막힘).
  *
  * 서버가 Admin SDK 로 대신 만들되, 두 조건을 모두 만족할 때만 허용합니다.
- * - 호출자의 ID 토큰 이메일 == BOOTSTRAP_ADMIN_EMAIL (서버 환경변수)
+ * - 호출자의 ID 토큰 이메일 == BOOTSTRAP_ADMIN_EMAIL (서버 환경변수), 인증 완료
  * - 관리자(ADMIN · SUPER_ADMIN) users 문서가 아직 하나도 없음
  * 첫 관리자가 생기면 이 라우트는 영구히 닫힙니다.
  *
@@ -32,6 +32,12 @@ async function caller(req: Request) {
     const decoded = await admin.auth.verifyIdToken(token);
     if (decoded.email?.toLowerCase() !== allowed) {
       return { error: fail("forbidden", 403) } as const;
+    }
+    // 이메일/비밀번호 가입은 메일함 소유를 확인하지 않습니다. 진짜 관리자가
+    // 가입하기 전에 외부인이 BOOTSTRAP_ADMIN_EMAIL 로 먼저 계정을 만들면 그
+    // 계정이 SUPER_ADMIN 이 될 수 있어, 인증된 이메일만 받습니다.
+    if (decoded.email_verified !== true) {
+      return { error: fail("email_unverified", 403) } as const;
     }
     return { admin, decoded } as const;
   } catch {

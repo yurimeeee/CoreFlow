@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Clock, Crown, Loader2, ShieldOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { doc, getDoc } from "firebase/firestore";
+import { sendEmailVerification } from "firebase/auth";
 import { firebaseAuth, firebaseDb, isFirebaseConfigured } from "@/lib/firebase";
 import { useAuthUser } from "@/hooks/useAuthUser";
 import { isTwoFactorVerified } from "@/lib/twoFactorSession";
@@ -118,14 +119,20 @@ function NotMember({
  * 서버(/api/admin/bootstrap)가 BOOTSTRAP_ADMIN_EMAIL 과 일치하고 관리자가
  * 아직 없다고 답할 때만 버튼을 보여 줍니다. 생성되면 useAuthUser 의 프로필
  * 구독이 ACTIVE 를 받아 그대로 앱으로 들어갑니다.
+ *
+ * 이메일이 아직 인증되지 않았으면 서버가 email_unverified 로 거절하므로,
+ * 인증 메일을 보내고 인증 후 토큰을 새로 받아 다시 확인하는 단계를 먼저
+ * 보여 줍니다.
  */
 function BootstrapAdmin() {
   const [available, setAvailable] = React.useState(false);
+  const [unverified, setUnverified] = React.useState(false);
+  const [sent, setSent] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  const call = React.useCallback(async (method: "GET" | "POST") => {
-    const token = await firebaseAuth().currentUser?.getIdToken();
+  const call = React.useCallback(async (method: "GET" | "POST", forceRefresh = false) => {
+    const token = await firebaseAuth().currentUser?.getIdToken(forceRefresh);
     if (!token) return null;
     const res = await fetch("/api/admin/bootstrap", {
       method,
@@ -136,15 +143,89 @@ function BootstrapAdmin() {
       | null;
   }, []);
 
+  const check = React.useCallback(
+    async (forceRefresh = false) => {
+      const r = await call("GET", forceRefresh).catch(() => null);
+      setUnverified(r?.error === "email_unverified");
+      setAvailable(!!r?.ok && !!r.available);
+      return r;
+    },
+    [call],
+  );
+
   React.useEffect(() => {
     let alive = true;
     call("GET")
-      .then((r) => alive && setAvailable(!!r?.ok && !!r.available))
+      .then((r) => {
+        if (!alive) return;
+        setUnverified(r?.error === "email_unverified");
+        setAvailable(!!r?.ok && !!r.available);
+      })
       .catch(() => {});
     return () => {
       alive = false;
     };
   }, [call]);
+
+  const sendMail = async () => {
+    const user = firebaseAuth().currentUser;
+    if (!user) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await sendEmailVerification(user);
+      setSent(true);
+    } catch {
+      setError("인증 메일을 보내지 못했습니다. 잠시 후 다시 시도해 주세요.");
+    }
+    setBusy(false);
+  };
+
+  const recheck = async () => {
+    const user = firebaseAuth().currentUser;
+    if (!user) return;
+    setBusy(true);
+    setError(null);
+    try {
+      // emailVerified 는 토큰에 들어 있어서, 인증 후엔 새 토큰을 받아야 반영됩니다.
+      await user.reload();
+      const r = await check(true);
+      if (r?.error === "email_unverified") {
+        setError("아직 인증되지 않았습니다. 메일의 링크를 누른 뒤 다시 확인해 주세요.");
+      }
+    } catch {
+      setError("확인에 실패했습니다.");
+    }
+    setBusy(false);
+  };
+
+  if (unverified) {
+    return (
+      <div className="mt-6 w-full rounded-[var(--radius-md)] border border-border bg-secondary/60 p-4 text-left">
+        <p className="text-[13px] leading-relaxed text-muted-foreground">
+          첫 최고 관리자로 설정하려면 먼저 이메일 인증이 필요합니다.
+          {sent && " 받은 메일의 링크를 누른 뒤 아래 버튼으로 확인해 주세요."}
+        </p>
+        {error && <p className="mt-2 text-[13px] font-medium text-destructive">{error}</p>}
+        {sent ? (
+          <div className="mt-3 flex gap-2">
+            <Button variant="outline" className="flex-1" onClick={sendMail} disabled={busy}>
+              다시 보내기
+            </Button>
+            <Button className="flex-1" onClick={recheck} disabled={busy}>
+              {busy && <Loader2 className="animate-spin" />}
+              인증 확인
+            </Button>
+          </div>
+        ) : (
+          <Button className="mt-3 w-full" onClick={sendMail} disabled={busy}>
+            {busy && <Loader2 className="animate-spin" />}
+            인증 메일 보내기
+          </Button>
+        )}
+      </div>
+    );
+  }
 
   if (!available) return null;
 
