@@ -513,6 +513,14 @@ service cloud.firestore {
        URL을 가져가 회사 채널에 공지를 사칭한 메시지를 보낼 수 있었습니다(URL을
        바꾸기 전까지는 퇴사 후에도). 관리자만 읽고 쓰며, 알림 발송은 서버
        라우트가 Admin SDK로 읽습니다(/api/integrations/notify). */
+    /* ---------------- notifyLog/{key} (Slack·Jandi 알림 발송 기록) ----------------
+       서버(/api/integrations/notify)가 같은 이벤트를 한 번만 보내려고 쓰는
+       기록입니다. 클라이언트가 지울 수 있으면 같은 알림을 계속 다시 보낼 수
+       있으므로 접근을 막습니다. */
+    match /notifyLog/{key} {
+      allow read, write: if false;
+    }
+
     match /integrationSecrets/{id} {
       allow read, write: if isAdmin();
     }

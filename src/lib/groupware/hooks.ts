@@ -37,7 +37,7 @@ import {
 import { useAuthUser } from "@/hooks/useAuthUser";
 import { clearTwoFactorVerified } from "@/lib/twoFactorSession";
 import { adoptTwoFactorToken, twoFactorApi } from "@/lib/twoFactorApi";
-import { notifyJandi, notifySlack } from "@/lib/integrations/notify";
+import { notifyEvent } from "@/lib/integrations/notify";
 import { createGoogleCalendarEvent } from "@/lib/googleCalendar";
 import { localDateStr } from "@/lib/utils";
 import type { UserDoc } from "@/types/user";
@@ -298,12 +298,7 @@ export function useNotices() {
         status: draft ? "draft" : "published",
         order: -now.getTime(), // 최신 글이 위로 오도록
       });
-      if (!draft) {
-        notifySlack(
-          `${input.pinned ? "📌 " : ""}[공지] ${input.title}\n${author} · ${input.body.slice(0, 140)}`,
-          input.title,
-        ).catch(() => {});
-      }
+      if (!draft) notifyEvent("notice_published", id).catch(() => {});
       return id;
     },
     [me.name, me.role, me.uid],
@@ -335,15 +330,9 @@ export function useNotices() {
         ...(draft ? {} : { readByUids: [] }),
       };
       await updateDoc(doc(firebaseDb(), COL.notices, id), patch);
-      if (announce) {
-        const author = me.role ? `${me.name} ${me.role}` : me.name;
-        notifySlack(
-          `${input.pinned ? "📌 " : ""}[공지] ${input.title}\n${author} · ${input.body.slice(0, 140)}`,
-          input.title,
-        ).catch(() => {});
-      }
+      if (announce) notifyEvent("notice_published", id).catch(() => {});
     },
-    [me.name, me.role],
+    [],
   );
 
   return { ...state, addNotice, updateNotice };
@@ -1020,11 +1009,8 @@ export function useApprovals() {
       }
       // 임시저장(bucket "drafted")은 아직 상신 전이라 전사 알림을 보내지
       // 않습니다 — "결재 요청하기"로 실제 상신될 때만 알립니다.
-      if (input.bucket === "pending") {
-        notifySlack(
-          `[결재 상신] ${input.title} (${input.no})\n기안자 ${author} · 결재자 ${input.approver}`,
-          input.title,
-        ).catch(() => {});
+      if (input.bucket === "pending" && isFirebaseConfigured) {
+        notifyEvent("approval_submitted", input.no).catch(() => {});
       }
       return input.no;
     },
@@ -1115,7 +1101,6 @@ export function useApprovalDoc(no: string) {
         throw new Error("본인의 결재 순서가 아니므로 승인/반려할 수 없습니다.");
       }
 
-      const title = document.title ?? "";
       const now = new Date();
       const pad = (n: number) => String(n).padStart(2, "0");
       const at = `${now.getFullYear()}.${pad(now.getMonth() + 1)}.${pad(
@@ -1173,12 +1158,7 @@ export function useApprovalDoc(no: string) {
           } satisfies Omit<LeaveDoc, "id">);
         }
       }
-      const label =
-        nextStatus === "Approved" ? "승인" : nextStatus === "Rejected" ? "반려" : "결재 진행";
-      notifySlack(
-        `[결재 ${label}] ${title || no} (${no}) · ${me.name}`,
-        title || no,
-      ).catch(() => {});
+      if (isFirebaseConfigured) notifyEvent("approval_decided", no).catch(() => {});
     },
     [no, me, document],
   );
@@ -1881,10 +1861,7 @@ export function useLeaves() {
       if (isFirebaseConfigured && uid) {
         await setDoc(doc(firebaseDb(), COL.leaves, id), payload);
       }
-      notifyJandi(
-        `[근태] ${me.name}님이 ${input.kind}를 신청했습니다. (${input.start} ~ ${input.end})\n사유: ${input.reason}`,
-        `${input.kind} 신청`,
-      ).catch(() => {});
+      if (isFirebaseConfigured && uid) notifyEvent("leave_requested", id).catch(() => {});
       return id;
     },
     [uid, me.name],
@@ -1953,12 +1930,7 @@ export function usePendingLeaves() {
         await updateDoc(doc(firebaseDb(), COL.leaves, id), { status });
       }
       setData((p) => p.filter((l) => l.id !== id));
-      if (target) {
-        notifyJandi(
-          `[근태] ${target.who}님의 ${target.kind} 신청이 ${status}되었습니다. (${target.start} ~ ${target.end})`,
-          `${target.kind} ${status}`,
-        ).catch(() => {});
-      }
+      if (target && isFirebaseConfigured) notifyEvent("leave_decided", id).catch(() => {});
     },
     [data],
   );
