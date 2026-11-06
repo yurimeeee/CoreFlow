@@ -62,17 +62,23 @@ export interface UserDoc {
     toggles?: Record<string, boolean>;
     integrations?: Record<string, boolean>;
     /**
-     * 2FA 활성화 여부만 — 실제 비밀키는 users/{uid}가 아니라 본인만
-     * read/write 가능한 userSecrets/{uid}에 둡니다. users 컬렉션은
-     * 조직도·결재자 검색용 사내 디렉터리라 로그인한 누구나 조회 가능한데,
-     * 여기 비밀키까지 같이 두면 다른 직원이 그 값을 읽어 피해자의 2FA를
-     * 그대로 우회할 수 있었습니다(twoFASecret이 users 문서 안에 있던
-     * 이전 설계의 문제).
+     * 예전 2FA 켜짐 플래그 — 본인이 바꿀 수 있어 판정에 쓰지 않습니다.
+     * 실제 기준은 twoFactorId 이고, 이 값은 그 이전에 2FA를 켠 계정을
+     * 서버가 twoFactorId 로 옮겨 줄 때만 참고합니다.
      */
     twoFA?: boolean;
     lang?: string;
     tz?: string;
   };
+
+  /**
+   * 현재 2FA 등록의 식별자 — 값이 있으면 2FA가 켜진 것입니다. 서버
+   * (/api/auth/two-factor)만 쓰고 본인은 바꿀 수 없습니다(firestore.rules).
+   * 코드를 확인한 세션의 ID 토큰에는 같은 값의 twoFactorId 클레임이 들어가고,
+   * 보안 규칙의 isMember()가 둘이 같은지 봅니다. 다시 등록하거나 끄면 값이
+   * 바뀌어 이전 세션이 모두 무효가 됩니다.
+   */
+  twoFactorId?: string | null;
 
   /* 메타 */
   inviteId?: string | null;
@@ -81,16 +87,25 @@ export interface UserDoc {
 }
 
 /**
- * userSecrets/{uid} — 2FA TOTP 비밀키·백업 코드 해시. 본인만 read/write
- * 가능한 별도 컬렉션(firestore.rules 참고). twoFA 켜짐 여부 자체는 이
- * 문서가 아니라 UserDoc.gwSettings.twoFA에 있습니다(그건 비밀값이
- * 아니라 "켜짐/꺼짐"만 나타내므로 여기 둘 필요가 없습니다).
+ * userSecrets/{uid} — 2FA TOTP 비밀키·백업 코드 해시와 검증 상태. 서버
+ * (Admin SDK)만 읽고 씁니다 — 클라이언트는 본인 것도 접근 불가
+ * (firestore.rules). 켜짐 여부는 UserDoc.twoFactorId 에 있습니다.
  */
 export interface UserSecretsDoc {
-  /** TOTP 비밀키 (base32). 앱에서 검증하므로 본인 클라이언트에는 노출됩니다. */
-  secret: string;
+  /** TOTP 비밀키 (base32). 등록이 끝난 뒤에만 채워집니다. */
+  secret?: string;
   /** 백업 코드는 평문이 아닌 SHA-256 해시로만 저장합니다. */
-  backupCodeHashes: string[];
+  backupCodeHashes?: string[];
+  /** 등록 중(QR 표시 후 코드 확인 전)인 비밀키와 시작 시각(ms) */
+  pendingSecret?: string | null;
+  pendingAt?: number | null;
+  /** 코드 확인은 끝났지만 아직 users.twoFactorId 로 켜지 않은 등록 id */
+  pendingId?: string | null;
+  /** 마지막으로 받은 TOTP 카운터 — 같은 코드 재사용 방지 */
+  lastStep?: number;
+  /** 연속 실패 횟수와 잠금 해제 시각(ms) — 6자리 코드 무차별 대입 방지 */
+  failCount?: number;
+  lockedUntil?: number;
 }
 
 /* ------------------------------------------------------------------ */

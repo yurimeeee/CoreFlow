@@ -36,11 +36,11 @@ import {
 } from "@/lib/firebase";
 import { useAuthUser } from "@/hooks/useAuthUser";
 import { clearTwoFactorVerified } from "@/lib/twoFactorSession";
-import { generateBackupCodes, hashBackupCode } from "@/lib/totp";
+import { adoptTwoFactorToken, twoFactorApi } from "@/lib/twoFactorApi";
 import { notifyJandi, notifySlack } from "@/lib/integrations/notify";
 import { createGoogleCalendarEvent } from "@/lib/googleCalendar";
 import { localDateStr } from "@/lib/utils";
-import type { UserDoc, UserSecretsDoc } from "@/types/user";
+import type { UserDoc } from "@/types/user";
 import {
   APPROVAL_ROWS,
   ATT_ROWS,
@@ -2037,93 +2037,75 @@ export function useGwSettings() {
 /* ------------------------------------------------------------------ */
 
 /**
- * userSecrets/{uid}를 본인 세션에서만 구독합니다 — 비밀키를 users 문서
- * 바깥에 두는 것 자체가 이번 수정의 핵심이라, 다른 훅과 달리 여기서는
- * uid가 바로 request.auth.uid(본인)일 때만 구독을 엽니다.
+ * 2FA 상태와 동작. 비밀키·백업 코드는 서버만 다루므로(userSecrets 는
+ * 클라이언트 접근 불가) 모든 동작이 /api/auth/two-factor 를 거칩니다.
+ * 켜짐 여부는 users/{uid}.twoFactorId(프로필 구독)로 바로 반영되고, 남은
+ * 백업 코드 수만 서버에 따로 물어봅니다.
  */
-function useTwoFactorSecrets(uid: string | null) {
-  const [secrets, setSecrets] = React.useState<UserSecretsDoc | null>(null);
-
-  React.useEffect(() => {
-    if (!isFirebaseConfigured || !uid) return;
-    const unsub = onSnapshot(
-      doc(firebaseDb(), COL.userSecrets, uid),
-      (snap) => setSecrets(snap.exists() ? (snap.data() as UserSecretsDoc) : null),
-      () => setSecrets(null),
-    );
-    return () => {
-      unsub();
-      setSecrets(null);
-    };
-  }, [uid]);
-
-  return secrets;
-}
-
 export function useTwoFactor() {
   const { authUser, profile } = useAuthUser();
-  const uid = authUser?.uid ?? null;
-  const secrets = useTwoFactorSecrets(uid);
-  const secret = secrets?.secret ?? null;
-  const backupHashes = secrets?.backupCodeHashes ?? [];
-  const backupCount = backupHashes.length;
-  const enabled = !!profile?.gwSettings?.twoFA && !!secret;
+  const twoFactorId = profile?.twoFactorId ?? null;
+  const enabled = !!twoFactorId;
+  const [backupCount, setBackupCount] = React.useState(0);
+
+  const refreshStatus = React.useCallback(async () => {
+    const r = await twoFactorApi("status");
+    if (r.ok) setBackupCount(r.backupCount ?? 0);
+  }, []);
+
+  React.useEffect(() => {
+    if (!isFirebaseConfigured || !authUser || !twoFactorId) return;
+    let alive = true;
+    twoFactorApi("status").then((r) => {
+      if (alive && r.ok) setBackupCount(r.backupCount ?? 0);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [authUser, twoFactorId]);
+
+  /** 서버가 새 비밀키를 만들어 돌려줍니다 — QR로 보여 줄 값 */
+  const startEnroll = React.useCallback(async () => {
+    const r = await twoFactorApi("enrollStart");
+    if (!r.ok || !r.secret) throw r;
+    return r.secret;
+  }, []);
 
   /**
-   * QR 스캔 후 코드 확인까지 끝난 시크릿을 등록하고 백업 코드를 발급합니다.
-   * users/{uid}(켜짐 여부만) · userSecrets/{uid}(실제 비밀값) 두 문서를
-   * 배치로 함께 씁니다 — 중간에 하나만 반영돼 "켜짐인데 비밀키가 없는"
-   * 상태가 되는 것을 방지합니다.
+   * 앱 코드를 확인해 등록을 마칩니다. 받은 토큰으로 먼저 다시 로그인한 뒤에
+   * 켜야(enrollActivate) 켜지는 순간에도 이 세션이 2FA 통과 상태입니다.
    */
-  const enroll = React.useCallback(
-    async (secretToSave: string, backupCodes: string[]) => {
-      if (!isFirebaseConfigured || !authUser) return;
-      const hashes = await Promise.all(backupCodes.map(hashBackupCode));
-      const batch = writeBatch(firebaseDb());
-      batch.update(doc(firebaseDb(), COL.users, authUser.uid), {
-        "gwSettings.twoFA": true,
-        updatedAt: new Date(),
-      });
-      batch.set(doc(firebaseDb(), COL.userSecrets, authUser.uid), {
-        secret: secretToSave,
-        backupCodeHashes: hashes,
-      } satisfies UserSecretsDoc);
-      await batch.commit();
+  const confirmEnroll = React.useCallback(async (code: string) => {
+    const r = await twoFactorApi("enrollConfirm", code);
+    if (!r.ok || !r.token || !r.twoFactorId || !r.backupCodes) throw r;
+    await adoptTwoFactorToken(r.token, r.twoFactorId);
+    const a = await twoFactorApi("enrollActivate");
+    if (!a.ok) throw a;
+    return r.backupCodes;
+  }, []);
+
+  const disable = React.useCallback(
+    async (code: string) => {
+      const r = await twoFactorApi("disable", code);
+      if (!r.ok) throw r;
+      if (authUser) clearTwoFactorVerified(authUser.uid);
     },
     [authUser],
   );
 
-  const disable = React.useCallback(async () => {
-    if (!isFirebaseConfigured || !authUser) return;
-    const batch = writeBatch(firebaseDb());
-    batch.update(doc(firebaseDb(), COL.users, authUser.uid), {
-      "gwSettings.twoFA": false,
-      updatedAt: new Date(),
-    });
-    batch.delete(doc(firebaseDb(), COL.userSecrets, authUser.uid));
-    await batch.commit();
-    clearTwoFactorVerified(authUser.uid);
-  }, [authUser]);
-
   /** 기존 백업 코드를 모두 폐기하고 새 8개를 발급합니다. */
-  const regenerateBackupCodes = React.useCallback(async (): Promise<
-    string[] | null
-  > => {
-    if (!isFirebaseConfigured || !authUser || !secret) return null;
-    const codes = generateBackupCodes();
-    const hashes = await Promise.all(codes.map(hashBackupCode));
-    await updateDoc(doc(firebaseDb(), COL.userSecrets, authUser.uid), {
-      backupCodeHashes: hashes,
-    });
-    return codes;
-  }, [authUser, secret]);
+  const regenerateBackupCodes = React.useCallback(async (): Promise<string[]> => {
+    const r = await twoFactorApi("regenerateBackupCodes");
+    if (!r.ok || !r.backupCodes) throw r;
+    await refreshStatus();
+    return r.backupCodes;
+  }, [refreshStatus]);
 
   return {
     enabled,
-    secret,
-    backupCount,
-    backupHashes,
-    enroll,
+    backupCount: enabled ? backupCount : 0,
+    startEnroll,
+    confirmEnroll,
     disable,
     regenerateBackupCodes,
   };

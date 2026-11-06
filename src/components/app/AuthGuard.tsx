@@ -4,11 +4,11 @@ import * as React from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Clock, Crown, Loader2, ShieldOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { doc, getDoc } from "firebase/firestore";
 import { sendEmailVerification } from "firebase/auth";
-import { firebaseAuth, firebaseDb, isFirebaseConfigured } from "@/lib/firebase";
+import { firebaseAuth, isFirebaseConfigured } from "@/lib/firebase";
 import { useAuthUser } from "@/hooks/useAuthUser";
-import { isTwoFactorVerified } from "@/lib/twoFactorSession";
+import { verifiedTwoFactorId } from "@/lib/twoFactorSession";
+import { twoFactorApi } from "@/lib/twoFactorApi";
 
 /**
  * (app) 워크스페이스 인증 가드.
@@ -26,33 +26,39 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { authUser, profile, loading, logout } = useAuthUser();
 
-  // gwSettings.twoFA만 보면 안 됩니다 — 비밀키를 userSecrets로 옮기기 전에
-  // 2FA를 켠 계정은 twoFA:true인데 userSecrets 문서가 없습니다. LoginForm은
-  // 비밀키가 없으면 2FA 없이 통과시키므로, 여기서 twoFA만 보고 /login 으로
-  // 돌려보내면 두 화면이 서로를 무한히 리다이렉트합니다. 판단 기준을
-  // LoginForm(loadTwoFactorRequirement)과 똑같이 "플래그 + 비밀키 존재"로 맞춥니다.
+  // 2FA를 켠 계정(twoFactorId)은 이번 브라우저 세션에서 그 등록을 확인했어야
+  // 합니다 — 판단 기준을 LoginForm(loadTwoFactorRequirement)과 똑같이 맞춰야
+  // 두 화면이 서로를 무한히 리다이렉트하지 않습니다. 서버 왕복 없이 바로
+  // 판단해서, 설정 화면에서 2FA를 켜는 순간에도 화면(백업 코드 모달)이
+  // 로딩으로 갈아엎히지 않습니다. 실제 차단은 보안 규칙(twoFactorId 클레임).
+  //
+  // gwSettings.twoFA 만 있으면 서버 검증 이전에 켠 계정이라, 서버(status)가
+  // 비밀키 유무를 보고 twoFactorId 로 옮겨 줍니다(옮겨지면 프로필 구독으로
+  // 위 기준이 적용됨). 비밀키가 없으면 꺼진 것으로 보고 통과시킵니다.
   const uid = authUser?.uid ?? null;
-  const twoFAFlag = !!profile?.gwSettings?.twoFA;
-  const [secretCheck, setSecretCheck] = React.useState<{
+  const twoFactorId = profile?.twoFactorId ?? null;
+  const legacyUid = uid && !twoFactorId && profile?.gwSettings?.twoFA ? uid : null;
+  const [legacyCheck, setLegacyCheck] = React.useState<{
     uid: string;
-    exists: boolean;
+    required: boolean;
   } | null>(null);
 
   React.useEffect(() => {
-    if (!isFirebaseConfigured || !uid || !twoFAFlag || isTwoFactorVerified(uid)) return;
+    if (!isFirebaseConfigured || !legacyUid) return;
     let alive = true;
-    getDoc(doc(firebaseDb(), "userSecrets", uid))
-      .then((snap) => alive && setSecretCheck({ uid, exists: snap.exists() }))
-      // 읽기 실패 시에는 안전하게 2FA가 필요한 쪽으로 둡니다
-      .catch(() => alive && setSecretCheck({ uid, exists: true }));
+    twoFactorApi("status").then((r) => {
+      // 서버가 응답하지 않으면 안전하게 2FA가 필요한 쪽으로 둡니다
+      if (alive) setLegacyCheck({ uid: legacyUid, required: !(r.ok && !r.enabled) });
+    });
     return () => {
       alive = false;
     };
-  }, [uid, twoFAFlag]);
+  }, [legacyUid]);
 
-  const twoFAPending = !!uid && twoFAFlag && !isTwoFactorVerified(uid);
-  const checkingSecret = twoFAPending && secretCheck?.uid !== uid;
-  const needsTwoFactor = twoFAPending && !checkingSecret && !!secretCheck?.exists;
+  const checkingSecret = !!legacyUid && legacyCheck?.uid !== legacyUid;
+  const needsTwoFactor = twoFactorId
+    ? verifiedTwoFactorId(uid!) !== twoFactorId
+    : !!legacyUid && !checkingSecret && !!legacyCheck?.required;
 
   const allowed = !isFirebaseConfigured || (!!authUser && !needsTwoFactor);
 

@@ -2,9 +2,9 @@
  * TOTP (RFC 6238) — Web Crypto API 기반, 외부 의존성 없음.
  * Google Authenticator · Authy 등 표준 OTP 앱과 호환됩니다.
  *
- * 참고: 비밀키는 Firestore `users/{uid}.gwSettings.twoFASecret` 에 평문으로
- * 저장되고, 검증도 클라이언트에서 이뤄집니다. 데모/포트폴리오 수준의 2FA로,
- * 서버(Cloud Functions) 없이 브라우저에서 완결되는 구조라는 한계가 있습니다.
+ * 비밀키 생성·검증은 서버 라우트(/api/auth/two-factor)에서만 합니다 —
+ * 비밀키(userSecrets/{uid})는 클라이언트가 읽을 수 없습니다. 브라우저 쪽은
+ * buildOtpAuthUri 로 QR만 그립니다.
  */
 
 const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -111,20 +111,34 @@ export async function totpAt(
   return String(code % 1_000_000).padStart(6, "0");
 }
 
+/**
+ * 앞뒤 1 스텝(±30초)까지 시계 오차를 허용해 코드를 검증하고, 맞으면 그 코드의
+ * 30초 카운터를 돌려줍니다(틀리면 null). 같은 카운터 이하의 코드를 다시 받지
+ * 않도록 호출한 쪽이 마지막 카운터를 저장해 재사용을 막습니다.
+ */
+export async function matchTotpStep(
+  secret: string,
+  token: string,
+  window = 1,
+  atMs = Date.now(),
+): Promise<number | null> {
+  const clean = token.replace(/\s+/g, "");
+  if (!/^\d{6}$/.test(clean)) return null;
+  const current = Math.floor(atMs / 30_000);
+  for (let step = -window; step <= window; step++) {
+    const candidate = await totpAt(secret, (current + step) * 30_000);
+    if (candidate === clean) return current + step;
+  }
+  return null;
+}
+
 /** 앞뒤 1 스텝(±30초)까지 시계 오차를 허용하는 TOTP 코드 검증 */
 export async function verifyTotp(
   secret: string,
   token: string,
   window = 1,
 ): Promise<boolean> {
-  const clean = token.replace(/\s+/g, "");
-  if (!/^\d{6}$/.test(clean)) return false;
-  const now = Date.now();
-  for (let step = -window; step <= window; step++) {
-    const candidate = await totpAt(secret, now + step * 30_000);
-    if (candidate === clean) return true;
-  }
-  return false;
+  return (await matchTotpStep(secret, token, window)) !== null;
 }
 
 /** N개의 사람이 읽기 쉬운 백업 코드 생성 (예: A1B2-C3D4) */

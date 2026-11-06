@@ -39,7 +39,8 @@ Firestore 가 비어 있으면 각 화면은 목(mock) 데이터로 폴백하고
 | `tasks/{id}` | 프로젝트 Task (칸반 카드) |
 | `approvals/{no}` | 전자결재 문서 + 결재란/상세 |
 | `attendance/{uid}` | 사용자별 출퇴근 상태 (본인만 읽기/쓰기) |
-| `users/{uid}` | 프로필 + `gwSettings`(알림 토글·연동·2FA) |
+| `users/{uid}` | 프로필 + `gwSettings`(알림 토글·연동) + `twoFactorId`(2FA 켜짐, 서버만 변경) |
+| `userSecrets/{uid}` | 2FA 비밀키·백업 코드 해시 (서버 `/api/auth/two-factor` 전용, 클라이언트 접근 불가) |
 
 ## 스택
 

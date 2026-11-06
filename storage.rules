@@ -18,7 +18,17 @@ service firebase.storage {
       return isSignedIn()
         && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
         && firestore.get(/databases/(default)/documents/users/$(request.auth.uid))
-             .data.get('status', null) == 'ACTIVE';
+             .data.get('status', null) == 'ACTIVE'
+        && passedTwoFactor();
+    }
+
+    // firestore.rules 의 passedTwoFactor() 와 동일 — 2FA를 켠 계정은 코드를
+    // 확인한 세션(ID 토큰의 twoFactorId 클레임이 현재 등록과 같음)이어야 합니다.
+    function passedTwoFactor() {
+      let tfa = firestore.get(/databases/(default)/documents/users/$(request.auth.uid))
+        .data.get('twoFactorId', null);
+      return tfa == null
+        || ('twoFactorId' in request.auth.token && request.auth.token.twoFactorId == tfa);
     }
 
     function isAdmin() {

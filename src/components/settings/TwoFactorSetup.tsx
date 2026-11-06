@@ -3,13 +3,8 @@
 import * as React from "react";
 import QRCode from "qrcode";
 import { Check, Copy, KeyRound, Loader2, ShieldCheck, X } from "lucide-react";
-import {
-  buildOtpAuthUri,
-  generateBackupCodes,
-  generateTotpSecret,
-  hashBackupCode,
-  verifyTotp,
-} from "@/lib/totp";
+import { buildOtpAuthUri } from "@/lib/totp";
+import { twoFactorErrorMessage, type TwoFactorResponse } from "@/lib/twoFactorApi";
 import { useTwoFactor } from "@/lib/groupware/hooks";
 
 const fieldInput =
@@ -29,20 +24,35 @@ export function TwoFactorSetupModal({
   onClose: () => void;
   onEnrolled: (backupCodes: string[]) => void;
 }) {
-  const { enroll } = useTwoFactor();
-  const [secret] = React.useState(() => generateTotpSecret());
+  const { startEnroll, confirmEnroll } = useTwoFactor();
+  // 비밀키는 서버가 만들어 등록 대기 상태로 저장하고, 여기선 QR로만 보여 줍니다.
+  const [secret, setSecret] = React.useState<string | null>(null);
   const [qrSvg, setQrSvg] = React.useState<string | null>(null);
   const [code, setCode] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
 
+  React.useEffect(() => {
+    let cancelled = false;
+    startEnroll()
+      .then((s) => !cancelled && setSecret(s))
+      .catch(
+        (r: TwoFactorResponse) =>
+          !cancelled && setError(twoFactorErrorMessage(r, "2단계 인증 등록을 시작하지 못했습니다.")),
+      );
+    return () => {
+      cancelled = true;
+    };
+  }, [startEnroll]);
+
   const uri = React.useMemo(
-    () => buildOtpAuthUri({ secret, accountName, issuer: "CoreFlow" }),
+    () => (secret ? buildOtpAuthUri({ secret, accountName, issuer: "CoreFlow" }) : null),
     [secret, accountName],
   );
 
   React.useEffect(() => {
+    if (!uri) return;
     let cancelled = false;
     QRCode.toString(uri, { type: "svg", margin: 1, width: 196 })
       .then((svg) => {
@@ -57,6 +67,7 @@ export function TwoFactorSetupModal({
   }, [uri]);
 
   const copySecret = async () => {
+    if (!secret) return;
     try {
       await navigator.clipboard.writeText(secret);
       setCopied(true);
@@ -76,14 +87,9 @@ export function TwoFactorSetupModal({
     }
     setBusy(true);
     try {
-      const ok = await verifyTotp(secret, clean);
-      if (!ok) {
-        setError("코드가 올바르지 않습니다. 앱의 코드를 다시 확인해 주세요.");
-        return;
-      }
-      const backupCodes = generateBackupCodes();
-      await enroll(secret, backupCodes);
-      onEnrolled(backupCodes);
+      onEnrolled(await confirmEnroll(clean));
+    } catch (r) {
+      setError(twoFactorErrorMessage(r as TwoFactorResponse, "등록에 실패했습니다. 다시 시도해 주세요."));
     } finally {
       setBusy(false);
     }
@@ -139,7 +145,7 @@ export function TwoFactorSetupModal({
             onClick={copySecret}
             className="flex items-center justify-between gap-2 rounded-[9px] border border-border bg-secondary px-3 py-2.5 text-left font-mono text-[13px] tracking-[0.05em] hover:bg-[#f5f6ff]"
           >
-            {formatSecret(secret)}
+            {secret ? formatSecret(secret) : "…"}
             {copied ? (
               <Check className="size-3.5 shrink-0 text-[#15803d]" />
             ) : (
@@ -180,7 +186,7 @@ export function TwoFactorSetupModal({
             </button>
             <button
               type="submit"
-              disabled={busy || code.length !== 6}
+              disabled={busy || !secret || code.length !== 6}
               className="flex h-9 items-center gap-1.5 rounded-[9px] bg-primary px-4 text-[13px] font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
             >
               {busy ? <Loader2 className="size-3.5 animate-spin" /> : <KeyRound className="size-3.5" />}
@@ -200,7 +206,7 @@ export function TwoFactorDisableModal({
   onClose: () => void;
   onDisabled: () => void;
 }) {
-  const { secret, backupHashes, disable } = useTwoFactor();
+  const { disable } = useTwoFactor();
   const [code, setCode] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -208,19 +214,12 @@ export function TwoFactorDisableModal({
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    const clean = code.replace(/\s+/g, "");
     setBusy(true);
     try {
-      let ok = /^\d{6}$/.test(clean) && !!secret && (await verifyTotp(secret, clean));
-      if (!ok && clean.length > 0) {
-        ok = backupHashes.includes(await hashBackupCode(clean));
-      }
-      if (!ok) {
-        setError("코드가 올바르지 않습니다.");
-        return;
-      }
-      await disable();
+      await disable(code);
       onDisabled();
+    } catch (r) {
+      setError(twoFactorErrorMessage(r as TwoFactorResponse, "비활성화하지 못했습니다. 다시 시도해 주세요."));
     } finally {
       setBusy(false);
     }

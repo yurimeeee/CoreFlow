@@ -24,7 +24,21 @@ service cloud.firestore {
     function isMember() {
       return isSignedIn()
         && exists(/databases/$(database)/documents/users/$(request.auth.uid))
-        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('status', null) == 'ACTIVE';
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('status', null) == 'ACTIVE'
+        && passedTwoFactor();
+    }
+
+    /* 2FA를 켠 계정(users.twoFactorId 가 있음)은 이 세션이 코드를 확인했어야
+       합니다 — 서버(/api/auth/two-factor)가 코드를 확인한 뒤 발급한 커스텀
+       토큰으로 로그인해야 ID 토큰에 같은 twoFactorId 클레임이 붙습니다. 예전엔
+       2FA를 화면(sessionStorage)에서만 확인해서, 비밀번호만 알면 SDK로 데이터를
+       그대로 읽을 수 있었습니다. 단순 true 플래그가 아니라 등록 id 를 비교하므로
+       2FA가 꺼져 있던 동안 받은 토큰이나, 다시 등록하기 전 세션은 통과하지
+       못합니다. (같은 users 문서 get 이라 규칙 문서 조회 수는 늘지 않습니다.) */
+    function passedTwoFactor() {
+      let tfa = get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('twoFactorId', null);
+      return tfa == null
+        || ('twoFactorId' in request.auth.token && request.auth.token.twoFactorId == tfa);
     }
 
     function isAdmin() {
@@ -113,28 +127,28 @@ service cloud.firestore {
       // 표시되게 할 수 있었습니다.
       allow update: if isAdmin()
         || (isSignedIn() && request.auth.uid == uid
+            && passedTwoFactor()
             && request.resource.data.role == resource.data.role
             && request.resource.data.status == resource.data.status
             && request.resource.data.employeeId == resource.data.employeeId
             && request.resource.data.teamId == resource.data.teamId
             && request.resource.data.managerId == resource.data.managerId
-            && request.resource.data.email == resource.data.email);
+            && request.resource.data.email == resource.data.email
+            // 2FA 켜짐 여부는 서버만 바꿉니다 — 본인이 null 로 지울 수 있으면
+            // 비밀번호만 가진 사람이 2FA를 끄고 들어올 수 있습니다.
+            && request.resource.data.get('twoFactorId', null) == resource.data.get('twoFactorId', null));
 
       allow delete: if isAdmin();
     }
 
     /* ---------------- userSecrets/{uid} (2FA 비밀키 · 백업코드 해시) ----------------
-       TOTP는 서버 없이 클라이언트에서 검증하므로 비밀키를 평문으로 둘 수밖에
-       없는데(totp.ts 참고), 예전엔 이 값이 users/{uid} 안에 있었습니다.
-       users는 조직도·결재자 검색용 사내 디렉터리라 로그인한 누구나 조회
-       가능해서(get, list: 구성원 전체), 다른 직원이 피해자의 users 문서를
-       그냥 읽어 TOTP 비밀키를 그대로 가져가 2FA를 완전히 우회할 수
-       있었습니다. 본인만 read/write 가능한 이 컬렉션으로 분리해 막습니다.
-       관리자도 예외 없이 열람 불가(비밀값은 관리자도 볼 이유가 없음) —
-       계정 접근이 막히면 users 삭제처럼 관리자가 users 문서 자체를 정리하는
-       경로로 처리합니다. */
+       서버(/api/auth/two-factor, Admin SDK)만 읽고 씁니다. 처음엔 비밀키가
+       users/{uid} 안에 있어 다른 직원이 읽을 수 있었고, 여기로 옮긴 뒤에도
+       본인 세션이 읽고 쓸 수 있어서 비밀번호만 알면 비밀키를 읽어 코드를
+       만들거나 덮어써 2FA를 무력화할 수 있었습니다. 검증을 서버로 옮겼으니
+       클라이언트는 본인 것도 접근할 이유가 없습니다. */
     match /userSecrets/{uid} {
-      allow read, write: if isSignedIn() && request.auth.uid == uid;
+      allow read, write: if false;
     }
 
     /* ---------------- teams/{id} (부서/팀 편제) ---------------- */

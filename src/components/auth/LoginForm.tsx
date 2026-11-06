@@ -4,39 +4,41 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { FirebaseError } from "firebase/app";
 import { signInWithEmailAndPassword, signOut } from "firebase/auth";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 import { Eye, EyeOff, KeyRound, Loader2, LogIn, ShieldCheck } from "lucide-react";
 import { firebaseAuth, firebaseDb, isFirebaseConfigured } from "@/lib/firebase";
-import { hashBackupCode, verifyTotp } from "@/lib/totp";
-import { isTwoFactorVerified, markTwoFactorVerified } from "@/lib/twoFactorSession";
-import type { UserDoc, UserSecretsDoc } from "@/types/user";
+import { adoptTwoFactorToken, twoFactorApi, twoFactorErrorMessage } from "@/lib/twoFactorApi";
+import { verifiedTwoFactorId } from "@/lib/twoFactorSession";
+import type { UserDoc } from "@/types/user";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field } from "@/components/signup/Field";
 
 interface TwoFactorRequirement {
   uid: string;
-  secret: string;
-  backupHashes: string[];
 }
 
 /**
- * 로그인 직후 users/{uid} 를 확인해 2FA 필요 여부를 판단하고, 켜져 있으면
- * userSecrets/{uid}에서 실제 비밀값을 읽습니다. 비밀값은 users 문서가
- * 아니라 본인만 read 가능한 별도 컬렉션에 있으므로(firestore.rules), 이
- * 두 번째 조회는 반드시 signInWithEmailAndPassword가 이미 성공한 뒤 —
- * 즉 request.auth.uid가 이 uid와 같아진 뒤에만 호출해야 합니다.
+ * 로그인 직후 2FA 코드 입력이 필요한지 판단합니다 — 본인 users 문서의
+ * twoFactorId 가 있고, 이번 브라우저 세션에서 그 등록을 아직 확인하지 않았으면
+ * 필요합니다. AuthGuard 와 같은 기준이어야 두 화면이 서로를 무한히
+ * 리다이렉트하지 않습니다.
+ *
+ * gwSettings.twoFA 만 있는 계정은 서버 검증 이전에 2FA를 켠 경우라, 서버
+ * (status)가 비밀키 유무를 보고 twoFactorId 로 옮겨 줍니다. 서버가 응답하지
+ * 않으면 안전하게 "필요"로 둡니다 — 어차피 보안 규칙이 막습니다.
  */
 async function loadTwoFactorRequirement(
   uid: string,
 ): Promise<TwoFactorRequirement | null> {
   const snap = await getDoc(doc(firebaseDb(), "users", uid));
-  const gw = snap.exists() ? (snap.data() as UserDoc).gwSettings : undefined;
-  if (!gw?.twoFA) return null;
-  const secretSnap = await getDoc(doc(firebaseDb(), "userSecrets", uid));
-  if (!secretSnap.exists()) return null;
-  const secrets = secretSnap.data() as UserSecretsDoc;
-  return { uid, secret: secrets.secret, backupHashes: secrets.backupCodeHashes ?? [] };
+  const profile = snap.exists() ? (snap.data() as UserDoc) : null;
+  if (profile?.twoFactorId) {
+    return verifiedTwoFactorId(uid) === profile.twoFactorId ? null : { uid };
+  }
+  if (!profile?.gwSettings?.twoFA) return null;
+  const r = await twoFactorApi("status");
+  return r.ok && !r.enabled ? null : { uid };
 }
 
 function mapError(err: unknown): string {
@@ -92,7 +94,7 @@ export function LoginForm() {
       }
       const req = await loadTwoFactorRequirement(current.uid);
       if (cancelled) return;
-      if (req && !isTwoFactorVerified(current.uid)) {
+      if (req) {
         setPending(req);
         setCheckingSession(false);
       } else {
@@ -120,7 +122,7 @@ export function LoginForm() {
         password,
       );
       const req = await loadTwoFactorRequirement(cred.user.uid);
-      if (req && !isTwoFactorVerified(cred.user.uid)) {
+      if (req) {
         setPending(req);
       } else {
         goNext();
@@ -136,42 +138,23 @@ export function LoginForm() {
     e.preventDefault();
     if (!pending) return;
     setTwoFAError(null);
-    const clean = code.trim().replace(/\s+/g, "");
     setTwoFABusy(true);
     try {
-      let ok = false;
-      if (useBackup) {
-        const hash = await hashBackupCode(clean);
-        ok = pending.backupHashes.includes(hash);
-        if (ok) {
-          // 백업 코드는 1회용 — 폐기 저장에 실패하면 재사용이 가능해지므로
-          // 로그인을 진행하지 않고 다시 시도하도록 합니다.
-          try {
-            await updateDoc(doc(firebaseDb(), "userSecrets", pending.uid), {
-              backupCodeHashes: pending.backupHashes.filter(
-                (h) => h !== hash,
-              ),
-            });
-          } catch {
-            setTwoFAError(
-              "백업 코드 처리 중 오류가 발생했습니다. 다시 시도해 주세요.",
-            );
-            return;
-          }
-        }
-      } else {
-        ok = /^\d{6}$/.test(clean) && (await verifyTotp(pending.secret, clean));
-      }
-      if (!ok) {
+      // 서버가 6자리 숫자면 TOTP, 그 외는 백업 코드로 확인하고(백업 코드는
+      // 그 자리에서 폐기), 통과하면 2FA 클레임이 든 토큰을 돌려줍니다.
+      const r = await twoFactorApi("verify", code);
+      if (!r.ok || !r.token || !r.twoFactorId) {
         setTwoFAError(
-          useBackup
+          r.error === "invalid_code" && useBackup
             ? "백업 코드가 올바르지 않습니다."
-            : "코드가 올바르지 않습니다. 앱의 코드를 다시 확인해 주세요.",
+            : twoFactorErrorMessage(r, "인증에 실패했습니다. 다시 시도해 주세요."),
         );
         return;
       }
-      markTwoFactorVerified(pending.uid);
+      await adoptTwoFactorToken(r.token, r.twoFactorId);
       goNext();
+    } catch {
+      setTwoFAError("인증에 실패했습니다. 다시 시도해 주세요.");
     } finally {
       setTwoFABusy(false);
     }
