@@ -63,7 +63,6 @@ export default function OrgPage() {
   const [assignTeamId, setAssignTeamId] = React.useState<string | null>(null);
   const {
     people: directory,
-    source,
     addPerson,
     updatePerson,
     removePerson,

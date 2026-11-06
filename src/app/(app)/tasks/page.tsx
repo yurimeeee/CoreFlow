@@ -83,7 +83,7 @@ export default function TasksPage() {
   >(null);
   const [dragId, setDragId] = React.useState<string | null>(null);
   const [dragOverCol, setDragOverCol] = React.useState<string | null>(null);
-  const { data: tasks, addTask, saveTask, removeTask, moveTask, moveTaskTo, source } =
+  const { data: tasks, addTask, saveTask, removeTask, moveTask, moveTaskTo } =
     useTasks();
   const { teams } = useTeams();
   const me = useCurrentUser();

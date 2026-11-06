@@ -21,9 +21,11 @@ export function ChatNotifier() {
   // 않고, 이 컴포넌트가 마운트된 시각보다 이전에 온 메시지는 seenRef 값과
   // 상관없이 절대 토스트하지 않도록 하한선을 둡니다. 새로고침 시점 이전의
   // "오래된" 메시지가 어떤 경로로든 새 메시지로 오인되는 걸 막는 안전장치.
-  const mountedAtRef = React.useRef(Date.now());
+  // (렌더 중 Date.now()는 순수하지 않아 첫 effect 실행 = 마운트 시점에 기록)
+  const mountedAtRef = React.useRef<number | null>(null);
 
   React.useEffect(() => {
+    mountedAtRef.current ??= Date.now();
     // Firestore 구독이 아직 실제 스냅샷을 받기 전(chats가 임시로 빈 배열인
     // 동안)에 seenRef를 초기화하면, 뒤이어 도착하는 진짜 첫 스냅샷이 전부
     // "새 메시지"로 오인되어 기존 안읽은 대화들이 한꺼번에 토스트로 뜹니다.
