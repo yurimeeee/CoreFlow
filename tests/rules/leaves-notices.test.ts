@@ -1,7 +1,7 @@
 import type { RulesTestEnvironment } from "@firebase/rules-unit-testing";
 import { arrayUnion, deleteDoc, doc, increment, setDoc, updateDoc } from "firebase/firestore";
 import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
-import { assertFails, assertSucceeds, createEnv, db, member, members, seed } from "./helpers";
+import { assertFails, assertSucceeds, auditedBatch, createEnv, db, member, members, seed } from "./helpers";
 
 let env: RulesTestEnvironment;
 beforeAll(async () => {
@@ -44,8 +44,11 @@ describe("leaves", () => {
     await assertSucceeds(updateDoc(doc(db(env, "u1"), "leaves", "p1"), { days: 2 }));
   });
 
-  it("관리자는 승인할 수 있다", async () => {
-    await assertSucceeds(updateDoc(doc(db(env, "admin"), "leaves", "p1"), { status: "승인" }));
+  it("관리자는 감사 로그와 함께 승인할 수 있다", async () => {
+    await assertFails(updateDoc(doc(db(env, "admin"), "leaves", "p1"), { status: "승인" }));
+    await assertSucceeds(
+      auditedBatch(env, "admin", ["leaves/p1"], (b, d) => b.update(doc(d, "leaves", "p1"), { status: "승인" })),
+    );
   });
 });
 

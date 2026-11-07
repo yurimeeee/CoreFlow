@@ -4,10 +4,11 @@ import * as React from "react";
 import { Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { doc, serverTimestamp, setDoc, Timestamp } from "firebase/firestore";
+import { doc, serverTimestamp, Timestamp } from "firebase/firestore";
 import { Copy, Link2, Loader2, Send, Sparkles } from "lucide-react";
 import { firebaseAuth, firebaseDb, isFirebaseConfigured } from "@/lib/firebase";
 import { useOrgPeople, useTeams } from "@/lib/groupware/hooks";
+import { auditedWrite } from "@/lib/groupware/audit";
 import { PositionSelect } from "@/components/app/PositionSelect";
 import { AuthShell } from "@/components/layout/AuthShell";
 import { Card, CardContent } from "@/components/ui/card";
@@ -95,9 +96,12 @@ function AdminInviteClient() {
       // 한 번으로 조회하고, 보안 규칙은 비로그인 list 를 전면 차단합니다
       // (where 없는 limit(1)+startAfter 페이지 넘기기로 초대장 전체가
       // 토큰째 유출되던 문제 방지).
-      await setDoc(doc(firebaseDb(), "invites", token), {
+      const email = form.email.trim().toLowerCase();
+      // 감사 로그엔 토큰(=가입 링크 비밀값)을 적지 않고 이메일·권한만 남깁니다.
+      // targets 경로엔 문서 id 인 토큰이 들어가지만 로그는 관리자만 읽습니다.
+      const invite = {
         token,
-        email: form.email.trim().toLowerCase(),
+        email,
         employeeId: form.employeeId.trim(),
         teamId: teamIdValue || null,
         teamName,
@@ -112,7 +116,16 @@ function AdminInviteClient() {
         expiresAt,
         completedUid: null,
         completedAt: null,
-      });
+      };
+      await auditedWrite(
+        {
+          action: "invite.create",
+          targets: [`invites/${token}`],
+          summary: `${email} 초대 (${form.role}${form.requireApproval ? " · 승인 필요" : ""})`,
+          detail: { email, role: form.role },
+        },
+        (b) => b.set(doc(firebaseDb(), "invites", token), invite),
+      );
       setLink(`${window.location.origin}/signup?token=${token}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "초대 생성에 실패했습니다.");

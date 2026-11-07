@@ -89,6 +89,14 @@ export async function POST(req: Request) {
         },
         { merge: true },
       );
+      // 감사 로그 — 클라이언트 경로(audited 규칙)와 같은 형식으로 남깁니다
+      tx.create(db.collection("auditLogs").doc(), {
+        actorUid: decoded.uid,
+        action: "admin.bootstrap",
+        targets: [`users/${decoded.uid}`],
+        summary: `${email} 을(를) 첫 최고 관리자로 설정`,
+        at: now,
+      });
     });
   } catch (e) {
     if (e instanceof Error && e.message === "already_bootstrapped") {

@@ -7,6 +7,7 @@ import {
   Building2,
   Check,
   CircleDot,
+  History,
   Info,
   Laptop,
   Loader2,
@@ -63,6 +64,7 @@ import {
   TwoFactorSetupModal,
 } from "@/components/settings/TwoFactorSetup";
 import { WebhookIntegrationCard } from "@/components/settings/WebhookIntegrationCard";
+import { AuditLogPanel } from "@/components/settings/AuditLogPanel";
 import { GoogleCalendarConnect } from "@/components/settings/GoogleCalendarConnect";
 import { GoogleDriveConnect } from "@/components/settings/GoogleDriveConnect";
 
@@ -72,7 +74,8 @@ type Tab =
   | "security"
   | "company"
   | "members"
-  | "integration";
+  | "integration"
+  | "audit";
 
 const PERSONAL_TABS: { key: Tab; label: string; icon: React.ElementType }[] = [
   { key: "profile", label: "내 프로필", icon: User },
@@ -83,6 +86,7 @@ const ADMIN_TABS: { key: Tab; label: string; icon: React.ElementType }[] = [
   { key: "company", label: "회사 정보", icon: Building2 },
   { key: "members", label: "권한 / 멤버 관리", icon: Users },
   { key: "integration", label: "연동 서비스", icon: Plug },
+  { key: "audit", label: "감사 로그", icon: History },
 ];
 
 const NOTIFY_ICONS: Record<string, React.ElementType> = { Bell, Mail, Webhook };
@@ -179,7 +183,7 @@ export default function SettingsPage() {
   );
   const isAdmin = profile?.role === "ADMIN" || profile?.role === "SUPER_ADMIN";
   const { data: secrets, saveUrl: saveWebhookUrl } = useIntegrationSecrets(workspace, isAdmin);
-  const isAdminTab = tab === "company" || tab === "members" || tab === "integration";
+  const isAdminTab = ADMIN_TABS.some((t) => t.key === tab);
   const activeTab: Tab = isAdminTab && !isAdmin ? "profile" : tab;
 
   const gw = profile?.gwSettings;
@@ -903,6 +907,8 @@ export default function SettingsPage() {
           )}
 
           {activeTab === "company" && <CompanyInfoCard />}
+
+          {activeTab === "audit" && <AuditLogPanel />}
 
           {activeTab === "integration" && (
             <GwCard className="p-5">

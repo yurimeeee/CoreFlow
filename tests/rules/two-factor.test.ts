@@ -2,7 +2,7 @@ import type { RulesTestEnvironment } from "@firebase/rules-unit-testing";
 import { collection, doc, getDoc, getDocs, setDoc, updateDoc } from "firebase/firestore";
 import { getBytes, ref } from "firebase/storage";
 import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
-import { assertFails, assertSucceeds, createEnv, db, member, seed } from "./helpers";
+import { assertFails, assertSucceeds, auditedBatch, createEnv, db, member, seed } from "./helpers";
 
 let env: RulesTestEnvironment;
 beforeAll(async () => {
@@ -86,6 +86,8 @@ describe("2FA 켜짐 여부·비밀키는 클라이언트가 못 건드린다", 
 
   it("관리자는 분실 계정의 2FA를 초기화할 수 있다", async () => {
     await seed(env, member("adm", "ADMIN"));
-    await assertSucceeds(updateDoc(doc(db(env, "adm"), "users", "tfa"), { twoFactorId: null }));
+    await assertSucceeds(
+      auditedBatch(env, "adm", ["users/tfa"], (b, d) => b.update(doc(d, "users", "tfa"), { twoFactorId: null })),
+    );
   });
 });

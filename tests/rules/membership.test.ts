@@ -2,7 +2,7 @@ import type { RulesTestEnvironment } from "@firebase/rules-unit-testing";
 import { collection, doc, getDoc, getDocs, setDoc } from "firebase/firestore";
 import { getBytes, ref, uploadBytes } from "firebase/storage";
 import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
-import { assertFails, assertSucceeds, createEnv, db, member, seed } from "./helpers";
+import { assertFails, assertSucceeds, auditedBatch, createEnv, db, member, seed } from "./helpers";
 
 let env: RulesTestEnvironment;
 beforeAll(async () => {
@@ -78,10 +78,14 @@ describe("integrationSecrets (웹훅 URL)", () => {
     await assertFails(getDoc(doc(db(env, "m"), "integrationSecrets", "main")));
   });
 
-  it("관리자는 읽고 쓸 수 있다", async () => {
+  it("관리자는 읽고, 감사 로그와 함께 쓸 수 있다", async () => {
     await assertSucceeds(getDoc(doc(db(env, "admin"), "integrationSecrets", "main")));
+    const secrets = { jandi: { webhookUrl: "https://wh.jandi.com/x" } };
+    await assertFails(setDoc(doc(db(env, "admin"), "integrationSecrets", "main"), secrets));
     await assertSucceeds(
-      setDoc(doc(db(env, "admin"), "integrationSecrets", "main"), { jandi: { webhookUrl: "https://wh.jandi.com/x" } }),
+      auditedBatch(env, "admin", ["integrationSecrets/main"], (b, d) =>
+        b.set(doc(d, "integrationSecrets", "main"), secrets),
+      ),
     );
   });
 });

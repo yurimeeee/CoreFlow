@@ -38,6 +38,7 @@ import { useAuthUser } from "@/hooks/useAuthUser";
 import { clearTwoFactorVerified } from "@/lib/twoFactorSession";
 import { adoptTwoFactorToken, twoFactorApi } from "@/lib/twoFactorApi";
 import { notifyEvent } from "@/lib/integrations/notify";
+import { auditedWrite } from "./audit";
 import { createGoogleCalendarEvent } from "@/lib/googleCalendar";
 import { localDateStr } from "@/lib/utils";
 import type { UserDoc } from "@/types/user";
@@ -1493,11 +1494,10 @@ export function useTeams() {
       const id = String(Date.now());
       const order =
         Math.max(-1, ...state.data.map((t) => t.order)) + 1;
-      await setDoc(doc(firebaseDb(), COL.teams, id), {
-        name: input.name,
-        parentId: input.parentId,
-        order,
-      });
+      await auditedWrite(
+        { action: "team.create", targets: [`teams/${id}`], summary: `팀 "${input.name}" 생성` },
+        (b) => b.set(doc(firebaseDb(), COL.teams, id), { name: input.name, parentId: input.parentId, order }),
+      );
       return id;
     },
     [state.data],
@@ -1506,15 +1506,31 @@ export function useTeams() {
   const updateTeam = React.useCallback(
     async (id: string, patch: Partial<TeamInput>) => {
       if (!isFirebaseConfigured) return;
-      await updateDoc(doc(firebaseDb(), COL.teams, id), patch);
+      const before = state.data.find((t) => t.id === id)?.name ?? id;
+      await auditedWrite(
+        {
+          action: "team.update",
+          targets: [`teams/${id}`],
+          summary: patch.name ? `팀 "${before}" → "${patch.name}"` : `팀 "${before}" 수정`,
+          detail: { fields: Object.keys(patch) },
+        },
+        (b) => b.update(doc(firebaseDb(), COL.teams, id), patch),
+      );
     },
-    [],
+    [state.data],
   );
 
-  const removeTeam = React.useCallback(async (id: string) => {
-    if (!isFirebaseConfigured) return;
-    await deleteDoc(doc(firebaseDb(), COL.teams, id));
-  }, []);
+  const removeTeam = React.useCallback(
+    async (id: string) => {
+      if (!isFirebaseConfigured) return;
+      const name = state.data.find((t) => t.id === id)?.name ?? id;
+      await auditedWrite(
+        { action: "team.delete", targets: [`teams/${id}`], summary: `팀 "${name}" 삭제` },
+        (b) => b.delete(doc(firebaseDb(), COL.teams, id)),
+      );
+    },
+    [state.data],
+  );
 
   return {
     teams: state.data,
@@ -1550,6 +1566,12 @@ export interface PersonInput {
 export function useOrgPeople() {
   const state = useGwCollection<UserDoc>(COL.users, [], "name");
   const { teams } = useTeams();
+  const { authUser, profile } = useAuthUser();
+  const isAdmin = profile?.role === "ADMIN" || profile?.role === "SUPER_ADMIN";
+  const nameOf = React.useCallback(
+    (id: string) => state.data.find((u) => (u.uid ?? (u as { id?: string }).id) === id)?.name ?? id,
+    [state.data],
+  );
 
   const deptOf = React.useCallback(
     (teamId: string | null): string => {
@@ -1609,7 +1631,10 @@ export function useOrgPeople() {
       createdAt: serverTimestamp() as unknown as UserDoc["createdAt"],
       updatedAt: serverTimestamp() as unknown as UserDoc["updatedAt"],
     };
-    await setDoc(doc(firebaseDb(), COL.users, id), payload);
+    await auditedWrite(
+      { action: "user.placeholder_create", targets: [`users/${id}`], summary: `가계정 "${input.name}" 생성` },
+      (b) => b.set(doc(firebaseDb(), COL.users, id), payload),
+    );
     return id;
   }, []);
 
@@ -1626,15 +1651,37 @@ export function useOrgPeople() {
       if (patch.status !== undefined) data.presence = patch.status;
       if (patch.boss !== undefined) data.managerId = patch.boss;
       if (patch.tags !== undefined) data.tasks = patch.tags;
-      await updateDoc(doc(firebaseDb(), COL.users, id), data);
+      const ref = doc(firebaseDb(), COL.users, id);
+      // 일반 구성원이 본인 프로필을 고치는 경우는 본인 수정 규칙으로 — 감사
+      // 로그는 관리자 권한으로 바꿀 때만 남깁니다(로그 생성 자체가 관리자 전용).
+      if (!isAdmin || (id === authUser?.uid && !("teamId" in data) && !("managerId" in data) && !("email" in data))) {
+        await updateDoc(ref, data);
+        return;
+      }
+      const fields = Object.keys(data).filter((k) => k !== "updatedAt");
+      await auditedWrite(
+        {
+          action: "user.update",
+          targets: [`users/${id}`],
+          summary: `"${nameOf(id)}" 정보 수정 (${fields.join(", ")})`,
+          detail: { fields },
+        },
+        (b) => b.update(ref, data),
+      );
     },
-    [],
+    [isAdmin, authUser, nameOf],
   );
 
-  const removePerson = React.useCallback(async (id: string) => {
-    if (!isFirebaseConfigured) return;
-    await deleteDoc(doc(firebaseDb(), COL.users, id));
-  }, []);
+  const removePerson = React.useCallback(
+    async (id: string) => {
+      if (!isFirebaseConfigured) return;
+      await auditedWrite(
+        { action: "user.delete", targets: [`users/${id}`], summary: `"${nameOf(id)}" 삭제` },
+        (b) => b.delete(doc(firebaseDb(), COL.users, id)),
+      );
+    },
+    [nameOf],
+  );
 
   return {
     people,
@@ -1927,7 +1974,16 @@ export function usePendingLeaves() {
             );
           }
         }
-        await updateDoc(doc(firebaseDb(), COL.leaves, id), { status });
+        await auditedWrite(
+          {
+            action: status === "승인" ? "leave.approve" : "leave.reject",
+            targets: [`leaves/${id}`],
+            summary: target
+              ? `${target.who}님 ${target.kind} ${status} (${target.start} ~ ${target.end}, ${target.days}일)`
+              : `연차 ${status}`,
+          },
+          (b) => b.update(doc(firebaseDb(), COL.leaves, id), { status }),
+        );
       }
       setData((p) => p.filter((l) => l.id !== id));
       if (target && isFirebaseConfigured) notifyEvent("leave_decided", id).catch(() => {});
@@ -2293,18 +2349,37 @@ export function usePendingUsers() {
     return unsub;
   }, []);
 
-  const approve = React.useCallback(async (uid: string) => {
-    setData((p) => p.filter((u) => u.uid !== uid));
-    await updateDoc(doc(firebaseDb(), COL.users, uid), {
-      status: "ACTIVE",
-      updatedAt: new Date(),
-    });
-  }, []);
+  const label = React.useCallback(
+    (uid: string) => {
+      const u = data.find((x) => x.uid === uid);
+      return u ? `${u.name} (${u.email})` : uid;
+    },
+    [data],
+  );
 
-  const reject = React.useCallback(async (uid: string) => {
-    setData((p) => p.filter((u) => u.uid !== uid));
-    await deleteDoc(doc(firebaseDb(), COL.users, uid));
-  }, []);
+  const approve = React.useCallback(
+    async (uid: string) => {
+      const who = label(uid);
+      setData((p) => p.filter((u) => u.uid !== uid));
+      await auditedWrite(
+        { action: "user.approve", targets: [`users/${uid}`], summary: `${who} 가입 승인` },
+        (b) => b.update(doc(firebaseDb(), COL.users, uid), { status: "ACTIVE", updatedAt: new Date() }),
+      );
+    },
+    [label],
+  );
+
+  const reject = React.useCallback(
+    async (uid: string) => {
+      const who = label(uid);
+      setData((p) => p.filter((u) => u.uid !== uid));
+      await auditedWrite(
+        { action: "user.reject", targets: [`users/${uid}`], summary: `${who} 가입 거절` },
+        (b) => b.delete(doc(firebaseDb(), COL.users, uid)),
+      );
+    },
+    [label],
+  );
 
   return { data, loading, approve, reject };
 }
@@ -2373,13 +2448,18 @@ export function useWorkspace() {
     async (patch: Partial<WorkspaceDoc> | Record<string, unknown>) => {
       if (!isFirebaseConfigured) return;
       const ref = doc(firebaseDb(), COL.workspace, "main");
+      const fields = Object.keys(patch);
+      const entry = {
+        action: "workspace.update" as const,
+        targets: ["workspace/main"],
+        summary: `워크스페이스 설정 변경 (${fields.join(", ")})`,
+        detail: { fields },
+      };
       try {
-        await updateDoc(ref, { ...patch, updatedAt: new Date() });
+        await auditedWrite(entry, (b) => b.update(ref, { ...patch, updatedAt: new Date() }));
       } catch {
-        await setDoc(
-          ref,
-          { ...expandDotPaths(patch), updatedAt: new Date() },
-          { merge: true },
+        await auditedWrite(entry, (b) =>
+          b.set(ref, { ...expandDotPaths(patch), updatedAt: new Date() }, { merge: true }),
         );
       }
     },
@@ -2417,26 +2497,33 @@ export function useIntegrationSecrets(workspace: WorkspaceDoc, enabled: boolean)
     for (const key of ["slack", "jandi"] as const) {
       const url = legacy[key];
       if (!url) continue;
-      (async () => {
-        await setDoc(
-          doc(firebaseDb(), COL.integrationSecrets, "main"),
-          { [key]: { webhookUrl: url } },
-          { merge: true },
-        );
-        await updateDoc(doc(firebaseDb(), COL.workspace, "main"), {
-          [`integrations.${key}.webhookUrl`]: deleteField(),
-        });
-      })().catch(() => {});
+      auditedWrite(
+        {
+          action: "integration.webhook_update",
+          targets: ["integrationSecrets/main", "workspace/main"],
+          summary: `${key} 웹훅 URL을 관리자 전용 문서로 이전`,
+        },
+        (b) => {
+          b.set(doc(firebaseDb(), COL.integrationSecrets, "main"), { [key]: { webhookUrl: url } }, { merge: true });
+          b.update(doc(firebaseDb(), COL.workspace, "main"), {
+            [`integrations.${key}.webhookUrl`]: deleteField(),
+          });
+        },
+      ).catch(() => {});
     }
   }, [enabled, legacySlack, legacyJandi]);
 
   const saveUrl = React.useCallback(
     async (key: "slack" | "jandi", webhookUrl: string) => {
       if (!isFirebaseConfigured) return;
-      await setDoc(
-        doc(firebaseDb(), COL.integrationSecrets, "main"),
-        { [key]: { webhookUrl } },
-        { merge: true },
+      // URL 자체는 비밀값이라 로그에 남기지 않습니다
+      await auditedWrite(
+        {
+          action: "integration.webhook_update",
+          targets: ["integrationSecrets/main"],
+          summary: `${key === "slack" ? "Slack" : "잔디"} 웹훅 URL ${webhookUrl ? "변경" : "삭제"}`,
+        },
+        (b) => b.set(doc(firebaseDb(), COL.integrationSecrets, "main"), { [key]: { webhookUrl } }, { merge: true }),
       );
     },
     [],
@@ -2841,7 +2928,16 @@ export async function runSeed(
   let done = 0;
 
   for (const s of seed) {
-    await setDoc(doc(db, s.collection, s.id), s.data, { merge: true });
+    const ref = doc(db, s.collection, s.id);
+    // 관리자 전용 컬렉션(워크스페이스 설정)은 감사 로그와 함께만 쓸 수 있습니다
+    if (s.collection === COL.workspace) {
+      await auditedWrite(
+        { action: "seed", targets: [`${s.collection}/${s.id}`], summary: "시드: 워크스페이스 기본 설정" },
+        (b) => b.set(ref, s.data, { merge: true }),
+      );
+    } else {
+      await setDoc(ref, s.data, { merge: true });
+    }
     done += 1;
     onProgress?.(done, total);
   }
@@ -2856,12 +2952,18 @@ export async function runSeed(
       { kind: "초과근무", start: `${y}-06-20`, end: `${y}-06-20`, days: 0, hours: 3, reason: "배포 대응", status: "대기" },
     ];
     for (let i = 0; i < sampleLeaves.length; i++) {
-      await setDoc(doc(db, COL.leaves, `${admin.uid}-seed-${i}`), {
-        uid: admin.uid,
-        who,
-        order: Date.now() - i * 1000,
-        ...sampleLeaves[i],
-      });
+      const id = `${admin.uid}-seed-${i}`;
+      // 승인 상태로 바로 만드는 건 관리자 경로라 감사 로그가 필요합니다
+      await auditedWrite(
+        { action: "seed", targets: [`leaves/${id}`], summary: `시드: 연차 샘플 (${sampleLeaves[i].kind})` },
+        (b) =>
+          b.set(doc(db, COL.leaves, id), {
+            uid: admin.uid,
+            who,
+            order: Date.now() - i * 1000,
+            ...sampleLeaves[i],
+          }),
+      );
       done += 1;
       onProgress?.(done, total);
     }

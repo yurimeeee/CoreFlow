@@ -4,7 +4,15 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment,
 } from "@firebase/rules-unit-testing";
-import { doc, setDoc } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  serverTimestamp,
+  setDoc,
+  writeBatch,
+  type Firestore,
+  type WriteBatch,
+} from "firebase/firestore";
 
 export { assertFails, assertSucceeds } from "@firebase/rules-unit-testing";
 
@@ -41,4 +49,33 @@ export function members(...uids: string[]) {
 
 export function db(env: RulesTestEnvironment, uid: string, email?: string) {
   return env.authenticatedContext(uid, email ? { email } : {}).firestore();
+}
+
+/**
+ * 관리자 전용 쓰기 — src/lib/groupware/audit.ts 의 auditedWrite 처럼 감사 로그와
+ * auditCursor 를 같은 배치로 묶어 커밋합니다. log 로 로그 필드를 덮어써 규칙
+ * 위반 케이스를 만들 수 있습니다.
+ */
+export function auditedBatch(
+  env: RulesTestEnvironment,
+  uid: string,
+  targets: string[],
+  apply: (b: WriteBatch, d: Firestore) => void,
+  log: Record<string, unknown> = {},
+) {
+  // rules-unit-testing 은 compat 타입을 돌려주지만 실제로는 modular API 와 호환됩니다
+  const d = db(env, uid) as unknown as Firestore;
+  const b = writeBatch(d);
+  const logRef = doc(collection(d, "auditLogs"));
+  b.set(logRef, {
+    actorUid: uid,
+    action: "test",
+    targets,
+    summary: "test",
+    at: serverTimestamp(),
+    ...log,
+  });
+  b.set(doc(d, "auditCursor", uid), { logId: logRef.id });
+  apply(b, d);
+  return b.commit();
 }
