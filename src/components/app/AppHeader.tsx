@@ -16,17 +16,18 @@ import {
   FileCheck2,
   Megaphone,
   MessageCircle,
+  MessageSquare,
   Menu,
   Palmtree,
   Plus,
   Search,
+  SquareCheck,
   SquarePlus,
   Timer,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NOTIF_CAT_COLORS } from "@/lib/groupware/data";
-import { useChats, useCurrentUser, useNotifications } from "@/lib/groupware/hooks";
-import { getReadIds, saveReadIds } from "@/lib/notificationRead";
+import { useChats, useNotifications } from "@/lib/groupware/hooks";
 import { pill } from "@/lib/groupware/ui";
 import { CommandPalette } from "./CommandPalette";
 import { ThemeToggle } from "./ThemeToggle";
@@ -34,6 +35,8 @@ import { screenTitle } from "./nav";
 
 const NOTIF_ICONS: Record<string, React.ElementType> = {
   FileCheck2,
+  MessageSquare,
+  SquareCheck,
   CircleX,
   Clock,
   Megaphone,
@@ -42,7 +45,7 @@ const NOTIF_ICONS: Record<string, React.ElementType> = {
   CalendarClock,
 };
 
-const NOTIF_TABS = ["전체", "결재", "근태", "공지"];
+const NOTIF_TABS = ["전체", "결재", "Task", "근태", "공지"];
 
 export function AppHeader({ onMenu }: { onMenu: () => void }) {
   const router = useRouter();
@@ -51,31 +54,9 @@ export function AppHeader({ onMenu }: { onMenu: () => void }) {
   const [quickOpen, setQuickOpen] = React.useState(false);
   const [paletteOpen, setPaletteOpen] = React.useState(false);
   const [tab, setTab] = React.useState("전체");
-  const [read, setRead] = React.useState<Record<string, boolean>>({});
 
-  const notifs = useNotifications();
+  const { items: notifs, unread, markRead } = useNotifications();
   const { totalUnread: chatUnread } = useChats();
-  const me = useCurrentUser();
-
-  // 계정이 확인되면 이 브라우저에 저장해둔 읽음 상태를 불러옵니다. 렌더
-  // 도중 상태를 조정하는 패턴(useChatMessages의 seenChatId와 동일)이라
-  // effect 안에서 setState하지 않습니다 — me.uid가 실제로 바뀐 딱 한
-  // 번만 조건이 참이 됩니다.
-  const [readForUid, setReadForUid] = React.useState<string | null>(null);
-  if (me.uid !== readForUid) {
-    setReadForUid(me.uid);
-    setRead(
-      me.uid ? Object.fromEntries(getReadIds(me.uid).map((id) => [id, true])) : {},
-    );
-  }
-
-  // read가 바뀔 때마다 저장하되, 더 이상 목록에 없는(오래돼 밀려난) 알림
-  // id는 함께 걸러내 저장 용량이 끝없이 늘지 않게 합니다.
-  React.useEffect(() => {
-    if (!me.uid) return;
-    const ids = Object.keys(read).filter((id) => notifs.some((n) => n.id === id));
-    saveReadIds(me.uid, ids);
-  }, [read, me.uid, notifs]);
 
   const quickActions = React.useMemo(
     () => [
@@ -115,7 +96,6 @@ export function AppHeader({ onMenu }: { onMenu: () => void }) {
   }, [quickActions, router]);
 
   const items = notifs.filter((n) => tab === "전체" || n.cat === tab);
-  const unread = notifs.filter((n) => !read[n.id]).length;
 
   return (
     <header className="relative z-20 flex h-15 shrink-0 items-center gap-4 border-b border-border bg-card/85 px-4 backdrop-blur sm:px-5.5">
@@ -216,11 +196,7 @@ export function AppHeader({ onMenu }: { onMenu: () => void }) {
                     {unread ? `미확인 ${unread}건` : "모두 확인"}
                   </span>
                   <button
-                    onClick={() => {
-                      const m: Record<string, boolean> = {};
-                      notifs.forEach((n) => (m[n.id] = true));
-                      setRead(m);
-                    }}
+                    onClick={() => markRead(notifs.filter((n) => n.unread).map((n) => n.id))}
                     className="ml-auto flex items-center gap-1 rounded-[7px] px-1.5 py-1 text-[11.5px] font-semibold text-primary hover:bg-accent"
                   >
                     <CheckCheck className="size-3" />
@@ -231,7 +207,7 @@ export function AppHeader({ onMenu }: { onMenu: () => void }) {
                 <div className="flex gap-1 px-3 pb-2.5">
                   {NOTIF_TABS.map((t) => {
                     const c = notifs.filter(
-                      (x) => (t === "전체" || x.cat === t) && !read[x.id],
+                      (x) => (t === "전체" || x.cat === t) && x.unread,
                     ).length;
                     return (
                       <button
@@ -254,12 +230,12 @@ export function AppHeader({ onMenu }: { onMenu: () => void }) {
                   {items.map((n) => {
                     const c = NOTIF_CAT_COLORS[n.cat];
                     const Icon = NOTIF_ICONS[n.icon] ?? Bell;
-                    const isUnread = !read[n.id];
+                    const isUnread = n.unread;
                     return (
                       <button
                         key={n.id}
                         onClick={() => {
-                          setRead((r) => ({ ...r, [n.id]: true }));
+                          markRead([n.id]);
                           setNotifOpen(false);
                           router.push(n.to);
                         }}

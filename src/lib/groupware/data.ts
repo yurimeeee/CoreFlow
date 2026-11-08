@@ -204,6 +204,7 @@ export const NOTIFS: {
 
 export const NOTIF_CAT_COLORS: Record<string, [string, string, string]> = {
   결재: ["#eef2ff", "#4338ca", "#4f46e5"],
+  Task: ["#f5f3ff", "#6d28d9", "#7c3aed"],
   근태: ["#f0fdf4", "#15803d", "#16a34a"],
   공지: ["#fff7ed", "#c2410c", "#ea580c"],
 };
@@ -262,10 +263,12 @@ export const NOTIFY_GROUPS: {
   {
     title: "서비스 내 알림", desc: "그룹웨어 헤더 벨 아이콘으로 표시됩니다", icon: "Bell", bg: "#eef2ff", color: "#4f46e5",
     rows: [
-      { key: "appAttendance", label: "출퇴근", hint: "출근 미기록 · 퇴근 알림 (18:00)", on: false },
-      { key: "appApproval", label: "결재 요청", hint: "내 결재 차례 · 반려 · 완결 알림", on: false },
-      { key: "appNotice", label: "공지사항", hint: "필독 공지 등록 시 즉시 알림", on: false },
-      { key: "appMention", label: "멘션 및 코멘트", hint: "Task · 문서에서 나를 멘션한 경우", on: false },
+      // 예전 app* 키는 실제로 적용되지 않으면서 설정 저장 때 false 로 함께
+      // 저장됐습니다 — 그 값이 이제 알림을 꺼버리지 않도록 키를 새로 둡니다.
+      { key: "inboxApproval", label: "결재", hint: "내 결재 차례 · 내 기안의 승인 · 반려", on: true },
+      { key: "inboxAttendance", label: "근태", hint: "연차 · 초과근무 신청의 승인 · 반려", on: true },
+      { key: "inboxNotice", label: "공지사항", hint: "읽지 않은 공지", on: true },
+      { key: "inboxMention", label: "Task · 댓글 · 멘션", hint: "담당자 지정 · 내 문서의 새 댓글 · @이름 멘션", on: true },
     ],
   },
   {

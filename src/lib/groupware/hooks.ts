@@ -11,6 +11,7 @@ import {
   getDoc,
   getDocs,
   increment,
+  limit,
   onSnapshot,
   orderBy,
   query,
@@ -38,6 +39,9 @@ import { useAuthUser } from "@/hooks/useAuthUser";
 import { clearTwoFactorVerified } from "@/lib/twoFactorSession";
 import { adoptTwoFactorToken, twoFactorApi } from "@/lib/twoFactorApi";
 import { notifyEvent } from "@/lib/integrations/notify";
+import { pushInbox } from "@/lib/inbox";
+import { getReadIds, saveReadIds } from "@/lib/notificationRead";
+import type { InboxCat } from "@/app/api/notifications/route";
 import { auditedWrite } from "./audit";
 import { createGoogleCalendarEvent } from "@/lib/googleCalendar";
 import { localDateStr } from "@/lib/utils";
@@ -439,6 +443,7 @@ export function useNoticeComments(noticeId: string) {
           doc(firebaseDb(), noticeCommentsPath(noticeId), id),
           payload,
         );
+        void pushInbox("comment_added", `notices:${noticeId}:${id}`);
         await updateDoc(doc(firebaseDb(), COL.notices, noticeId), {
           comments: increment(1),
         }).catch(() => {});
@@ -578,6 +583,7 @@ export function useTasks() {
       setAdded((p) => [...p, { id, ...payload }]);
       if (isFirebaseConfigured) {
         await setDoc(doc(firebaseDb(), COL.tasks, id), payload);
+        if (input.assigneeId && input.assigneeId !== me.uid) void pushInbox("task_assigned", id);
       }
     },
     [me.name, me.uid, data],
@@ -598,8 +604,10 @@ export function useTasks() {
     setOverlay((p) => ({ ...p, [id]: { ...p[id], ...patch } }));
     if (isFirebaseConfigured) {
       await updateDoc(doc(firebaseDb(), COL.tasks, id), patch);
+      // 담당자가 그대로면 서버가 같은 알림(같은 key)을 다시 만들지 않습니다
+      if (input.assigneeId && input.assigneeId !== me.uid) void pushInbox("task_assigned", id);
     }
-  }, []);
+  }, [me.uid]);
 
   const removeTask = React.useCallback(async (id: string) => {
     setOverlay((p) => ({ ...p, [id]: null }));
@@ -767,6 +775,7 @@ export function useTaskComments(taskId: string) {
       setAdded((p) => [...p, { id, ...payload }]);
       if (isFirebaseConfigured) {
         await setDoc(doc(firebaseDb(), taskCommentsPath(taskId), id), payload);
+        void pushInbox("comment_added", `tasks:${taskId}:${id}`);
       }
     },
     [taskId, me.name, me.role, authUser?.uid],
@@ -1159,7 +1168,10 @@ export function useApprovalDoc(no: string) {
           } satisfies Omit<LeaveDoc, "id">);
         }
       }
-      if (isFirebaseConfigured) notifyEvent("approval_decided", no).catch(() => {});
+      if (isFirebaseConfigured) {
+        notifyEvent("approval_decided", no).catch(() => {});
+        void pushInbox("approval_decided", no);
+      }
     },
     [no, me, document],
   );
@@ -1246,6 +1258,7 @@ export function useApprovalComments(no: string) {
       setAdded((p) => [...p, { id, ...payload }]);
       if (isFirebaseConfigured) {
         await setDoc(doc(firebaseDb(), approvalCommentsPath(no), id), payload);
+        void pushInbox("comment_added", `approvals:${no}:${id}`);
       }
     },
     [no, me.name, me.role, authUser?.uid],
@@ -1998,7 +2011,10 @@ export function usePendingLeaves() {
         );
       }
       setData((p) => p.filter((l) => l.id !== id));
-      if (target && isFirebaseConfigured) notifyEvent("leave_decided", id).catch(() => {});
+      if (target && isFirebaseConfigured) {
+        notifyEvent("leave_decided", id).catch(() => {});
+        void pushInbox("leave_decided", id);
+      }
     },
     [data],
   );
@@ -2845,84 +2861,154 @@ export function useChatMessages(chatId: string | null) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  알림 센터 — 전용 컬렉션 없이 결재·공지·근태에서 파생                  */
+/*  알림 센터                                                           */
 /* ------------------------------------------------------------------ */
 
 export interface Notification {
   id: string;
-  cat: "결재" | "공지" | "근태";
+  cat: InboxCat;
   title: string;
   desc: string;
   time: string;
   to: string;
   icon: string;
+  unread: boolean;
 }
 
-export function useNotifications(): Notification[] {
+interface InboxDoc {
+  cat: InboxCat;
+  title: string;
+  desc: string;
+  href: string;
+  icon: string;
+  at: Timestamp | null;
+  readAt: Timestamp | null;
+}
+
+const INBOX_LIMIT = 30;
+
+function inboxTime(t: Timestamp | null) {
+  if (!t) return "방금";
+  const d = t.toDate();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/**
+ * 헤더 알림벨. 두 종류를 합칩니다.
+ * - 상태에서 바로 계산하는 항목: 내 결재 차례 · 안 읽은 공지. 처리하면
+ *   저절로 사라지고, 읽음 표시는 이 브라우저(localStorage)에만 남습니다.
+ * - 받은편지함(users/{나}/inbox): 내 기안의 승인·반려, 연차 결정, Task 담당
+ *   지정, 댓글·멘션. 서버(/api/notifications)가 확인하고 쓰며 읽음 표시
+ *   (readAt)가 계정에 저장돼 다른 기기에서도 유지됩니다.
+ * 설정 > 알림의 서비스 내 알림 토글을 끄면 해당 종류는 보이지 않습니다
+ * (받은편지함은 서버가 아예 쓰지 않음).
+ */
+export function useNotifications() {
   const { data: approvals } = useApprovals();
   const { data: notices } = useNotices();
-  const { data: leaves } = useLeaves();
   const me = useCurrentUser();
+  const { profile } = useAuthUser();
+  const toggles = profile?.gwSettings?.toggles;
+  const approvalOn = toggles?.inboxApproval !== false;
+  const noticeOn = toggles?.inboxNotice !== false;
 
-  return React.useMemo(() => {
-    const byRecency = <T extends { _s: number }>(a: T, b: T) => a._s - b._s;
+  const [inbox, setInbox] = React.useState<{ uid: string; docs: (InboxDoc & { id: string })[] } | null>(null);
+  React.useEffect(() => {
+    if (!isFirebaseConfigured || !me.uid) return;
+    const uid = me.uid;
+    return onSnapshot(
+      query(collection(firebaseDb(), "users", uid, "inbox"), orderBy("at", "desc"), limit(INBOX_LIMIT)),
+      (snap) => setInbox({ uid, docs: snap.docs.map((d) => ({ id: d.id, ...(d.data() as InboxDoc) })) }),
+      () => setInbox({ uid, docs: [] }),
+    );
+  }, [me.uid]);
+  const inboxDocs = React.useMemo(() => (inbox?.uid === me.uid ? inbox.docs : []), [inbox, me.uid]);
 
+  // 계산 항목의 읽음 상태 — 계정이 바뀐 딱 한 번만 저장값을 불러옵니다
+  // (렌더 중 상태 조정 패턴, effect 안에서 setState 하지 않음)
+  const [read, setRead] = React.useState<Record<string, boolean>>({});
+  const [readForUid, setReadForUid] = React.useState<string | null>(null);
+  if (me.uid !== readForUid) {
+    setReadForUid(me.uid);
+    setRead(me.uid ? Object.fromEntries(getReadIds(me.uid).map((id) => [id, true])) : {});
+  }
+
+  const derived = React.useMemo(() => {
     // bucket === "pending"만 보면 회사 전체 상신 문서가 다 내 알림으로
     // 뜹니다 — isPendingApprover로 결재선의 현재 차례가 나인 문서만 골라야
     // /approval, /my 등 다른 화면의 "결재 대기" 집계와도 건수가 맞습니다.
-    const ap = approvals
-      .filter((a) => a.bucket === "pending" && isPendingApprover(a, me))
-      .map((a) => ({
-        id: `ap-${a.no}`,
-        cat: "결재" as const,
-        title: `결재 대기 · ${a.title}`,
-        desc: `${a.author} 기안 · ${a.type}`,
-        time: a.date,
-        to: `/approval/${a.no}`,
-        icon: "FileCheck2",
-        _s: a.order,
-      }))
-      .sort(byRecency);
+    const ap = !approvalOn
+      ? []
+      : approvals
+          .filter((a) => a.bucket === "pending" && isPendingApprover(a, me))
+          .sort((a, b) => a.order - b.order)
+          .map((a) => ({
+            id: `ap-${a.no}`,
+            cat: "결재" as const,
+            title: `결재 대기 · ${a.title}`,
+            desc: `${a.author} 기안 · ${a.type}`,
+            time: a.date,
+            to: `/approval/${a.no}`,
+            icon: "FileCheck2",
+          }));
+    const no = !noticeOn
+      ? []
+      : notices
+          .filter((n) => isNoticeUnread(n, me.uid))
+          .sort((a, b) => a.order - b.order)
+          .map((n) => ({
+            id: `no-${n.id}`,
+            cat: "공지" as const,
+            title: n.pinned ? `[필독] ${n.title}` : n.title,
+            desc: `${n.author} · ${n.date}`,
+            time: n.date,
+            to: `/notice/${n.id}`,
+            icon: "Megaphone",
+          }));
+    return { ap, no };
+  }, [approvals, notices, me, approvalOn, noticeOn]);
 
-    const no = notices
-      .filter((n) => isNoticeUnread(n, me.uid))
-      .map((n) => ({
-        id: `no-${n.id}`,
-        cat: "공지" as const,
-        title: n.pinned ? `[필독] ${n.title}` : n.title,
-        desc: `${n.author} · ${n.date}`,
-        time: n.date,
-        to: `/notice/${n.id}`,
-        icon: "Megaphone",
-        _s: n.order,
-      }))
-      .sort(byRecency);
+  // 더 이상 목록에 없는(처리했거나 밀려난) 항목 id 는 저장에서 걸러 용량이 늘지 않게
+  React.useEffect(() => {
+    if (!me.uid) return;
+    const ids = new Set([...derived.ap, ...derived.no].map((n) => n.id));
+    saveReadIds(me.uid, Object.keys(read).filter((id) => ids.has(id)));
+  }, [read, me.uid, derived]);
 
-    const lv = leaves
-      .filter((l) => l.status !== "대기")
-      .map((l) => ({
-        id: `lv-${l.id}`,
-        cat: "근태" as const,
-        title: `${l.kind} 신청이 ${l.status}되었습니다`,
-        desc:
-          l.end && l.end !== l.start ? `${l.start} ~ ${l.end}` : l.start,
-        time: l.start.slice(5).replace("-", "."),
-        to: "/attendance",
-        icon: l.status === "반려" ? "CircleX" : "CircleCheck",
-        _s: -l.order,
-      }))
-      .sort(byRecency);
-
-    return [...ap, ...no, ...lv].slice(0, 15).map((n) => ({
-      id: n.id,
-      cat: n.cat,
-      title: n.title,
-      desc: n.desc,
-      time: n.time,
-      to: n.to,
-      icon: n.icon,
+  const items: Notification[] = React.useMemo(() => {
+    const box = inboxDocs.map((d) => ({
+      id: `in-${d.id}`,
+      cat: d.cat,
+      title: d.title,
+      desc: d.desc,
+      time: inboxTime(d.at),
+      to: d.href,
+      icon: d.icon,
+      unread: !d.readAt,
     }));
-  }, [approvals, notices, leaves, me]);
+    const mark = <T extends { id: string }>(n: T) => ({ ...n, unread: !read[n.id] });
+    // 처리할 일(결재 차례)을 맨 위에, 그다음 최신 받은편지함, 안 읽은 공지
+    return [...derived.ap.map(mark), ...box, ...derived.no.map(mark)];
+  }, [derived, inboxDocs, read]);
+
+  const markRead = React.useCallback(
+    (ids: string[]) => {
+      const inboxIds = ids.filter((id) => id.startsWith("in-")).map((id) => id.slice(3));
+      const local = ids.filter((id) => !id.startsWith("in-"));
+      if (local.length) setRead((r) => ({ ...r, ...Object.fromEntries(local.map((id) => [id, true])) }));
+      const unreadInbox = inboxIds.filter((id) => inboxDocs.some((d) => d.id === id && !d.readAt));
+      if (!unreadInbox.length || !isFirebaseConfigured || !me.uid) return;
+      const batch = writeBatch(firebaseDb());
+      for (const id of unreadInbox) {
+        batch.update(doc(firebaseDb(), "users", me.uid, "inbox", id), { readAt: serverTimestamp() });
+      }
+      batch.commit().catch(() => {});
+    },
+    [inboxDocs, me.uid],
+  );
+
+  return { items, unread: items.filter((n) => n.unread).length, markRead };
 }
 
 /* ------------------------------------------------------------------ */

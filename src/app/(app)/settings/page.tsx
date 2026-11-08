@@ -189,7 +189,8 @@ export default function SettingsPage() {
   const gw = profile?.gwSettings;
   const name = edits.name ?? profile?.name ?? me.name;
   const email = edits.email ?? profile?.email ?? me.email ?? "";
-  const toggles = edits.toggles ?? gw?.toggles ?? DEFAULT_TOGGLES;
+  // 저장된 값에 없는(새로 생긴) 항목은 기본값으로
+  const toggles = edits.toggles ?? { ...DEFAULT_TOGGLES, ...gw?.toggles };
   const lang = edits.lang ?? gw?.lang ?? LANGS[0];
   const tz = edits.tz ?? gw?.tz ?? TIMEZONES[0];
   const rbac = edits.rbac ?? workspace.rbac ?? DEFAULT_RBAC;

@@ -158,6 +158,17 @@ service cloud.firestore {
       allow delete: if isAuditedAdmin('users/' + uid);
     }
 
+    /* ---------------- users/{uid}/inbox/{key} (알림 센터 받은편지함) ----------------
+       서버(/api/notifications)가 호출자가 실제로 한 일을 확인한 뒤에만 씁니다 —
+       클라이언트가 남의 받은편지함에 직접 쓸 수 있으면 가짜 "결재 승인" 알림을
+       보낼 수 있습니다. 본인은 읽고, 읽음 표시(readAt)만 바꾸고, 지울 수 있습니다. */
+    match /users/{uid}/inbox/{key} {
+      allow read, delete: if isMember() && request.auth.uid == uid;
+      allow update: if isMember() && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readAt']);
+      allow create: if false;
+    }
+
     /* ---------------- userSecrets/{uid} (2FA 비밀키 · 백업코드 해시) ----------------
        서버(/api/auth/two-factor, Admin SDK)만 읽고 씁니다. 처음엔 비밀키가
        users/{uid} 안에 있어 다른 직원이 읽을 수 있었고, 여기로 옮긴 뒤에도
