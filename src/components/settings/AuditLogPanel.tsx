@@ -61,7 +61,8 @@ async function fetchPage(after: QueryDocumentSnapshot | null) {
  * 읽습니다. 종류 필터는 불러온 범위 안에서 적용합니다(복합 색인 불필요).
  */
 export function AuditLogPanel() {
-  const { people } = useOrgPeople();
+  // 퇴사자 이름도 찾아야 해서 people 대신 전체 users 기준 nameOf 를 씁니다
+  const { nameOf } = useOrgPeople();
   const [logs, setLogs] = React.useState<AuditLogDoc[]>([]);
   const [cursor, setCursor] = React.useState<QueryDocumentSnapshot | null>(null);
   const [hasMore, setHasMore] = React.useState(false);
@@ -101,7 +102,6 @@ export function AuditLogPanel() {
     };
   }, []);
 
-  const nameOf = (uid: string) => people.find((p) => p.id === uid)?.name ?? uid.slice(0, 8);
   const shown = group ? logs.filter((l) => l.action.startsWith(group)) : logs;
 
   return (

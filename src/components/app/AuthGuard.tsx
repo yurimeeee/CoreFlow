@@ -104,6 +104,8 @@ function NotMember({
             ? "관리자 승인을 기다리고 있습니다"
             : status === "SUSPENDED"
               ? "사용이 중지된 계정입니다"
+              : status === "RESIGNED"
+                ? "퇴사 처리된 계정입니다"
               : "워크스페이스 구성원이 아닙니다"}
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">

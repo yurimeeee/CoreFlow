@@ -1587,27 +1587,37 @@ export function useOrgPeople() {
     [teams],
   );
 
+  const toPerson = React.useCallback(
+    (u: UserDoc): Person => {
+      const team = teams.find((t) => t.id === u.teamId);
+      return {
+        id: u.uid,
+        name: u.name,
+        role: u.position,
+        teamId: u.teamId,
+        dept: deptOf(u.teamId),
+        team: team?.name ?? deptOf(u.teamId),
+        email: u.email,
+        ext: u.extensionNumber ?? "",
+        mobile: u.phone,
+        status: u.presence ?? "online",
+        boss: u.managerId,
+        tags: u.tasks ?? [],
+        placeholder: u.status === "PLACEHOLDER",
+      };
+    },
+    [teams, deptOf],
+  );
+
+  // 퇴사자는 디렉토리·담당자/결재자 선택에서 빠집니다. 예전 기록의 이름은
+  // nameOf 가 전체 users 로 찾아 줍니다.
   const people: Person[] = React.useMemo(
-    () =>
-      state.data.map((u) => {
-        const team = teams.find((t) => t.id === u.teamId);
-        return {
-          id: u.uid,
-          name: u.name,
-          role: u.position,
-          teamId: u.teamId,
-          dept: deptOf(u.teamId),
-          team: team?.name ?? deptOf(u.teamId),
-          email: u.email,
-          ext: u.extensionNumber ?? "",
-          mobile: u.phone,
-          status: u.presence ?? "online",
-          boss: u.managerId,
-          tags: u.tasks ?? [],
-          placeholder: u.status === "PLACEHOLDER",
-        };
-      }),
-    [state.data, teams, deptOf],
+    () => state.data.filter((u) => u.status !== "RESIGNED").map(toPerson),
+    [state.data, toPerson],
+  );
+  const formerPeople: Person[] = React.useMemo(
+    () => state.data.filter((u) => u.status === "RESIGNED").map(toPerson),
+    [state.data, toPerson],
   );
 
   const addPerson = React.useCallback(async (input: PersonInput) => {
@@ -1685,6 +1695,8 @@ export function useOrgPeople() {
 
   return {
     people,
+    formerPeople,
+    nameOf,
     loading: state.loading,
     source: state.source,
     addPerson,

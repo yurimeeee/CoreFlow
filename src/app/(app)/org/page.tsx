@@ -17,6 +17,7 @@ import {
   Search,
   Smartphone,
   Trash2,
+  UserMinus,
   UserPlus,
   Users,
   X,
@@ -46,6 +47,7 @@ import { avatarStyle, pill, statusDot, statusPill } from "@/lib/groupware/ui";
 import { GwCard, PageHeader, Segmented } from "@/components/app/primitives";
 import { PositionSelect } from "@/components/app/PositionSelect";
 import { EmptyState } from "@/components/app/EmptyState";
+import { FormerPeopleCard, OffboardModal } from "@/components/org/OffboardModal";
 
 const STATUS_OPTIONS: { value: PersonStatus; label: string }[] = [
   { value: "online", label: "근무 중" },
@@ -61,8 +63,10 @@ export default function OrgPage() {
   const [profileId, setProfileId] = React.useState<string | null>(null);
   const [addOpen, setAddOpen] = React.useState(false);
   const [assignTeamId, setAssignTeamId] = React.useState<string | null>(null);
+  const [offboarding, setOffboarding] = React.useState(false);
   const {
     people: directory,
+    formerPeople,
     addPerson,
     updatePerson,
     removePerson,
@@ -284,6 +288,7 @@ export default function OrgPage() {
             })}
             {isAdmin && <AddTeamForm teams={teams} onAdd={addTeam} />}
           </GwCard>
+          {isAdmin && <FormerPeopleCard people={formerPeople} />}
         </aside>
 
         <div className="flex min-w-[320px] flex-[1_1_560px] flex-col gap-4">
@@ -444,6 +449,23 @@ export default function OrgPage() {
           onSave={(patch) => updatePerson(selected.id, patch)}
           onDelete={async () => {
             await removePerson(selected.id);
+            setProfileId(null);
+          }}
+          onOffboard={
+            isAdmin && !selected.placeholder && selected.id !== profile?.uid
+              ? () => setOffboarding(true)
+              : undefined
+          }
+        />
+      )}
+
+      {selected && offboarding && (
+        <OffboardModal
+          person={selected}
+          directory={directory}
+          onClose={() => setOffboarding(false)}
+          onDone={() => {
+            setOffboarding(false);
             setProfileId(null);
           }}
         />
@@ -944,6 +966,7 @@ function ProfileDrawer({
   onOpen,
   onSave,
   onDelete,
+  onOffboard,
 }: {
   person: Person;
   directory: Person[];
@@ -953,6 +976,8 @@ function ProfileDrawer({
   onOpen: (id: string) => void;
   onSave: (patch: Partial<PersonInput>) => Promise<void>;
   onDelete: () => Promise<void>;
+  /** 관리자가 다른 실계정을 볼 때만 — 퇴사 처리 모달 열기 */
+  onOffboard?: () => void;
 }) {
   const router = useRouter();
   const me = useCurrentUser();
@@ -1045,6 +1070,16 @@ function ProfileDrawer({
                 <Pencil className="size-3" />
                 편집
               </button>
+              {onOffboard && (
+                <button
+                  onClick={onOffboard}
+                  disabled={busy}
+                  className="flex h-7.5 items-center gap-1 rounded-lg border border-[#fecaca] px-2.5 text-[12px] font-semibold text-[#b91c1c] hover:bg-[#fef2f2] disabled:opacity-50"
+                >
+                  <UserMinus className="size-3" />
+                  퇴사 처리
+                </button>
+              )}
               <button
                 onClick={del}
                 disabled={busy}

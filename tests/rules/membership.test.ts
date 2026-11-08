@@ -1,5 +1,5 @@
 import type { RulesTestEnvironment } from "@firebase/rules-unit-testing";
-import { collection, doc, getDoc, getDocs, setDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, setDoc, updateDoc } from "firebase/firestore";
 import { getBytes, ref, uploadBytes } from "firebase/storage";
 import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
 import { assertFails, assertSucceeds, auditedBatch, createEnv, db, member, seed } from "./helpers";
@@ -16,6 +16,7 @@ beforeEach(async () => {
     ...member("m"),
     "users/pending": { uid: "pending", role: "MEMBER", status: "PENDING" },
     "users/suspended": { uid: "suspended", role: "ADMIN", status: "SUSPENDED" },
+    "users/resigned": { uid: "resigned", role: "ADMIN", status: "RESIGNED", employeeId: "", teamId: null, managerId: null, email: "r@x.com" },
     "notices/n1": { status: "published", authorUid: "m", title: "T" },
     "tasks/t1": { title: "T", createdBy: "m" },
   });
@@ -38,6 +39,13 @@ describe("구성원(ACTIVE)만 공용 데이터 접근", () => {
 
   it("정지된 관리자 계정은 관리자 권한도 잃는다", async () => {
     await assertFails(setDoc(doc(db(env, "suspended"), "teams", "x"), { name: "x" }));
+  });
+
+  it("퇴사 처리된 계정은 아직 유효한 토큰으로도 읽지 못하고, 스스로 복직할 수 없다", async () => {
+    const r = db(env, "resigned");
+    await assertFails(getDocs(collection(r, "users")));
+    await assertFails(getDocs(collection(r, "tasks")));
+    await assertFails(updateDoc(doc(r, "users", "resigned"), { status: "ACTIVE" }));
   });
 
   it("ACTIVE 구성원은 읽을 수 있다", async () => {

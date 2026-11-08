@@ -12,12 +12,16 @@ import type { Timestamp } from "firebase/firestore";
 
 export type UserRole = "SUPER_ADMIN" | "ADMIN" | "MEMBER";
 
-/** PLACEHOLDER = 아직 초대/가입 전인 가계정 (조직도 전용, 실제 Auth 계정 없음) */
+/**
+ * PLACEHOLDER = 아직 초대/가입 전인 가계정 (조직도 전용, 실제 Auth 계정 없음)
+ * RESIGNED = 퇴사 처리됨 (/api/admin/offboard — Auth 계정도 비활성화)
+ */
 export type UserStatus =
   | "INVITED"
   | "PENDING"
   | "ACTIVE"
   | "SUSPENDED"
+  | "RESIGNED"
   | "PLACEHOLDER";
 
 export type InviteStatus = "INVITED" | "PENDING" | "COMPLETED" | "EXPIRED";
@@ -79,6 +83,10 @@ export interface UserDoc {
    * 바뀌어 이전 세션이 모두 무효가 됩니다.
    */
   twoFactorId?: string | null;
+
+  /* 퇴사 처리 (서버만 씀) — 시각과 처리한 관리자 uid, 복직하면 null */
+  resignedAt?: Timestamp | Date | null;
+  resignedBy?: string | null;
 
   /* 메타 */
   inviteId?: string | null;

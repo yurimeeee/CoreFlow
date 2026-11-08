@@ -22,6 +22,8 @@ export type AuditAction =
   | "user.delete"
   | "user.approve"
   | "user.reject"
+  | "user.offboard"
+  | "user.reinstate"
   | "invite.create"
   | "team.create"
   | "team.update"
@@ -39,6 +41,8 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   "user.delete": "구성원 삭제",
   "user.approve": "가입 승인",
   "user.reject": "가입 거절",
+  "user.offboard": "퇴사 처리",
+  "user.reinstate": "복직",
   "invite.create": "초대장 발급",
   "team.create": "팀 생성",
   "team.update": "팀 수정",
