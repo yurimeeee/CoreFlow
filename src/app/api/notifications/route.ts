@@ -17,7 +17,7 @@ import type { UserDoc } from "@/types/user";
  * 쓰지 않습니다. 결재 차례·안 읽은 공지는 상태에서 바로 계산되므로
  * (useNotifications) 여기서 만들지 않습니다.
  *
- * - approval_decided  결재자가 승인·반려 → 기안자
+ * - approval_decided  결재자가 승인·반려 → 기안자 (대리 결재면 원래 결재자도)
  * - leave_decided     관리자가 연차 승인·반려 → 신청자
  * - task_assigned     만든 사람·관리자가 담당자 지정 → 담당자
  * - comment_added     댓글 작성 → 문서 관계자 + @이름 멘션(Task·공지만)
@@ -87,12 +87,20 @@ async function buildItems(db: Firestore, event: InboxEvent, id: string, uid: str
   switch (event) {
     case "approval_decided": {
       const a = await getDocData<ApprovalDoc>(db, `approvals/${id}`);
+      // 위임받아 대신 처리한 단계는 proxyUid 가 실제 처리한 사람입니다
       const mine = (a.line ?? []).find(
-        (l) => l.kind !== "기안" && l.uid === uid && (l.state === "승인" || l.state === "반려"),
+        (l) =>
+          l.kind !== "기안" &&
+          (l.proxyUid ? l.proxyUid === uid : l.uid === uid) &&
+          (l.state === "승인" || l.state === "반려"),
       );
       if (!mine || !a.authorUid) throw new Forbidden();
-      const label = a.status === "Approved" ? "최종 승인" : a.status === "Rejected" ? "반려" : `${me.name}님 승인`;
-      return [
+      const proxy = !!mine.proxyUid;
+      const verb = `${proxy ? "대리 " : ""}${mine.state}`;
+      const label = a.status === "Approved" ? "최종 승인" : a.status === "Rejected" ? "반려" : `${me.name}님 ${verb}`;
+      const href = `/approval/${id}`;
+      const icon = a.status === "Rejected" ? "CircleX" : "CircleCheck";
+      const items: Item[] = [
         {
           to: a.authorUid,
           key: `ap_${id}_${uid}_${mine.state}`,
@@ -100,10 +108,24 @@ async function buildItems(db: Firestore, event: InboxEvent, id: string, uid: str
           cat: "결재",
           title: `결재 ${label} · ${a.title || id}`,
           desc: a.status === "In Progress" ? "다음 결재자에게 넘어갔습니다" : `${me.name} ${me.position ?? ""}`.trim(),
-          href: `/approval/${id}`,
-          icon: a.status === "Rejected" ? "CircleX" : "CircleCheck",
+          href,
+          icon,
         },
       ];
+      // 자리를 비운 원래 결재자에게도 누가 대신 처리했는지 알립니다
+      if (proxy && mine.uid) {
+        items.push({
+          to: mine.uid,
+          key: `ap_${id}_${uid}_${mine.state}`,
+          toggle: "inboxApproval",
+          cat: "결재",
+          title: `${me.name}님이 ${verb}했습니다 · ${a.title || id}`,
+          desc: "위임한 결재를 대신 처리했습니다",
+          href,
+          icon,
+        });
+      }
+      return items;
     }
 
     case "leave_decided": {

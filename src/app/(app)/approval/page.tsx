@@ -10,6 +10,7 @@ import {
   Loader,
   Plus,
   SlidersHorizontal,
+  Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -19,10 +20,17 @@ import {
   APPROVAL_TYPE_COLORS,
 } from "@/lib/groupware/data";
 import { pill } from "@/lib/groupware/ui";
-import { isPendingApprover, useApprovals, useCurrentUser } from "@/lib/groupware/hooks";
+import {
+  isPendingApprover,
+  isProxyTurn,
+  useApprovals,
+  useCurrentUser,
+  useMyDelegation,
+} from "@/lib/groupware/hooks";
 import { useNow } from "@/lib/groupware/use-now";
 import { GwCard, PageHeader, StatCard } from "@/components/app/primitives";
 import { EmptyState } from "@/components/app/EmptyState";
+import { DelegationBanner, DelegationModal } from "@/components/approval/Delegation";
 
 const STAT_ICONS: Record<string, React.ElementType> = {
   Inbox,
@@ -53,7 +61,9 @@ export default function ApprovalPage() {
   const me = useCurrentUser();
   const [tab, setTab] = React.useState(0);
   const [periodIdx, setPeriodIdx] = React.useState(0);
-  const { data } = useApprovals();
+  const { data, actingFor } = useApprovals();
+  const myDelegation = useMyDelegation();
+  const [delegating, setDelegating] = React.useState(false);
   const now = useNow();
 
   const counts = React.useMemo(() => {
@@ -62,13 +72,13 @@ export default function ApprovalPage() {
       // bucket === "pending"만으로는 회사 전체 상신 문서가 다 잡히므로,
       // 결재선의 현재 차례가 나인 문서만 "결재 대기"로 집계합니다.
       "결재 대기": data.filter(
-        (r) => r.bucket === "pending" && isPendingApprover(r, me),
+        (r) => r.bucket === "pending" && isPendingApprover(r, me, actingFor),
       ).length,
       "진행 중": by("In Progress"),
       완료: by("Approved"),
       반려: by("Rejected"),
     } as Record<string, number>;
-  }, [data, me]);
+  }, [data, me, actingFor]);
 
   const period = PERIODS[periodIdx];
   const cutoff =
@@ -78,7 +88,7 @@ export default function ApprovalPage() {
       const bucket = BUCKETS[tab];
       if (bucket === "pending") {
         if (r.bucket !== "pending") return false;
-        if (isPendingApprover(r, me)) return true;
+        if (isPendingApprover(r, me, actingFor)) return true;
         // 내 차례가 지나갔거나 이미 처리한 문서도 결재선에 있었다면 계속
         // 보여야 합니다 — bucket/currentApproverUid만 보면 다음 결재자
         // 차례로 넘어간 순간 이 문서가 어느 탭에서도 보이지 않게 됩니다.
@@ -103,14 +113,26 @@ export default function ApprovalPage() {
         title="전자결재"
         desc="내가 결재할 문서와 상신한 문서를 한곳에서 관리합니다"
         actions={
-          <button
-            onClick={() => router.push("/approval/new")}
-            className="flex h-9.5 items-center gap-1.5 rounded-[9px] bg-primary pl-3 pr-3.5 text-[13px] font-semibold text-primary-foreground shadow-[0_1px_2px_rgba(79,70,229,0.35)] hover:bg-primary-hover"
-          >
-            <Plus className="size-4" strokeWidth={2.2} />새 결재 기안하기
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setDelegating(true)}
+              className="flex h-9.5 items-center gap-1.5 rounded-[9px] border border-border bg-card px-3.5 text-[13px] font-semibold text-secondary-foreground hover:bg-secondary"
+            >
+              <Users className="size-4" />
+              결재 위임
+            </button>
+            <button
+              onClick={() => router.push("/approval/new")}
+              className="flex h-9.5 items-center gap-1.5 rounded-[9px] bg-primary pl-3 pr-3.5 text-[13px] font-semibold text-primary-foreground shadow-[0_1px_2px_rgba(79,70,229,0.35)] hover:bg-primary-hover"
+            >
+              <Plus className="size-4" strokeWidth={2.2} />새 결재 기안하기
+            </button>
+          </div>
         }
       />
+
+      <DelegationBanner my={myDelegation} actingFor={actingFor} onEdit={() => setDelegating(true)} />
+      {delegating && <DelegationModal my={myDelegation} onClose={() => setDelegating(false)} />}
 
       <div className="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3.5">
         {APPROVAL_STATS.map((st) => {
@@ -221,6 +243,11 @@ export default function ApprovalPage() {
                 </div>
                 <div className="flex min-w-0 flex-1 items-center gap-2 pr-3.5">
                   <span style={pill(tp[0], tp[1])}>{r.type}</span>
+                  {r.status !== "Approved" &&
+                    r.status !== "Rejected" &&
+                    isProxyTurn(r, me.uid, actingFor) && (
+                      <span style={pill("#fff7ed", "#c2410c")}>대리</span>
+                    )}
                   <span className="min-w-0 flex-1 truncate font-medium text-foreground">
                     {r.title}
                   </span>

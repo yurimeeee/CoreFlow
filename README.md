@@ -38,6 +38,7 @@ Firestore 가 비어 있으면 각 화면은 목(mock) 데이터로 폴백하고
 | `notices/{id}` | 공지사항 (필독 고정 포함) |
 | `tasks/{id}` | 프로젝트 Task (칸반 카드) |
 | `approvals/{no}` | 전자결재 문서 + 결재란/상세 |
+| `delegations/{uid}` | 결재 위임 (본인만 설정 · 기간 중엔 받은 사람이 차례인 문서를 열람·대리 결재, 결재란에 `proxyUid`/`proxyName` 기록) |
 | `attendance/{uid}` | 사용자별 출퇴근 상태 (본인만 읽기/쓰기) |
 | `users/{uid}` | 프로필 + `gwSettings`(알림 토글·연동) + `twoFactorId`(2FA 켜짐, 서버만 변경). 퇴사 처리는 서버 `/api/admin/offboard` 가 `status: RESIGNED` + Auth 계정 비활성화 + 결재·Task·직속 구성원 인계 |
 | `users/{uid}/inbox/{key}` | 알림 센터 받은편지함 (서버 `/api/notifications` 만 생성 · 본인은 읽기·읽음 표시·삭제) |

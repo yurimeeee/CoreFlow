@@ -35,7 +35,7 @@ const todayStr = (() => {
 
 export default function MyWorkPage() {
   const me = useCurrentUser();
-  const { data: approvals } = useApprovals();
+  const { data: approvals, actingFor } = useApprovals();
   const { data: tasks, toggleDone } = useTasks();
   const { data: events } = useEvents();
   const { data: bookings } = useBookings();
@@ -45,7 +45,7 @@ export default function MyWorkPage() {
   // bucket === "pending" 은 상신된 문서 전체(회사 전체)를 뜻하므로, "나에게
   // 실제로 넘어온" 결재만 골라내려면 결재선의 현재 차례가 나인지도 봐야 함.
   const myApprovals = approvals.filter(
-    (a) => a.bucket === "pending" && isPendingApprover(a, me),
+    (a) => a.bucket === "pending" && isPendingApprover(a, me, actingFor),
   );
   const myTasks = tasks
     .filter(

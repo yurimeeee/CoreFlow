@@ -18,7 +18,7 @@ import {
   type Query,
   serverTimestamp,
   setDoc,
-  type Timestamp,
+  Timestamp,
   updateDoc,
   where,
   writeBatch,
@@ -45,6 +45,7 @@ import type { InboxCat } from "@/app/api/notifications/route";
 import { auditedWrite } from "./audit";
 import { createGoogleCalendarEvent } from "@/lib/googleCalendar";
 import { localDateStr } from "@/lib/utils";
+import { delegationRange, isActiveDelegation, type DelegationDoc } from "@/lib/delegation";
 import type { UserDoc } from "@/types/user";
 import {
   APPROVAL_ROWS,
@@ -843,6 +844,108 @@ export type NewApproval = {
 };
 
 /**
+ * 지금 나에게 결재를 위임해 둔 사람들의 uid(정렬됨). 위임 기간 판정은
+ * 스냅샷을 받을 때와 가장 가까운 시작·종료 시각에 다시 합니다 — 실제 대리
+ * 결재 권한은 보안 규칙이 요청 시각으로 검증하므로 화면이 조금 늦더라도
+ * 기간 밖 결재는 통과하지 못합니다.
+ */
+export function useActingFor(): string[] {
+  const { authUser } = useAuthUser();
+  const uid = authUser?.uid ?? null;
+  const [state, setState] = React.useState<{
+    uid: string;
+    list: (Pick<DelegationDoc, "from" | "until"> & { owner: string })[];
+    at: number;
+  } | null>(null);
+
+  React.useEffect(() => {
+    if (!isFirebaseConfigured || !uid) return;
+    return onSnapshot(
+      query(collection(firebaseDb(), COL.delegations), where("delegateUid", "==", uid)),
+      (snap) =>
+        setState({
+          uid,
+          list: snap.docs.map((d) => ({ owner: d.id, ...(d.data() as DelegationDoc) })),
+          at: Date.now(),
+        }),
+      () => setState({ uid, list: [], at: Date.now() }),
+    );
+  }, [uid]);
+
+  // 다음 시작·종료 시각에 맞춰 판정을 다시 합니다
+  React.useEffect(() => {
+    if (!state) return;
+    const next = Math.min(
+      ...state.list
+        .flatMap((d) => [d.from?.toMillis?.(), d.until?.toMillis?.()])
+        .filter((t): t is number => typeof t === "number" && t > state.at),
+    );
+    if (!Number.isFinite(next)) return;
+    const t = setTimeout(
+      () => setState((p) => (p ? { ...p, at: Date.now() } : p)),
+      Math.min(next - state.at + 1000, 2 ** 31 - 1),
+    );
+    return () => clearTimeout(t);
+  }, [state]);
+
+  return React.useMemo(
+    () =>
+      state && state.uid === uid
+        ? state.list
+            .filter((d) => d.from && d.until && isActiveDelegation(d, state.at))
+            .map((d) => d.owner)
+            .sort()
+        : [],
+    [state, uid],
+  );
+}
+
+/** 내가 걸어 둔 결재 위임 (delegations/{내 uid}) — 문서는 하나뿐이라 새로 저장하면 덮어씁니다 */
+export function useMyDelegation() {
+  const { authUser } = useAuthUser();
+  const uid = authUser?.uid ?? null;
+  const [state, setState] = React.useState<{ uid: string; doc: DelegationDoc | null } | null>(null);
+
+  React.useEffect(() => {
+    if (!isFirebaseConfigured || !uid) return;
+    return onSnapshot(
+      doc(firebaseDb(), COL.delegations, uid),
+      (snap) => setState({ uid, doc: snap.exists() ? (snap.data() as DelegationDoc) : null }),
+      () => setState({ uid, doc: null }),
+    );
+  }, [uid]);
+
+  const save = React.useCallback(
+    async (input: { delegateUid: string; start: string; end: string; reason: string }) => {
+      if (!uid) throw new Error("로그인이 필요합니다.");
+      const r = delegationRange(input.start, input.end);
+      if (!r) throw new Error("기간을 확인해주세요.");
+      await setDoc(doc(firebaseDb(), COL.delegations, uid), {
+        delegateUid: input.delegateUid,
+        from: Timestamp.fromDate(r.from),
+        until: Timestamp.fromDate(r.until),
+        reason: input.reason.trim(),
+        updatedAt: serverTimestamp(),
+      });
+    },
+    [uid],
+  );
+
+  const clear = React.useCallback(async () => {
+    if (!uid) return;
+    await deleteDoc(doc(firebaseDb(), COL.delegations, uid));
+  }, [uid]);
+
+  const current = state && state.uid === uid ? state.doc : null;
+  return {
+    delegation: current,
+    loading: isFirebaseConfigured && !!uid && (!state || state.uid !== uid),
+    save,
+    clear,
+  };
+}
+
+/**
  * approvals 컬렉션 실시간 구독 — 관리자는 전체, 일반 사용자는 "본인이
  * 관련된 문서"만 구독합니다.
  *
@@ -854,10 +957,13 @@ export type NewApproval = {
  * 통째로 거부합니다(부분 필터링이 아님). 그래서 관리자가 아니면 반드시
  * where 로 범위를 증명할 수 있는 쿼리 여러 개로 나눠 구독해야 합니다.
  */
-function useApprovalCollection(): { data: ApprovalDoc[]; loading: boolean; source: Source } {
+function useApprovalCollection(
+  actingFor: string[],
+): { data: ApprovalDoc[]; loading: boolean; source: Source } {
   const { authUser, profile, loading: authLoading } = useAuthUser();
   const isAdmin = profile?.role === "ADMIN" || profile?.role === "SUPER_ADMIN";
   const uid = authUser?.uid ?? null;
+  const actingKey = actingFor.join(",");
 
   const [state, setState] = React.useState<{
     data: ApprovalDoc[];
@@ -895,13 +1001,15 @@ function useApprovalCollection(): { data: ApprovalDoc[]; loading: boolean; sourc
 
     // 일반 사용자: "기안자 본인" · "결재라인 소속(approverUids)" · "현재
     // 결재 차례(currentApproverUid — approverUids 필드가 없는 구 문서용
-    // 폴백)" 세 쿼리를 따로 구독해 클라이언트에서 합칩니다.
-    type SliceKey = "authored" | "involved" | "current";
-    const slices: Record<SliceKey, ApprovalDoc[]> = { authored: [], involved: [], current: [] };
-    const loaded: Record<SliceKey, boolean> = { authored: false, involved: false, current: false };
+    // 폴백)" 세 쿼리와, 결재를 위임받았다면 "위임한 사람의 결재 차례"
+    // 쿼리를 따로 구독해 클라이언트에서 합칩니다.
+    const owners = actingKey ? actingKey.split(",") : [];
+    const keys = ["authored", "involved", "current", ...owners.map((o) => `for:${o}`)];
+    const slices: Record<string, ApprovalDoc[]> = {};
+    const loaded: Record<string, boolean> = {};
 
     const emit = () => {
-      if (!loaded.authored || !loaded.involved || !loaded.current) return;
+      if (!keys.every((k) => loaded[k])) return;
       const merged = new Map<string, ApprovalDoc>();
       for (const list of Object.values(slices)) {
         for (const d of list) {
@@ -916,9 +1024,9 @@ function useApprovalCollection(): { data: ApprovalDoc[]; loading: boolean; sourc
       );
     };
 
-    const subscribe = (key: SliceKey, field: string, op: "==" | "array-contains") =>
+    const subscribe = (key: string, field: string, op: "==" | "array-contains", value: string) =>
       onSnapshot(
-        query(collection(firebaseDb(), COL.approvals), where(field, op, uid)),
+        query(collection(firebaseDb(), COL.approvals), where(field, op, value)),
         (snap) => {
           slices[key] = snap.docs.map(
             (d) => ({ id: d.id, ...d.data() }) as unknown as ApprovalDoc,
@@ -933,12 +1041,13 @@ function useApprovalCollection(): { data: ApprovalDoc[]; loading: boolean; sourc
       );
 
     const unsubs = [
-      subscribe("authored", "authorUid", "=="),
-      subscribe("involved", "approverUids", "array-contains"),
-      subscribe("current", "currentApproverUid", "=="),
+      subscribe("authored", "authorUid", "==", uid),
+      subscribe("involved", "approverUids", "array-contains", uid),
+      subscribe("current", "currentApproverUid", "==", uid),
+      ...owners.map((o) => subscribe(`for:${o}`, "currentApproverUid", "==", o)),
     ];
     return () => unsubs.forEach((u) => u());
-  }, [isAdmin, uid, authLoading]);
+  }, [isAdmin, uid, authLoading, actingKey]);
 
   // 로그인 정보가 없을 때는 effect 안에서 setState 로 되돌리는 대신 여기서
   // 그대로 파생시킵니다(react-hooks/set-state-in-effect 회피 + 더 정확함 —
@@ -949,7 +1058,8 @@ function useApprovalCollection(): { data: ApprovalDoc[]; loading: boolean; sourc
 }
 
 export function useApprovals() {
-  const state = useApprovalCollection();
+  const actingFor = useActingFor();
+  const state = useApprovalCollection(actingFor);
   const me = useCurrentUser();
   // 낙관적 추가 (Firebase 미설정 시엔 이게 유일한 저장소)
   const [added, setAdded] = React.useState<ApprovalDoc[]>([]);
@@ -1037,7 +1147,7 @@ export function useApprovals() {
     [],
   );
 
-  return { ...state, data, createApproval, removeApproval };
+  return { ...state, data, actingFor, createApproval, removeApproval };
 }
 
 /**
@@ -1047,19 +1157,41 @@ export function useApprovals() {
  * line[].uid → 이름 순으로 폴백합니다.
  */
 export function isPendingApprover(
-  a: Pick<ApprovalDoc, "status" | "line" | "currentApproverUid">,
+  a: Pick<ApprovalDoc, "status" | "line" | "currentApproverUid" | "authorUid">,
   me: { uid: string | null; name: string },
+  actingFor: readonly string[] = [],
 ): boolean {
   if (a.status === "Approved" || a.status === "Rejected") return false;
   const pendingStep = (a.line ?? []).find((l) => l.kind !== "기안" && !l.done);
   if (!pendingStep) return false;
-  if (a.currentApproverUid != null) return a.currentApproverUid === me.uid;
+  if (a.currentApproverUid != null) {
+    return a.currentApproverUid === me.uid || isProxyTurn(a, me.uid, actingFor);
+  }
   if (pendingStep.uid) return pendingStep.uid === me.uid;
   return pendingStep.name === me.name;
 }
 
+/**
+ * 위임받아 "대신" 결재할 차례인지 — 결재 차례인 사람이 나에게 위임했고,
+ * 내가 기안한 문서가 아니어야 합니다(보안 규칙의 셀프 승인 차단과 같은 기준).
+ */
+export function isProxyTurn(
+  a: Pick<ApprovalDoc, "currentApproverUid" | "authorUid">,
+  uid: string | null,
+  actingFor: readonly string[],
+): boolean {
+  return (
+    !!uid &&
+    a.currentApproverUid != null &&
+    a.currentApproverUid !== uid &&
+    a.authorUid !== uid &&
+    actingFor.includes(a.currentApproverUid)
+  );
+}
+
 export function useApprovalDoc(no: string) {
   const me = useCurrentUser();
+  const actingFor = useActingFor();
   // undefined = 아직 로드 안 됨, null = 문서 없음
   const [remote, setRemote] = React.useState<ApprovalDoc | null | undefined>(
     () =>
@@ -1107,9 +1239,17 @@ export function useApprovalDoc(no: string) {
       }
       const line = document.line ?? [];
       const stepIndex = line.findIndex((l) => l.kind !== "기안" && !l.done);
-      if (!isPendingApprover(document, me)) {
+      if (!isPendingApprover(document, me, actingFor)) {
         throw new Error("본인의 결재 순서가 아니므로 승인/반려할 수 없습니다.");
       }
+      // 위임받아 대신 처리 — 결재란 이름은 원래 결재자 그대로 두고 실제
+      // 처리한 사람을 함께 남기며, 처리한 뒤에도 문서를 볼 수 있게
+      // 결재라인(approverUids)에 나를 더합니다(보안 규칙이 나만 허용).
+      const proxy = isProxyTurn(document, me.uid, actingFor);
+      const uidsPatch =
+        proxy && me.uid && !(document.approverUids ?? []).includes(me.uid)
+          ? { approverUids: [...(document.approverUids ?? []), me.uid] }
+          : {};
 
       const now = new Date();
       const pad = (n: number) => String(n).padStart(2, "0");
@@ -1118,7 +1258,13 @@ export function useApprovalDoc(no: string) {
       )} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
       const nextLine = line.map((l, i) =>
         i === stepIndex
-          ? { ...l, state: status === "Approved" ? "승인" : "반려", done: status === "Approved", at }
+          ? {
+              ...l,
+              state: status === "Approved" ? "승인" : "반려",
+              done: status === "Approved",
+              at,
+              ...(proxy && me.uid ? { proxyUid: me.uid, proxyName: me.name } : {}),
+            }
           : l,
       );
       const isLastStep = stepIndex === line.length - 1;
@@ -1137,7 +1283,7 @@ export function useApprovalDoc(no: string) {
 
       setRemote((r) =>
         r
-          ? { ...r, status: nextStatus, line: nextLine, currentApproverUid: nextApproverUid, ...stepPatch }
+          ? { ...r, status: nextStatus, line: nextLine, currentApproverUid: nextApproverUid, ...stepPatch, ...uidsPatch }
           : r,
       );
       if (isFirebaseConfigured) {
@@ -1148,6 +1294,7 @@ export function useApprovalDoc(no: string) {
           line: nextLine,
           currentApproverUid: nextApproverUid,
           ...stepPatch,
+          ...uidsPatch,
         });
         // 휴가신청서가 최종 승인되면 실제 연차 잔여(leaves 컬렉션 기반 balance)에서
         // 차감되도록 leaves/{no} 문서를 생성합니다 — 같은 문서번호를 id로 써서
@@ -1173,7 +1320,7 @@ export function useApprovalDoc(no: string) {
         void pushInbox("approval_decided", no);
       }
     },
-    [no, me, document],
+    [no, me, document, actingFor],
   );
 
   /**
@@ -1200,6 +1347,7 @@ export function useApprovalDoc(no: string) {
     setStatus,
     cancelApproval,
     myUid: me.uid,
+    actingFor,
   };
 }
 
@@ -2905,7 +3053,7 @@ function inboxTime(t: Timestamp | null) {
  * (받은편지함은 서버가 아예 쓰지 않음).
  */
 export function useNotifications() {
-  const { data: approvals } = useApprovals();
+  const { data: approvals, actingFor } = useApprovals();
   const { data: notices } = useNotices();
   const me = useCurrentUser();
   const { profile } = useAuthUser();
@@ -2941,12 +3089,12 @@ export function useNotifications() {
     const ap = !approvalOn
       ? []
       : approvals
-          .filter((a) => a.bucket === "pending" && isPendingApprover(a, me))
+          .filter((a) => a.bucket === "pending" && isPendingApprover(a, me, actingFor))
           .sort((a, b) => a.order - b.order)
           .map((a) => ({
             id: `ap-${a.no}`,
             cat: "결재" as const,
-            title: `결재 대기 · ${a.title}`,
+            title: `${isProxyTurn(a, me.uid, actingFor) ? "대리 결재" : "결재 대기"} · ${a.title}`,
             desc: `${a.author} 기안 · ${a.type}`,
             time: a.date,
             to: `/approval/${a.no}`,
@@ -2967,7 +3115,7 @@ export function useNotifications() {
             icon: "Megaphone",
           }));
     return { ap, no };
-  }, [approvals, notices, me, approvalOn, noticeOn]);
+  }, [approvals, notices, me, approvalOn, noticeOn, actingFor]);
 
   // 더 이상 목록에 없는(처리했거나 밀려난) 항목 id 는 저장에서 걸러 용량이 늘지 않게
   React.useEffect(() => {

@@ -21,6 +21,7 @@ import {
 import { toast } from "sonner";
 import {
   isPendingApprover,
+  isProxyTurn,
   useApprovalComments,
   useApprovalDoc,
   useCurrentUser,
@@ -43,7 +44,7 @@ export default function ApprovalDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const no = decodeURIComponent(params.id ?? "EX-2026-0912");
-  const { doc, loading, setStatus, cancelApproval } = useApprovalDoc(no);
+  const { doc, loading, setStatus, cancelApproval, actingFor } = useApprovalDoc(no);
   const { comments, addComment, updateComment, removeComment } =
     useApprovalComments(no);
   const { data: workspace } = useWorkspace();
@@ -223,7 +224,9 @@ export default function ApprovalDetailPage() {
   const isAuthor = !!me.uid && doc.authorUid === me.uid;
   const pendingStep =
     (doc.line ?? []).find((l) => l.kind !== "기안" && !l.done) ?? null;
-  const isMyTurn = isPendingApprover(doc, me);
+  const isMyTurn = isPendingApprover(doc, me, actingFor);
+  // 위임받아 대신 결재하는 차례 — 버튼과 안내에 "대리"를 붙입니다
+  const isProxy = isMyTurn && isProxyTurn(doc, me.uid, actingFor);
   const line = (doc.line ?? []).map((l, i) =>
     i === (doc.line?.length ?? 0) - 1
       ? { ...l, state: approved ? "승인" : l.state, done: approved || l.done }
@@ -317,13 +320,18 @@ export default function ApprovalDetailPage() {
             </span>
           ) : isMyTurn ? (
             <>
+              {isProxy && pendingStep && (
+                <span className="flex h-9 items-center rounded-[9px] bg-[#fff7ed] px-3 text-[12px] font-semibold text-[#c2410c]">
+                  {pendingStep.name}님 대신 결재
+                </span>
+              )}
               <button
                 onClick={() => decide("Rejected")}
                 disabled={busy}
                 className="flex h-9 items-center gap-1.5 rounded-[9px] border border-[#fecaca] bg-card px-3.5 text-[12.5px] font-semibold text-[#b91c1c] hover:bg-[#fef2f2] disabled:opacity-50"
               >
                 <CircleX className="size-3.5" />
-                반려
+                {isProxy ? "대리 반려" : "반려"}
               </button>
               <button
                 onClick={() => decide("Approved")}
@@ -331,7 +339,7 @@ export default function ApprovalDetailPage() {
                 className="flex h-9 items-center gap-1.5 rounded-[9px] bg-primary px-4 text-[13px] font-semibold text-primary-foreground shadow-[0_1px_2px_rgba(79,70,229,0.35)] hover:bg-primary-hover disabled:opacity-50"
               >
                 <Check className="size-3.5" strokeWidth={2.4} />
-                승인
+                {isProxy ? "대리 승인" : "승인"}
               </button>
             </>
           ) : (
@@ -403,6 +411,11 @@ export default function ApprovalDetailPage() {
                     >
                       {a.state}
                     </span>
+                    {a.proxyName && (
+                      <div className="mt-1 text-center text-[10.5px] font-semibold text-[#c2410c]">
+                        대리 {a.proxyName}
+                      </div>
+                    )}
                     <div className="mt-1.5 min-h-3 text-center text-[10px] tabular-nums text-[#cbd5e1]">
                       {a.at}
                     </div>

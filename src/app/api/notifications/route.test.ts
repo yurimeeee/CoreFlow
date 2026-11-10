@@ -94,6 +94,17 @@ describe("호출자가 실제로 한 일만", () => {
     expect(inbox("alice")[0]).toMatchObject({ cat: "결재", href: "/approval/A-1", readAt: null });
   });
 
+  it("대리 결재: 실제 처리한 사람만, 기안자와 원래 결재자에게", async () => {
+    docs["approvals/A-1"].line = [
+      { kind: "기안", uid: "alice", state: "", done: true },
+      { kind: "결재", uid: "bob", state: "승인", done: true, proxyUid: "carol" },
+    ];
+    expect((await call("bob", { event: "approval_decided", id: "A-1" })).status).toBe(403);
+    expect((await call("carol", { event: "approval_decided", id: "A-1" })).json.delivered).toBe(2);
+    expect(inbox("alice")[0].title).toMatch(/캐롤님 대리 승인/);
+    expect(inbox("bob")[0].title).toMatch(/캐롤님이 대리 승인했습니다/);
+  });
+
   it("같은 알림은 한 번만", async () => {
     await call("bob", { event: "approval_decided", id: "A-1" });
     expect((await call("bob", { event: "approval_decided", id: "A-1" })).json.delivered).toBe(0);

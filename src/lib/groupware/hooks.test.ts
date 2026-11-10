@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isPendingApprover } from "./hooks";
+import { isPendingApprover, isProxyTurn } from "./hooks";
 
 const line = (
   overrides: Partial<{
@@ -112,5 +112,29 @@ describe("isPendingApprover", () => {
         { uid: "u1", name: "김철수" },
       ),
     ).toBe(false);
+  });
+});
+
+describe("대리 결재 차례 (결재 위임)", () => {
+  const doc = {
+    status: "Waiting",
+    authorUid: "au",
+    line: [line({ kind: "기안", uid: "au", done: true }), line({ uid: "a1" })],
+    currentApproverUid: "a1",
+  };
+
+  it("차례인 사람이 나에게 위임했으면 내 차례로 본다", () => {
+    expect(isPendingApprover(doc, { uid: "dg", name: "대리" }, ["a1"])).toBe(true);
+    expect(isProxyTurn(doc, "dg", ["a1"])).toBe(true);
+    expect(isPendingApprover(doc, { uid: "dg", name: "대리" }, ["other"])).toBe(false);
+  });
+
+  it("내가 기안한 문서는 위임받아도 내 차례가 아니다", () => {
+    expect(isPendingApprover(doc, { uid: "au", name: "기안" }, ["a1"])).toBe(false);
+  });
+
+  it("원래 결재자 본인은 대리가 아니다", () => {
+    expect(isProxyTurn(doc, "a1", ["a1"])).toBe(false);
+    expect(isPendingApprover(doc, { uid: "a1", name: "김철수" })).toBe(true);
   });
 });

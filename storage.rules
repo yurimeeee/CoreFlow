@@ -73,10 +73,23 @@ service firebase.storage {
           || ap.data.currentApproverUid == request.auth.uid
           || request.auth.uid in ap.data.get('approverUids', []);
       }
+      // 지금 결재 차례인 사람이 나에게 결재를 위임해 둔 문서
+      // (firestore.rules 의 isDelegatedTurn 과 동일 기준)
+      function isDelegatedTurn() {
+        let ap = firestore.get(/databases/(default)/documents/approvals/$(no));
+        let owner = ap.data.get('currentApproverUid', null);
+        let path = /databases/(default)/documents/delegations/$(owner);
+        return owner is string
+          && ap.data.get('authorUid', null) != request.auth.uid
+          && firestore.exists(path)
+          && firestore.get(path).data.delegateUid == request.auth.uid
+          && firestore.get(path).data.from <= request.time
+          && request.time < firestore.get(path).data.until;
+      }
 
       allow read: if isMember()
         && (approvalExists()
-            ? (isApprovalMember() || isAdmin())
+            ? (isApprovalMember() || isAdmin() || isDelegatedTurn())
             : owner == request.auth.uid);
 
       // 쓰기는 항상 본인 폴더만, 문서가 이미 있으면 기안자 본인(또는 관리자)만.

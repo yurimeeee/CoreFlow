@@ -63,6 +63,16 @@ service cloud.firestore {
       return isAdmin() && audited(path);
     }
 
+    /* owner 가 지금 이 순간 나에게 결재를 위임해 두었는지 (delegations/{owner}) */
+    function isDelegateOf(owner) {
+      let path = /databases/$(database)/documents/delegations/$(owner);
+      return owner is string
+        && exists(path)
+        && get(path).data.delegateUid == request.auth.uid
+        && get(path).data.from <= request.time
+        && request.time < get(path).data.until;
+    }
+
     /* 전자결재 휴가신청서(approvals/{id})가 실제로 최종 승인됐고, 그 기안자가
        uid 본인일 때만 true — leaves/{id}(문서번호를 그대로 id로 재사용) 승인
        생성을 이 사실에 근거해서만 허용하기 위한 헬퍼. 결재자(제3자)가 본인이
@@ -286,6 +296,33 @@ service cloud.firestore {
           && (resource.data.uid == request.auth.uid || isAdmin());
       }
     }
+    /* ---------------- delegations/{uid} (결재 위임) ----------------
+       uid 본인이 자리를 비우는 동안(from ≤ 지금 < until) delegateUid 에게
+       결재 차례를 맡깁니다. 본인만 만들고 지울 수 있고, 위임받은 사람은
+       자기 앞으로 온 위임을 조회할 수 있습니다. 실제 대리 결재 권한은
+       아래 approvals 규칙이 isDelegateOf() 로 판정합니다. */
+    match /delegations/{uid} {
+      allow read: if isMember()
+        && (request.auth.uid == uid
+            || resource.data.delegateUid == request.auth.uid
+            || isAdmin());
+      allow create, update: if isMember() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['delegateUid', 'from', 'until', 'reason', 'updatedAt'])
+        && request.resource.data.delegateUid is string
+        && request.resource.data.delegateUid != uid
+        && exists(/databases/$(database)/documents/users/$(request.resource.data.delegateUid))
+        && get(/databases/$(database)/documents/users/$(request.resource.data.delegateUid)).data.get('status', null) == 'ACTIVE'
+        && request.resource.data.from is timestamp
+        && request.resource.data.until is timestamp
+        && request.resource.data.until > request.resource.data.from
+        && request.resource.data.until > request.time
+        && request.resource.data.until - request.resource.data.from <= duration.value(91, 'd')
+        && request.resource.data.reason is string
+        && request.resource.data.reason.size() <= 200
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if isMember() && (request.auth.uid == uid || isAdmin());
+    }
+
     /* ---------------- approvals/{no} (전자결재) ----------------
        쓰기 경로는 세 가지뿐입니다.
        1) 기안자: 임시저장(bucket 'drafted') 상태인 동안만 내용을 고치거나
@@ -310,6 +347,13 @@ service cloud.firestore {
         return resource.data.authorUid == request.auth.uid
           || resource.data.currentApproverUid == request.auth.uid
           || request.auth.uid in resource.data.get('approverUids', []);
+      }
+
+      // 지금 결재 차례인 사람이 나에게 결재를 위임해 둔 문서 — 기안자가 나면
+      // 셀프 승인이라 제외합니다.
+      function isDelegatedTurn() {
+        return resource.data.get('authorUid', null) != request.auth.uid
+          && isDelegateOf(resource.data.get('currentApproverUid', null));
       }
 
       // 기안자가 쓰는 문서(생성 또는 임시저장 수정)의 공통 조건. status는
@@ -351,7 +395,7 @@ service cloud.firestore {
                 && next.currentApproverUid != ''));
       }
 
-      allow read: if isAdmin() || (isMember() && isApprovalMember());
+      allow read: if isAdmin() || (isMember() && (isApprovalMember() || isDelegatedTurn()));
       allow create: if isMember() && isValidAuthorWrite(request.resource.data);
       allow update: if isAdmin()
         || (isMember()
@@ -368,6 +412,19 @@ service cloud.firestore {
             && resource.data.currentApproverUid != resource.data.authorUid
             && request.resource.data.diff(resource.data).affectedKeys()
                  .hasOnly(['status', 'line', 'currentApproverUid', 'step'])
+            && isValidTransition())
+        // 위임받은 대리 결재자 — 현재 결재자와 같은 필드만 바꾸고, 처리한
+        // 뒤에도 문서를 열람할 수 있게 approverUids 에 자기 자신만 더할 수
+        // 있습니다.
+        || (isMember()
+            && resource.data.bucket != 'drafted'
+            && resource.data.status in ['Waiting', 'In Progress']
+            && resource.data.currentApproverUid != resource.data.authorUid
+            && isDelegatedTurn()
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['status', 'line', 'currentApproverUid', 'step', 'approverUids'])
+            && request.resource.data.get('approverUids', []).toSet()
+                 == resource.data.get('approverUids', []).toSet().union([request.auth.uid].toSet())
             && isValidTransition());
       allow delete: if isAdmin()
         || (isMember() && resource.data.authorUid == request.auth.uid);
@@ -384,7 +441,9 @@ service cloud.firestore {
           let ap = get(/databases/$(database)/documents/approvals/$(no)).data;
           return ap.authorUid == request.auth.uid
             || ap.currentApproverUid == request.auth.uid
-            || request.auth.uid in ap.get('approverUids', []);
+            || request.auth.uid in ap.get('approverUids', [])
+            || (ap.get('authorUid', null) != request.auth.uid
+                && isDelegateOf(ap.get('currentApproverUid', null)));
         }
         allow read: if isMember() && (isAdmin() || isParentMember());
         allow create: if isMember()

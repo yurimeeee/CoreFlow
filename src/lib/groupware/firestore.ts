@@ -43,6 +43,7 @@ export const COL = {
   /** 관리자 전용 — Slack/Jandi 웹훅 URL (integrationSecrets/main) */
   integrationSecrets: "integrationSecrets",
   chats: "chats",
+  delegations: "delegations",
 } as const;
 
 /**
@@ -245,7 +246,18 @@ export interface ApprovalDoc {
    */
   leaveRequest?: { kind: string; start: string; end: string; days: number };
   /* 상세(선택) */
-  line?: { kind: string; name: string; role: string; state: string; at: string; done: boolean; uid?: string }[];
+  line?: {
+    kind: string;
+    name: string;
+    role: string;
+    state: string;
+    at: string;
+    done: boolean;
+    uid?: string;
+    /** 위임받아 대신 처리한 사람(결재 위임) — 이름은 원래 결재자 그대로 */
+    proxyUid?: string;
+    proxyName?: string;
+  }[];
   meta?: { label: string; value: string }[];
   rows?: { date: string; desc: string; amount: number; receipt: string }[];
   attachments?: { name: string; size: string; url: string; kind: string }[];
