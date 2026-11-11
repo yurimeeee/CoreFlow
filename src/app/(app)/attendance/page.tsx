@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
+  Download,
   Home,
   List,
   LogIn,
@@ -33,6 +34,7 @@ import {
   usePendingLeaves,
 } from "@/lib/groupware/hooks";
 import { GwCard, PageHeader, Segmented, Toggle } from "@/components/app/primitives";
+import { AttendanceExportModal } from "@/components/attendance/AttendanceExportModal";
 import { LeaveRequestModal } from "./LeaveRequestModal";
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
@@ -55,6 +57,7 @@ export default function AttendancePage() {
   const { data: leaves, balance, addLeave, cancelLeave } = useLeaves();
   const [cancellingId, setCancellingId] = React.useState<string | null>(null);
   const pending = usePendingLeaves();
+  const [exporting, setExporting] = React.useState(false);
   const [view, setView] = React.useState<"calendar" | "list">("calendar");
   const [remoteToday, setRemoteToday] = React.useState(false);
   const [leaveModal, setLeaveModal] = React.useState<"leave" | "overtime" | null>(
@@ -178,6 +181,15 @@ export default function AttendancePage() {
         desc={now ? `${now.getFullYear()}년 ${now.getMonth() + 1}월` : ""}
         actions={
           <>
+            {pending.isAdmin && (
+              <button
+                onClick={() => setExporting(true)}
+                className="flex h-9 items-center gap-1.5 rounded-[9px] border border-border bg-card px-3.5 text-[13px] font-semibold text-secondary-foreground hover:bg-secondary"
+              >
+                <Download className="size-4 text-primary" />
+                근태 내보내기
+              </button>
+            )}
             <button
               onClick={() => setLeaveModal("leave")}
               className="flex h-9 items-center gap-1.5 rounded-[9px] border border-border bg-card px-3.5 text-[13px] font-semibold text-secondary-foreground hover:bg-secondary"
@@ -195,6 +207,8 @@ export default function AttendancePage() {
           </>
         }
       />
+
+      {exporting && <AttendanceExportModal onClose={() => setExporting(false)} />}
 
       <div className="flex flex-wrap items-stretch gap-4.5">
         <GwCard className="flex min-w-[320px] flex-[1_1_380px] flex-col gap-4.5 p-5.5">

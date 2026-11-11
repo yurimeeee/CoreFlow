@@ -26,6 +26,7 @@ import {
 } from "./seed-data";
 import { ATT_TYPE_COLORS } from "./data";
 import { localDateStr } from "@/lib/utils";
+import { netWorkHours } from "@/lib/attendanceExport";
 
 export const COL = {
   teams: "teams",
@@ -362,7 +363,7 @@ export function buildAttendanceRows(
       const inAt = d.inAt as Date;
       const end = d.outAt ?? (d.date === today ? now : null);
       const raw = end ? Math.max(0, (end.getTime() - inAt.getTime()) / 3_600_000) : 0;
-      const hours = Math.round((raw - (raw >= 8 ? 1 : raw >= 4 ? 0.5 : 0)) * 10) / 10;
+      const hours = netWorkHours(raw);
       if (d.date >= weekStart) weekWorked += hours;
       const late = inAt.getHours() * 60 + inAt.getMinutes() > 9 * 60;
       const type = hours > 8 ? "연장" : late ? "지각" : "정상";

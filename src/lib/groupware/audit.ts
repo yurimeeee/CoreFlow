@@ -32,6 +32,7 @@ export type AuditAction =
   | "integration.webhook_update"
   | "leave.approve"
   | "leave.reject"
+  | "attendance.export"
   | "seed"
   | "admin.bootstrap";
 
@@ -51,6 +52,7 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   "integration.webhook_update": "웹훅 URL 변경",
   "leave.approve": "연차 승인",
   "leave.reject": "연차 반려",
+  "attendance.export": "근태 내보내기",
   seed: "시드 데이터 생성",
   "admin.bootstrap": "첫 최고 관리자 설정",
 };
